@@ -1,4 +1,4 @@
-import { Listener } from '@spraxium/common';
+import { Listener, On } from '@spraxium/common';
 import { Events, type GuildBan } from 'discord.js';
 import { LoggingService } from '../logging.service';
 
@@ -7,6 +7,7 @@ import { LoggingService } from '../logging.service';
 export class BanAddListener {
   constructor(private readonly logging: LoggingService) {}
 
+  @On()
   async onGuildBanAdd(ban: GuildBan): Promise<void> {
     const guildId = ban.guild.id;
     await this.logging.log(guildId, 'moderation', {

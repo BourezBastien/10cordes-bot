@@ -2,10 +2,10 @@ import { Ctx, SlashCommandHandler, SlashStringOption, UseGuards, withOptions } f
 import { PermissionGuard } from '@spraxium/core';
 import { MessageFlags, type ChatInputCommandInteraction } from 'discord.js';
 import { ModuleManagerService } from '../module-manager.service';
-import { ModulesCommand } from '../commands/modules.command';
 import { panel } from '../../../shared/ui';
+import { SetupCommand } from '../../setup/setup.schema';
 
-@SlashCommandHandler(ModulesCommand, { sub: 'list' })
+@SlashCommandHandler(SetupCommand, { group: 'modules', sub: 'list' })
 @UseGuards(withOptions(PermissionGuard, { permissions: ['Administrator'] }))
 export class ModulesListHandler {
   constructor(private readonly modules: ModuleManagerService) {}

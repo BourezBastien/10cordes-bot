@@ -4,14 +4,15 @@ import { GuildConfigModule } from '../guild-config/guild-config.module';
 import { ModerationModule } from '../moderation/moderation.module';
 import { ModuleManagerModule } from '../module-manager/module-manager.module';
 import { ToolRegistryModule } from '../tool-registry/tool-registry.module';
-import { AgentCommand, AgentPlansHandler, AgentProposeHandler, AgentWhitelistAddHandler, AgentWhitelistHandler, AgentWhitelistRemoveHandler } from './commands/agent.command';
+import { AgentPlansHandler, AgentProposeHandler, AgentWhitelistAddHandler, AgentWhitelistHandler, AgentWhitelistRemoveHandler } from './commands/agent.command';
 import { AgentApproveHandler, AgentCancelHandler } from './components/agent-buttons.handler';
 import { AgentService } from './agent.service';
 import { AdminWhitelistService } from './whitelist.service';
+import { SetupCommand } from '../setup/setup.schema';
 
 @Module({
   imports: [AuditModule, GuildConfigModule, ModerationModule, ModuleManagerModule, ToolRegistryModule],
-  commands: [AgentCommand],
+  commands: [SetupCommand],
   handlers: [
     AgentWhitelistAddHandler,
     AgentWhitelistRemoveHandler,

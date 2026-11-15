@@ -11,6 +11,12 @@ import { getModuleManager } from './module-manager.service';
 export class ModuleEnabledGuard implements SpraxiumGuard {
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const manager = getModuleManager();
+    // Groupe de sous-commandes du /setup : source de résolution du module
+    // (une seule commande racine, une catégorie par module).
+    const raw = ctx.getInteraction() as {
+      options?: { getSubcommandGroup?: (f: false) => string | null };
+    };
+    const group = raw.options?.getSubcommandGroup?.(false) ?? undefined;
     await manager.assertCommandUsable({
       guildId: ctx.getGuildId(),
       userId: ctx.getUserId(),
@@ -18,6 +24,7 @@ export class ModuleEnabledGuard implements SpraxiumGuard {
       memberRoleIds: extractRoleIds(ctx.getMember()),
       isAdministrator: ctx.getMemberPermissions()?.has(PermissionFlagsBits.Administrator) ?? false,
       commandName: ctx.getCommandName(),
+      commandGroup: group,
     });
     return true;
   }

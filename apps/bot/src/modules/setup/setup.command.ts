@@ -1,22 +1,16 @@
-import { Ctx, SlashCommand, SlashCommandHandler, UseGuards, withOptions } from '@spraxium/common';
+import { Ctx, SlashCommandHandler, UseGuards, withOptions } from '@spraxium/common';
 import { PermissionGuard } from '@spraxium/core';
 import { I18nService } from '@spraxium/i18n';
-import { MessageFlags, PermissionFlagsBits, type ChatInputCommandInteraction } from 'discord.js';
+import { MessageFlags, type ChatInputCommandInteraction } from 'discord.js';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import { buildSetupReply } from './setup.panel';
+import { SetupCommand } from './setup.schema';
 
-@SlashCommand({
-  name: 'setup',
-  description: 'Guided server setup — language, welcome, modules overview.',
-  defaultMemberPermissions: PermissionFlagsBits.Administrator,
-  dmPermission: false,
-})
-export class SetupCommand {
-  build() {}
-}
-
-@SlashCommandHandler(SetupCommand)
-@UseGuards(withOptions(PermissionGuard, { permissions: ['Administrator'] }))
+// Handlers : SetupHandler (dashboard) + tous les handlers des groupes
+// (modules, configure, config, audit, logs, moderation, roles, tickets, agent)
+// déclarés dans les modules d'origine, câblés sur SetupCommand.
+@SlashCommandHandler(SetupCommand, { sub: 'dashboard' })
+@UseGuards(withOptions(PermissionGuard, { permissions: ['ManageGuild'] }))
 export class SetupHandler {
   constructor(
     private readonly config: GuildConfigService,

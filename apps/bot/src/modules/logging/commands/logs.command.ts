@@ -12,35 +12,12 @@ import { PermissionGuard } from '@spraxium/core';
 import { LOG_CATEGORIES, type LogCategory } from '@10cordes/shared';
 import { MessageFlags, PermissionFlagsBits, type ChatInputCommandInteraction, type Role } from 'discord.js';
 import { GuildConfigService } from '../../guild-config/guild-config.service';
+import { SetupCommand } from '../../setup/setup.schema';
 import { panel } from '../../../shared/ui';
 
 const CATEGORY_CHOICES = LOG_CATEGORIES.map((category) => ({ name: category, value: category }));
 
-@SlashCommand({
-  name: 'logs',
-  description: 'Configure log channels per category.',
-  defaultMemberPermissions: PermissionFlagsBits.ManageGuild,
-  dmPermission: false,
-})
-export class LogsCommand {
-  @SlashOption.String('category', { description: 'Log category', required: true, choices: CATEGORY_CHOICES })
-  @SlashOption.Channel('channel', { description: 'Channel receiving these logs', required: true })
-  @SlashSubcommand({ name: 'set', description: 'Route a log category to a channel.' })
-  set() {}
-
-  @SlashOption.String('category', { description: 'Log category', required: true, choices: CATEGORY_CHOICES })
-  @SlashSubcommand({ name: 'clear', description: 'Disable a log category.' })
-  clear() {}
-
-  @SlashOption.Role('role', { description: 'Role to exclude from role logs', required: true })
-  @SlashSubcommand({ name: 'ignore-role', description: 'Toggle a role exclusion in role logs.' })
-  ignoreRole() {}
-
-  @SlashSubcommand({ name: 'view', description: 'View the current log configuration.' })
-  view() {}
-}
-
-@SlashCommandHandler(LogsCommand, { sub: 'set' })
+@SlashCommandHandler(SetupCommand, { group: 'logs', sub: 'set' })
 @UseGuards(withOptions(PermissionGuard, { permissions: ['ManageGuild'] }))
 export class LogsSetHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -61,7 +38,7 @@ export class LogsSetHandler {
   }
 }
 
-@SlashCommandHandler(LogsCommand, { sub: 'clear' })
+@SlashCommandHandler(SetupCommand, { group: 'logs', sub: 'clear' })
 @UseGuards(withOptions(PermissionGuard, { permissions: ['ManageGuild'] }))
 export class LogsClearHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -82,7 +59,7 @@ export class LogsClearHandler {
   }
 }
 
-@SlashCommandHandler(LogsCommand, { sub: 'ignore-role' })
+@SlashCommandHandler(SetupCommand, { group: 'logs', sub: 'ignore-role' })
 @UseGuards(withOptions(PermissionGuard, { permissions: ['ManageGuild'] }))
 export class LogsIgnoreRoleHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -113,7 +90,7 @@ export class LogsIgnoreRoleHandler {
   }
 }
 
-@SlashCommandHandler(LogsCommand, { sub: 'view' })
+@SlashCommandHandler(SetupCommand, { group: 'logs', sub: 'view' })
 @UseGuards(withOptions(PermissionGuard, { permissions: ['ManageGuild'] }))
 export class LogsViewHandler {
   constructor(private readonly config: GuildConfigService) {}

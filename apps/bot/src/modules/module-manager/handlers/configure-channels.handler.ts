@@ -3,14 +3,13 @@ import { PermissionGuard, ValidationException } from '@spraxium/core';
 import type { Channel, ChatInputCommandInteraction } from 'discord.js';
 import { MessageFlags } from 'discord.js';
 import { GuildModuleStateService } from '../guild-module-state.service';
-import { ModulesCommand } from '../commands/modules.command';
 import { panel } from '../../../shared/ui';
+import { SetupCommand } from '../../setup/setup.schema';
 
 function guildContext(interaction: ChatInputCommandInteraction): string | null {
   return interaction.guildId;
 }
 
-@SlashCommandHandler(ModulesCommand, { sub: 'view', group: 'configure' })
 @UseGuards(withOptions(PermissionGuard, { permissions: ['Administrator'] }))
 export class ConfigureViewHandler {
   constructor(private readonly states: GuildModuleStateService) {}
@@ -42,7 +41,6 @@ export class ConfigureViewHandler {
   }
 }
 
-@SlashCommandHandler(ModulesCommand, { sub: 'channel-add', group: 'configure' })
 @UseGuards(withOptions(PermissionGuard, { permissions: ['Administrator'] }))
 export class ConfigureChannelAddHandler {
   constructor(private readonly states: GuildModuleStateService) {}
@@ -75,7 +73,6 @@ export class ConfigureChannelAddHandler {
   }
 }
 
-@SlashCommandHandler(ModulesCommand, { sub: 'channel-remove', group: 'configure' })
 @UseGuards(withOptions(PermissionGuard, { permissions: ['Administrator'] }))
 export class ConfigureChannelRemoveHandler {
   constructor(private readonly states: GuildModuleStateService) {}

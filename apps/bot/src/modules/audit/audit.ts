@@ -12,6 +12,7 @@ import {
 import { MessageFlags, PermissionFlagsBits } from 'discord.js';
 import { PermissionGuard } from '@spraxium/core';
 import { AuditService } from './audit.service';
+import { SetupCommand } from '../setup/setup.schema';
 import { panel } from '../../shared/ui';
 import type { ChatInputCommandInteraction } from 'discord.js';
 
@@ -22,24 +23,7 @@ const SOURCE_CHOICES = [
   { name: 'system', value: 'system' },
 ];
 
-@SlashCommand({
-  name: 'audit',
-  description: 'Audit log — who did what, when.',
-  defaultMemberPermissions: PermissionFlagsBits.Administrator,
-  dmPermission: false,
-})
-export class AuditCommand {
-  @SlashOption.String('source', { description: 'Filter by source', required: false, choices: SOURCE_CHOICES })
-  @SlashOption.Integer('limit', { description: 'Max entries (1-25)', required: false })
-  @SlashSubcommand({ name: 'recent', description: 'Recent audit entries.' })
-  recent() {}
-
-  @SlashOption.String('source', { description: 'Filter by source', required: false, choices: SOURCE_CHOICES })
-  @SlashSubcommand({ name: 'stats', description: 'Audit counts by action.' })
-  stats() {}
-}
-
-@SlashCommandHandler(AuditCommand, { sub: 'recent' })
+@SlashCommandHandler(SetupCommand, { group: 'audit', sub: 'recent' })
 @UseGuards(withOptions(PermissionGuard, { permissions: ['Administrator'] }))
 export class AuditRecentHandler {
   constructor(private readonly audit: AuditService) {}
@@ -79,7 +63,7 @@ export class AuditRecentHandler {
   }
 }
 
-@SlashCommandHandler(AuditCommand, { sub: 'stats' })
+@SlashCommandHandler(SetupCommand, { group: 'audit', sub: 'stats' })
 @UseGuards(withOptions(PermissionGuard, { permissions: ['Administrator'] }))
 export class AuditStatsHandler {
   constructor(private readonly audit: AuditService) {}

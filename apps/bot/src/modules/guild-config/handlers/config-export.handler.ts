@@ -2,10 +2,9 @@ import { Ctx, SlashCommandHandler, UseGuards, withOptions } from '@spraxium/comm
 import { PermissionGuard } from '@spraxium/core';
 import { AttachmentBuilder, MessageFlags, type ChatInputCommandInteraction } from 'discord.js';
 import { GuildConfigService } from '../guild-config.service';
-import { ConfigCommand } from '../commands/config.command';
 import { fileComponent, panel } from '../../../shared/ui';
 
-@SlashCommandHandler(ConfigCommand, { sub: 'export' })
+@SlashCommandHandler(SetupCommand, { group: 'config', sub: 'export' })
 @UseGuards(withOptions(PermissionGuard, { permissions: ['ManageGuild'] }))
 export class ConfigExportHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -32,3 +31,5 @@ export class ConfigExportHandler {
     });
   }
 }
+
+import { SetupCommand } from '../../setup/setup.schema';

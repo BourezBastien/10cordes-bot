@@ -1,11 +1,10 @@
 import { Ctx, SlashCommandHandler, SlashStringOption, UseGuards } from '@spraxium/common';
 import { MessageFlags, type ChatInputCommandInteraction, type GuildMember } from 'discord.js';
 import { parseDurationMs } from '../../../shared/utils/duration';
-import { ModCommand } from '../commands/mod.command';
 import { ModerationService } from '../moderation.service';
 import { casePanel, ensureSanctionChannel, PERMS, targetMember } from './mod-shared';
+import { SetupCommand } from '../../setup/setup.schema';
 
-@SlashCommandHandler(ModCommand, { sub: 'warn' })
 @UseGuards(PERMS.warn)
 export class ModWarnHandler {
   constructor(private readonly mod: ModerationService) {}
@@ -30,7 +29,6 @@ export class ModWarnHandler {
   }
 }
 
-@SlashCommandHandler(ModCommand, { sub: 'timeout' })
 @UseGuards(PERMS.timeout)
 export class ModTimeoutHandler {
   constructor(private readonly mod: ModerationService) {}
@@ -60,7 +58,6 @@ export class ModTimeoutHandler {
   }
 }
 
-@SlashCommandHandler(ModCommand, { sub: 'untimeout' })
 @UseGuards(PERMS.timeout)
 export class ModUntimeoutHandler {
   constructor(private readonly mod: ModerationService) {}

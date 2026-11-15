@@ -1,11 +1,10 @@
 import { Ctx, SlashCommandHandler, SlashIntegerOption, SlashStringOption, UseGuards } from '@spraxium/common';
 import { MessageFlags, type ChatInputCommandInteraction, type GuildMember } from 'discord.js';
-import { ModCommand } from '../commands/mod.command';
 import { ModerationService } from '../moderation.service';
 import { casePanel, ensureSanctionChannel, PERMS } from './mod-shared';
 import { panel } from '../../../shared/ui';
+import { SetupCommand } from '../../setup/setup.schema';
 
-@SlashCommandHandler(ModCommand, { sub: 'kick' })
 @UseGuards(PERMS.kick)
 export class ModKickHandler {
   constructor(private readonly mod: ModerationService) {}
@@ -30,7 +29,6 @@ export class ModKickHandler {
   }
 }
 
-@SlashCommandHandler(ModCommand, { sub: 'ban' })
 @UseGuards(PERMS.ban)
 export class ModBanHandler {
   constructor(private readonly mod: ModerationService) {}
@@ -60,7 +58,6 @@ export class ModBanHandler {
   }
 }
 
-@SlashCommandHandler(ModCommand, { sub: 'unban' })
 @UseGuards(PERMS.ban)
 export class ModUnbanHandler {
   constructor(private readonly mod: ModerationService) {}
@@ -88,7 +85,6 @@ export class ModUnbanHandler {
   }
 }
 
-@SlashCommandHandler(ModCommand, { sub: 'purge' })
 @UseGuards(PERMS.purge)
 export class ModPurgeHandler {
   constructor(private readonly mod: ModerationService) {}

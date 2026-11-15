@@ -9,11 +9,10 @@ import { PermissionGuard, ValidationException } from '@spraxium/core';
 import { MessageFlags, type Attachment, type ChatInputCommandInteraction } from 'discord.js';
 import { ZodError } from 'zod';
 import { GuildConfigService } from '../guild-config.service';
-import { ConfigCommand } from '../commands/config.command';
 import { panel } from '../../../shared/ui';
 import { safeFetch } from '../../../shared/utils/safe-fetch';
 
-@SlashCommandHandler(ConfigCommand, { sub: 'import' })
+@SlashCommandHandler(SetupCommand, { group: 'config', sub: 'import' })
 @UseGuards(withOptions(PermissionGuard, { permissions: ['ManageGuild'] }))
 export class ConfigImportHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -66,3 +65,5 @@ export class ConfigImportHandler {
     }
   }
 }
+
+import { SetupCommand } from '../../setup/setup.schema';

@@ -1,9 +1,8 @@
 import { Ctx, SlashAutocompleteHandler, SlashFocused } from '@spraxium/common';
 import { CONFIG_KEYS } from '@10cordes/shared';
 import type { AutocompleteInteraction } from 'discord.js';
-import { ConfigCommand } from '../commands/config.command';
 
-@SlashAutocompleteHandler(ConfigCommand, 'key')
+@SlashAutocompleteHandler(SetupCommand, 'key')
 export class ConfigKeyAutocomplete {
   async handle(
     @SlashFocused() focused: string | number,
@@ -18,3 +17,5 @@ export class ConfigKeyAutocomplete {
     await interaction.respond(options);
   }
 }
+
+import { SetupCommand } from '../../setup/setup.schema';

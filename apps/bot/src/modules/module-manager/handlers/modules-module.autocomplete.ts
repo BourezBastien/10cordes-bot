@@ -1,9 +1,8 @@
 import { Ctx, SlashAutocompleteHandler, SlashFocused } from '@spraxium/common';
 import type { AutocompleteInteraction } from 'discord.js';
 import { ModuleManagerService } from '../module-manager.service';
-import { ModulesCommand } from '../commands/modules.command';
 
-@SlashAutocompleteHandler(ModulesCommand, 'module')
+@SlashAutocompleteHandler(SetupCommand, 'module')
 export class ModulesModuleAutocomplete {
   constructor(private readonly modules: ModuleManagerService) {}
 
@@ -37,3 +36,5 @@ export class ModulesModuleAutocomplete {
     await interaction.respond(results);
   }
 }
+
+import { SetupCommand } from '../../setup/setup.schema';

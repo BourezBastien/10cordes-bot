@@ -1,11 +1,10 @@
 import { Ctx, SlashCommandHandler, SlashIntegerOption, UseGuards } from '@spraxium/common';
 import { MessageFlags, type ChatInputCommandInteraction, type GuildMember } from 'discord.js';
-import { ModCommand } from '../commands/mod.command';
 import { ModerationService } from '../moderation.service';
 import { caseLine, casePanel, PERMS, targetMember } from './mod-shared';
 import { panel } from '../../../shared/ui';
+import { SetupCommand } from '../../setup/setup.schema';
 
-@SlashCommandHandler(ModCommand, { sub: 'warnings' })
 @UseGuards(PERMS.view)
 export class ModWarningsHandler {
   constructor(private readonly mod: ModerationService) {}
@@ -28,7 +27,6 @@ export class ModWarningsHandler {
   }
 }
 
-@SlashCommandHandler(ModCommand, { sub: 'case' })
 @UseGuards(PERMS.view)
 export class ModCaseHandler {
   constructor(private readonly mod: ModerationService) {}
@@ -56,7 +54,6 @@ export class ModCaseHandler {
   }
 }
 
-@SlashCommandHandler(ModCommand, { sub: 'cases' })
 @UseGuards(PERMS.view)
 export class ModCasesHandler {
   constructor(private readonly mod: ModerationService) {}
@@ -85,7 +82,6 @@ export class ModCasesHandler {
   }
 }
 
-@SlashCommandHandler(ModCommand, { sub: 'baninfo' })
 @UseGuards(PERMS.view)
 export class ModBanInfoHandler {
   constructor(private readonly mod: ModerationService) {}
@@ -109,7 +105,6 @@ export class ModBanInfoHandler {
   }
 }
 
-@SlashCommandHandler(ModCommand, { sub: 'muteinfo' })
 @UseGuards(PERMS.view)
 export class ModMuteInfoHandler {
   constructor(private readonly mod: ModerationService) {}

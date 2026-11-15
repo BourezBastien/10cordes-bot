@@ -3,11 +3,10 @@ import { PermissionGuard, ValidationException } from '@spraxium/core';
 import { CONFIG_KEYS } from '@10cordes/shared';
 import { MessageFlags, type ChatInputCommandInteraction } from 'discord.js';
 import { GuildConfigService } from '../guild-config.service';
-import { ConfigCommand } from '../commands/config.command';
 import { panel } from '../../../shared/ui';
 import { getPath } from '../../../shared/utils/object';
 
-@SlashCommandHandler(ConfigCommand, { sub: 'view' })
+@SlashCommandHandler(SetupCommand, { group: 'config', sub: 'view' })
 @UseGuards(withOptions(PermissionGuard, { permissions: ['ManageGuild'] }))
 export class ConfigViewHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -59,3 +58,5 @@ export class ConfigViewHandler {
     });
   }
 }
+
+import { SetupCommand } from '../../setup/setup.schema';

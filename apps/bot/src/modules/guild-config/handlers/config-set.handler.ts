@@ -4,7 +4,6 @@ import { CONFIG_KEYS } from '@10cordes/shared';
 import { MessageFlags, type ChatInputCommandInteraction } from 'discord.js';
 import { ZodError } from 'zod';
 import { GuildConfigService } from '../guild-config.service';
-import { ConfigCommand } from '../commands/config.command';
 import { panel } from '../../../shared/ui';
 import { getPath, setPath } from '../../../shared/utils/object';
 
@@ -16,7 +15,7 @@ function coerce(descriptorType: 'string' | 'boolean' | 'number' | 'channel' | 'r
   return raw;
 }
 
-@SlashCommandHandler(ConfigCommand, { sub: 'set' })
+@SlashCommandHandler(SetupCommand, { group: 'config', sub: 'set' })
 @UseGuards(withOptions(PermissionGuard, { permissions: ['ManageGuild'] }))
 export class ConfigSetHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -61,3 +60,5 @@ export class ConfigSetHandler {
     }
   }
 }
+
+import { SetupCommand } from '../../setup/setup.schema';

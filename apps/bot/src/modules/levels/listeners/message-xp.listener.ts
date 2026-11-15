@@ -1,4 +1,4 @@
-import { Listener } from '@spraxium/common';
+import { Listener, On } from '@spraxium/common';
 import { Events, MessageFlags, type Message } from 'discord.js';
 import { xpForLevel } from '../levels.service';
 import { GuildConfigService } from '../../guild-config/guild-config.service';
@@ -17,6 +17,7 @@ export class MessageXpListener {
     private readonly levels: LevelsService,
   ) {}
 
+  @On()
   async onMessageCreate(message: Message): Promise<void> {
     if (message.author.bot || !message.guild) return;
     const guildId = message.guild.id;

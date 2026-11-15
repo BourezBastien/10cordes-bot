@@ -22,6 +22,7 @@ import {
   type StringSelectMenuInteraction,
 } from 'discord.js';
 import { GuildConfigService } from '../guild-config/guild-config.service';
+import { SetupCommand } from '../setup/setup.schema';
 import { panel } from '../../shared/ui';
 
 const ADMIN = withOptions(PermissionGuard, { permissions: ['ManageGuild'] });
@@ -30,32 +31,6 @@ const MAX_ROLES = 25;
 
 @StringSelect({ customId: RR_SELECT_ID, placeholder: 'Choisis tes rôles' })
 export class RRSelect {}
-
-@SlashCommand({
-  name: 'roles',
-  description: 'Self-serve role menu — editable live.',
-  defaultMemberPermissions: PermissionFlagsBits.ManageGuild,
-  dmPermission: false,
-})
-export class RolesCommand {
-  @SlashOption.Role('role', { description: 'Role offered in the menu', required: true })
-  @SlashSubcommand({ name: 'add', description: 'Add a role to the menu options.' })
-  add() {}
-
-  @SlashOption.Role('role', { description: 'Role to remove', required: true })
-  @SlashSubcommand({ name: 'remove', description: 'Remove a role from the menu options.' })
-  remove() {}
-
-  @SlashOption.Channel('channel', { description: 'Channel to post the role menu', required: true })
-  @SlashSubcommand({ name: 'post', description: 'Post (or move) the role menu in a channel.' })
-  post() {}
-
-  @SlashSubcommand({ name: 'refresh', description: 'Edit the posted menu with the current options.' })
-  refresh() {}
-
-  @SlashSubcommand({ name: 'view', description: 'View the current role menu options.' })
-  view() {}
-}
 
 interface MenuPayload {
   components: [ContainerBuilder, ActionRowBuilder<StringSelectMenuBuilder>];
@@ -92,7 +67,7 @@ function panelTitleOnly(title: string): ContainerBuilder {
   return panel({ title: `## ${title}`, lines: ['Sélectionne tes rôles dans le menu.'] });
 }
 
-@SlashCommandHandler(RolesCommand, { sub: 'add' })
+@SlashCommandHandler(SetupCommand, { group: 'roles', sub: 'add' })
 @UseGuards(ADMIN)
 export class RolesAddHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -123,7 +98,7 @@ export class RolesAddHandler {
   }
 }
 
-@SlashCommandHandler(RolesCommand, { sub: 'remove' })
+@SlashCommandHandler(SetupCommand, { group: 'roles', sub: 'remove' })
 @UseGuards(ADMIN)
 export class RolesRemoveHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -150,7 +125,7 @@ export class RolesRemoveHandler {
   }
 }
 
-@SlashCommandHandler(RolesCommand, { sub: 'post' })
+@SlashCommandHandler(SetupCommand, { group: 'roles', sub: 'post' })
 @UseGuards(ADMIN)
 export class RolesPostHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -193,7 +168,7 @@ export class RolesPostHandler {
   }
 }
 
-@SlashCommandHandler(RolesCommand, { sub: 'refresh' })
+@SlashCommandHandler(SetupCommand, { group: 'roles', sub: 'refresh' })
 @UseGuards(ADMIN)
 export class RolesRefreshHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -229,7 +204,7 @@ export class RolesRefreshHandler {
   }
 }
 
-@SlashCommandHandler(RolesCommand, { sub: 'view' })
+@SlashCommandHandler(SetupCommand, { group: 'roles', sub: 'view' })
 @UseGuards(ADMIN)
 export class RolesViewHandler {
   constructor(private readonly config: GuildConfigService) {}

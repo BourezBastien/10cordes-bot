@@ -25,34 +25,7 @@ function claimCloseRows(): ActionRowBuilder<ButtonBuilder> {
   );
 }
 
-@SlashCommand({
-  name: 'ticket',
-  description: 'Ticket system — panel, staff and logs configuration.',
-  defaultMemberPermissions: PermissionFlagsBits.ManageGuild,
-  dmPermission: false,
-})
-export class TicketCommand {
-  @SlashOption.Channel('channel', { description: 'Category containing ticket channels', required: true })
-  @SlashSubcommand({ name: 'category', description: 'Set the category where tickets are created.' })
-  category() {}
-
-  @SlashOption.Role('role', { description: 'Staff role (claim/close)', required: true })
-  @SlashSubcommand({ name: 'staff', description: 'Set the staff role.' })
-  staff() {}
-
-  @SlashOption.Channel('channel', { description: 'Channel receiving the open panel', required: true })
-  @SlashSubcommand({ name: 'panel', description: 'Set the channel receiving the open panel.' })
-  panel() {}
-
-  @SlashOption.Channel('channel', { description: 'Channel receiving transcripts', required: true })
-  @SlashSubcommand({ name: 'logs', description: 'Set the transcripts channel.' })
-  logs() {}
-
-  @SlashSubcommand({ name: 'setup', description: 'Post the ticket panel in the configured channel.' })
-  setup() {}
-}
-
-@SlashCommandHandler(TicketCommand, { sub: 'category' })
+@SlashCommandHandler(SetupCommand, { group: 'tickets', sub: 'category' })
 @UseGuards(ADMIN)
 export class TicketCategoryHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -69,7 +42,7 @@ export class TicketCategoryHandler {
   }
 }
 
-@SlashCommandHandler(TicketCommand, { sub: 'staff' })
+@SlashCommandHandler(SetupCommand, { group: 'tickets', sub: 'staff' })
 @UseGuards(ADMIN)
 export class TicketStaffHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -86,7 +59,7 @@ export class TicketStaffHandler {
   }
 }
 
-@SlashCommandHandler(TicketCommand, { sub: 'panel' })
+@SlashCommandHandler(SetupCommand, { group: 'tickets', sub: 'panel' })
 @UseGuards(ADMIN)
 export class TicketPanelChannelHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -109,7 +82,7 @@ export class TicketPanelChannelHandler {
   }
 }
 
-@SlashCommandHandler(TicketCommand, { sub: 'logs' })
+@SlashCommandHandler(SetupCommand, { group: 'tickets', sub: 'logs' })
 @UseGuards(ADMIN)
 export class TicketLogsHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -126,7 +99,7 @@ export class TicketLogsHandler {
   }
 }
 
-@SlashCommandHandler(TicketCommand, { sub: 'setup' })
+@SlashCommandHandler(SetupCommand, { group: 'tickets', sub: 'setup' })
 @UseGuards(ADMIN)
 export class TicketSetupHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -323,3 +296,5 @@ export class TicketCloseHandler {
     }, 5_000);
   }
 }
+
+import { SetupCommand } from '../setup/setup.schema';

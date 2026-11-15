@@ -38,6 +38,8 @@ export interface CommandAccessContext {
   memberRoleIds: string[];
   isAdministrator: boolean;
   commandName: string;
+  /** Groupe de sous-commandes du /setup (résolution du module par catégorie). */
+  commandGroup?: string;
 }
 
 export interface DisableResult {

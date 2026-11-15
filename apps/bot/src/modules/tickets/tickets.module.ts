@@ -1,6 +1,5 @@
 import { Module } from '@spraxium/common';
 import { GuildConfigModule } from '../guild-config/guild-config.module';
-import { TicketCommand } from './tickets.handlers';
 import {
   TicketCategoryHandler,
   TicketLogsHandler,
@@ -13,10 +12,11 @@ import {
 } from './tickets.handlers';
 import { TicketClaimButton, TicketCloseButton, TicketPanelButton } from './components/ticket.components';
 import { TicketsService } from './tickets.service';
+import { SetupCommand } from '../setup/setup.schema';
 
 @Module({
   imports: [GuildConfigModule],
-  commands: [TicketCommand],
+  commands: [SetupCommand],
   handlers: [
     TicketCategoryHandler,
     TicketStaffHandler,

@@ -1,4 +1,4 @@
-import { Listener } from '@spraxium/common';
+import { Listener, On } from '@spraxium/common';
 import { Logger } from '@spraxium/logger';
 import { Events, type Message } from 'discord.js';
 import { AssistantService } from '../assistant.service';
@@ -10,6 +10,7 @@ const log = new Logger('AssistantListener');
 export class AssistantMentionListener {
   constructor(private readonly assistant: AssistantService) {}
 
+  @On()
   async onMessageCreate(message: Message): Promise<void> {
     if (message.author.bot || !message.guild) return;
     const me = message.client.user;

@@ -1,5 +1,4 @@
 import { Global, Module } from '@spraxium/common';
-import { ConfigureGroup, ModulesCommand } from './commands/modules.command';
 import { ConfigureChannelAddHandler, ConfigureChannelRemoveHandler, ConfigureViewHandler } from './handlers/configure-channels.handler';
 import { ConfigureBypassToggleHandler, ConfigureCooldownSetHandler, ConfigureQuotaRemoveHandler, ConfigureQuotaSetHandler } from './handlers/configure-limits.handler';
 import { ConfigureRoleClearHandler, ConfigureRoleSetHandler } from './handlers/configure-roles.handler';
@@ -12,6 +11,7 @@ import { AuditService } from '../audit/audit.service';
 import { CooldownService } from './cooldown.service';
 import { GuildModuleStateService } from './guild-module-state.service';
 import { ModuleManagerService } from './module-manager.service';
+import { SetupCommand } from '../setup/setup.schema';
 
 // @Global : ModuleManagerService/GuildModuleStateService/CooldownService sont de
 // l'infra partagée (guard pipeline, agent, controllers) — sans Global, un chargement
@@ -19,7 +19,7 @@ import { ModuleManagerService } from './module-manager.service';
 @Global()
 @Module({
   imports: [AuditModule],
-  commands: [ModulesCommand],
+  commands: [SetupCommand],
   handlers: [
     ModulesListHandler,
     ModulesEnableHandler,

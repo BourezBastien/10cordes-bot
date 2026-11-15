@@ -2,10 +2,9 @@ import { Ctx, SlashCommandHandler, SlashRoleOption, SlashStringOption, UseGuards
 import { PermissionGuard } from '@spraxium/core';
 import { MessageFlags, type ChatInputCommandInteraction, type Role } from 'discord.js';
 import { GuildModuleStateService } from '../guild-module-state.service';
-import { ModulesCommand } from '../commands/modules.command';
 import { panel } from '../../../shared/ui';
+import { SetupCommand } from '../../setup/setup.schema';
 
-@SlashCommandHandler(ModulesCommand, { sub: 'role-set', group: 'configure' })
 @UseGuards(withOptions(PermissionGuard, { permissions: ['Administrator'] }))
 export class ConfigureRoleSetHandler {
   constructor(private readonly states: GuildModuleStateService) {}
@@ -34,7 +33,6 @@ export class ConfigureRoleSetHandler {
   }
 }
 
-@SlashCommandHandler(ModulesCommand, { sub: 'role-clear', group: 'configure' })
 @UseGuards(withOptions(PermissionGuard, { permissions: ['Administrator'] }))
 export class ConfigureRoleClearHandler {
   constructor(private readonly states: GuildModuleStateService) {}

@@ -28,6 +28,8 @@ export interface CommandAccessContext {
   memberRoleIds: string[];
   isAdministrator: boolean;
   commandName: string;
+  /** Groupe de sous-commandes du /setup (résolution du module par catégorie). */
+  commandGroup?: string;
 }
 
 export interface DisableResult {
@@ -160,7 +162,7 @@ export class ModuleManagerService {
    * → whitelists → rôle requis → bypass admin → cooldown + quotas.
    */
   async assertCommandUsable(ctx: CommandAccessContext): Promise<void> {
-    const module = findModuleByCommand(ctx.commandName);
+    const module = findModuleByCommand(ctx.commandName, ctx.commandGroup);
     if (!module) return;
 
     if (!moduleStateStore.isEnabled(module.id)) throw new ModuleDisabledException(module.label);

@@ -10,14 +10,16 @@ export const MODULE_CATALOG: ModuleDescriptor[] = [
     id: 'logging',
     label: 'Logging',
     description: 'Message, member, voice and ban logs routed per category.',
-    commands: ['logs'],
+    commands: ['setup'],
+    setupGroups: ['logs'],
     dependsOn: [],
   },
   {
     id: 'moderation',
     label: 'Moderation',
     description: 'Warns, cases, timeouts, kicks, bans, purge, derank with role backup.',
-    commands: ['mod'],
+    commands: ['setup'],
+    setupGroups: ['moderation'],
     dependsOn: [],
   },
   {
@@ -31,14 +33,16 @@ export const MODULE_CATALOG: ModuleDescriptor[] = [
     id: 'tickets',
     label: 'Tickets',
     description: 'Support tickets with claim, close, transcripts and logs.',
-    commands: ['ticket'],
+    commands: ['setup'],
+    setupGroups: ['tickets'],
     dependsOn: [],
   },
   {
     id: 'roles',
     label: 'Reaction roles',
     description: 'Self-serve role menu, editable live.',
-    commands: ['roles'],
+    commands: ['setup'],
+    setupGroups: ['roles'],
     dependsOn: [],
   },
   {
@@ -55,7 +59,11 @@ export function findModuleById(moduleId: string): ModuleDescriptor | undefined {
   return MODULE_CATALOG.find((module) => module.id === moduleId);
 }
 
-export function findModuleByCommand(commandName: string): ModuleDescriptor | undefined {
+export function findModuleByCommand(commandName: string, group?: string): ModuleDescriptor | undefined {
   const name = commandName.toLowerCase();
+  if (group) {
+    const byGroup = MODULE_CATALOG.find((module) => module.setupGroups?.includes(group.toLowerCase()));
+    if (byGroup) return byGroup;
+  }
   return MODULE_CATALOG.find((module) => module.commands.includes(name));
 }

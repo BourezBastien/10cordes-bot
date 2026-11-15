@@ -1,11 +1,10 @@
 import { Ctx, SlashCommandHandler, SlashStringOption, UseGuards } from '@spraxium/common';
 import { MessageFlags, type ChatInputCommandInteraction, type GuildMember } from 'discord.js';
-import { ModCommand } from '../commands/mod.command';
 import { ModerationService } from '../moderation.service';
 import { ensureSanctionChannel, PERMS, targetMember } from './mod-shared';
 import { panel } from '../../../shared/ui';
+import { SetupCommand } from '../../setup/setup.schema';
 
-@SlashCommandHandler(ModCommand, { sub: 'derank' })
 @UseGuards(PERMS.roles)
 export class ModDerankHandler {
   constructor(private readonly mod: ModerationService) {}
@@ -39,7 +38,6 @@ export class ModDerankHandler {
   }
 }
 
-@SlashCommandHandler(ModCommand, { sub: 'restoreroles' })
 @UseGuards(PERMS.roles)
 export class ModRestoreRolesHandler {
   constructor(private readonly mod: ModerationService) {}

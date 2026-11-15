@@ -3,10 +3,10 @@ import { PermissionGuard } from '@spraxium/core';
 import { MessageFlags, type ChatInputCommandInteraction } from 'discord.js';
 import type { ModuleScope } from '../module-manager.service';
 import { ModuleManagerService } from '../module-manager.service';
-import { ModulesCommand } from '../commands/modules.command';
 import { panel } from '../../../shared/ui';
+import { SetupCommand } from '../../setup/setup.schema';
 
-@SlashCommandHandler(ModulesCommand, { sub: 'disable' })
+@SlashCommandHandler(SetupCommand, { group: 'modules', sub: 'disable' })
 @UseGuards(withOptions(PermissionGuard, { permissions: ['Administrator'] }))
 export class ModulesDisableHandler {
   constructor(private readonly modules: ModuleManagerService) {}

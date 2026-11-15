@@ -2,11 +2,10 @@ import { Ctx, SlashCommandHandler, SlashIntegerOption, SlashRoleOption, SlashStr
 import { PermissionGuard, ValidationException } from '@spraxium/core';
 import { MessageFlags, type ChatInputCommandInteraction, type Role } from 'discord.js';
 import { GuildModuleStateService } from '../guild-module-state.service';
-import { ModulesCommand } from '../commands/modules.command';
 import { parseDurationMs } from '../../../shared/utils/duration';
 import { panel } from '../../../shared/ui';
+import { SetupCommand } from '../../setup/setup.schema';
 
-@SlashCommandHandler(ModulesCommand, { sub: 'cooldown-set', group: 'configure' })
 @UseGuards(withOptions(PermissionGuard, { permissions: ['Administrator'] }))
 export class ConfigureCooldownSetHandler {
   constructor(private readonly states: GuildModuleStateService) {}
@@ -37,7 +36,6 @@ export class ConfigureCooldownSetHandler {
   }
 }
 
-@SlashCommandHandler(ModulesCommand, { sub: 'quota-set', group: 'configure' })
 @UseGuards(withOptions(PermissionGuard, { permissions: ['Administrator'] }))
 export class ConfigureQuotaSetHandler {
   constructor(private readonly states: GuildModuleStateService) {}
@@ -75,7 +73,6 @@ export class ConfigureQuotaSetHandler {
   }
 }
 
-@SlashCommandHandler(ModulesCommand, { sub: 'quota-remove', group: 'configure' })
 @UseGuards(withOptions(PermissionGuard, { permissions: ['Administrator'] }))
 export class ConfigureQuotaRemoveHandler {
   constructor(private readonly states: GuildModuleStateService) {}
@@ -104,7 +101,6 @@ export class ConfigureQuotaRemoveHandler {
   }
 }
 
-@SlashCommandHandler(ModulesCommand, { sub: 'bypass-toggle', group: 'configure' })
 @UseGuards(withOptions(PermissionGuard, { permissions: ['Administrator'] }))
 export class ConfigureBypassToggleHandler {
   constructor(private readonly states: GuildModuleStateService) {}

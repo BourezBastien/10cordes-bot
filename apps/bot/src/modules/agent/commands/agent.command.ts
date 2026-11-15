@@ -14,37 +14,12 @@ import { AgentPlanSchema, DESTRUCTIVE_OP_TYPES, opLabel, type AdminOp } from '@1
 import { AdminWhitelistService } from '../whitelist.service';
 import { AgentService } from '../agent.service';
 import { buildPlanReply } from '../agent.panel';
+import { SetupCommand } from '../../setup/setup.schema';
 import { panel } from '../../../shared/ui';
 
 const ADMIN = withOptions(PermissionGuard, { permissions: ['Administrator'] });
 
-@SlashCommand({
-  name: 'agent',
-  description: 'Agent Admin — plans of actions proposed and confirmed by humans.',
-  defaultMemberPermissions: PermissionFlagsBits.Administrator,
-  dmPermission: false,
-})
-export class AgentCommand {
-  @SlashOption.User('user', { description: 'User allowed to approve destructive plans', required: true })
-  @SlashSubcommand({ name: 'whitelist-add', description: 'Owner only — whitelist a user for destructive plans.' })
-  whitelistAdd() {}
-
-  @SlashOption.User('user', { description: 'User to remove', required: true })
-  @SlashSubcommand({ name: 'whitelist-remove', description: 'Owner only — remove a user from the whitelist.' })
-  whitelistRemove() {}
-
-  @SlashSubcommand({ name: 'whitelist', description: 'List users allowed to approve destructive plans.' })
-  whitelist() {}
-
-  @SlashOption.String('ops', { description: 'Plan as JSON — {"title":…,"ops":[{"type":…}]}', required: true })
-  @SlashSubcommand({ name: 'propose', description: 'Propose a plan of actions (validated, then confirmed by humans).' })
-  propose() {}
-
-  @SlashSubcommand({ name: 'plans', description: 'List pending plans in this channel.' })
-  plans() {}
-}
-
-@SlashCommandHandler(AgentCommand, { sub: 'whitelist-add' })
+@SlashCommandHandler(SetupCommand, { group: 'agent', sub: 'whitelist-add' })
 export class AgentWhitelistAddHandler {
   constructor(private readonly whitelist: AdminWhitelistService) {}
 
@@ -71,7 +46,7 @@ export class AgentWhitelistAddHandler {
   }
 }
 
-@SlashCommandHandler(AgentCommand, { sub: 'whitelist-remove' })
+@SlashCommandHandler(SetupCommand, { group: 'agent', sub: 'whitelist-remove' })
 export class AgentWhitelistRemoveHandler {
   constructor(private readonly whitelist: AdminWhitelistService) {}
 
@@ -98,7 +73,7 @@ export class AgentWhitelistRemoveHandler {
   }
 }
 
-@SlashCommandHandler(AgentCommand, { sub: 'whitelist' })
+@SlashCommandHandler(SetupCommand, { group: 'agent', sub: 'whitelist' })
 export class AgentWhitelistHandler {
   constructor(private readonly whitelist: AdminWhitelistService) {}
 
@@ -121,7 +96,7 @@ export class AgentWhitelistHandler {
   }
 }
 
-@SlashCommandHandler(AgentCommand, { sub: 'propose' })
+@SlashCommandHandler(SetupCommand, { group: 'agent', sub: 'propose' })
 @UseGuards(ADMIN)
 export class AgentProposeHandler {
   constructor(private readonly agent: AgentService) {}
@@ -170,7 +145,7 @@ export class AgentProposeHandler {
   }
 }
 
-@SlashCommandHandler(AgentCommand, { sub: 'plans' })
+@SlashCommandHandler(SetupCommand, { group: 'agent', sub: 'plans' })
 export class AgentPlansHandler {
   constructor(private readonly agent: AgentService) {}
 
