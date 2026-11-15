@@ -200,3 +200,43 @@ model AgentPlan {
   @@index([guildId, status])
   @@map("agent_plans")
 }
+
+// ── Tickets (P2) ─────────────────────────────────────────────
+
+model TicketCounter {
+  guildId String @id
+  value   Int    @default(0)
+
+  @@map("ticket_counters")
+}
+
+model Ticket {
+  id          String    @id @default(cuid())
+  guildId     String
+  number      Int
+  channelId   String
+  userId      String
+  status      String    @default("open")
+  claimedBy   String?
+  createdAt   DateTime  @default(now())
+  closedAt    DateTime?
+
+  @@unique([guildId, channelId])
+  @@index([guildId, userId])
+  @@map("tickets")
+}
+
+// ── Leveling (P2) ────────────────────────────────────────────
+
+model UserLevel {
+  id        String   @id @default(cuid())
+  guildId   String
+  userId    String
+  xp        Int      @default(0)
+  level     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([guildId, userId])
+  @@index([guildId, xp])
+  @@map("user_levels")
+}

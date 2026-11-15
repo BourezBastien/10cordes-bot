@@ -33,6 +33,45 @@ export const LogsConfigSchema = z.object({
 });
 export type LogsConfig = z.infer<typeof LogsConfigSchema>;
 
+export const TicketsConfigSchema = z.object({
+  /** Catégorie parente des salons de ticket. */
+  categoryId: z.string().nullable().default(null),
+  /** Salon où poster le panneau d'ouverture. */
+  panelChannelId: z.string().nullable().default(null),
+  /** Rôle staff (peut claim/close). */
+  staffRoleId: z.string().nullable().default(null),
+  /** Salon recevant transcripts et summaries. */
+  logChannelId: z.string().nullable().default(null),
+});
+export type TicketsConfig = z.infer<typeof TicketsConfigSchema>;
+
+export const ReactionRolesConfigSchema = z.object({
+  /** Rôles proposés dans le menu (max 25). */
+  roleIds: z.array(z.string()).default([]),
+  /** Salon + message du panneau posté (permet l'édition live). */
+  panelChannelId: z.string().nullable().default(null),
+  panelMessageId: z.string().nullable().default(null),
+  panelTitle: z.string().default('🎭 Choisis tes rôles'),
+});
+export type ReactionRolesConfig = z.infer<typeof ReactionRolesConfigSchema>;
+
+export const LevelRewardSchema = z.object({
+  level: z.number().int().min(1),
+  roleId: z.string().min(1),
+});
+
+export const LevelsConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  xpPerMessage: z.number().int().min(1).max(500).default(15),
+  /** Cooldown d'XP par utilisateur (minutes). */
+  cooldownMinutes: z.number().int().min(0).max(60).default(1),
+  /** Salon d'annonce des level-ups (null = dans le canal courant). */
+  announceChannelId: z.string().nullable().default(null),
+  /** Rôles-récompenses par palier de niveau (le LLM/agent peut les proposer, 13✅). */
+  roleRewards: z.array(LevelRewardSchema).default([]),
+});
+export type LevelsConfig = z.infer<typeof LevelsConfigSchema>;
+
 export const ModerationConfigSchema = z.object({
   /** Salon réservé aux sanctions — null = partout. */
   sanctionChannelId: z.string().nullable().default(null),
@@ -52,6 +91,9 @@ export const GuildConfigSchema = z.object({
   welcome: WelcomeConfigSchema.prefault({}),
   farewell: FarewellConfigSchema.prefault({}),
   logs: LogsConfigSchema.prefault({}),
+  tickets: TicketsConfigSchema.prefault({}),
+  roles: ReactionRolesConfigSchema.prefault({}),
+  levels: LevelsConfigSchema.prefault({}),
   moderation: ModerationConfigSchema.prefault({}),
   /** Messages d'erreur personnalisés par code — template avec placeholders de l'exception. */
   errorMessages: z.record(z.string(), z.string()).default({}),
@@ -79,4 +121,12 @@ export const CONFIG_KEYS: ConfigKeyDescriptor[] = [
   { path: 'farewell.template', type: 'string', description: 'Template du message de départ' },
   { path: 'moderation.sanctionChannelId', type: 'channel', description: 'Salon réservé aux sanctions' },
   { path: 'moderation.muteDerank', type: 'boolean', description: 'Retirer les rôles pendant un mute' },
+  { path: 'tickets.categoryId', type: 'channel', description: 'Catégorie des salons de ticket' },
+  { path: 'tickets.panelChannelId', type: 'channel', description: 'Salon du panneau de tickets' },
+  { path: 'tickets.staffRoleId', type: 'role', description: 'Rôle staff des tickets' },
+  { path: 'tickets.logChannelId', type: 'channel', description: 'Salon des transcripts de tickets' },
+  { path: 'levels.enabled', type: 'boolean', description: 'Activer le système de niveaux' },
+  { path: 'levels.xpPerMessage', type: 'number', description: 'XP par message' },
+  { path: 'levels.cooldownMinutes', type: 'number', description: 'Cooldown XP (minutes)' },
+  { path: 'levels.announceChannelId', type: 'channel', description: 'Salon des level-ups' },
 ];

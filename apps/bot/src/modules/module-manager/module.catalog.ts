@@ -34,6 +34,28 @@ export const MODULE_CATALOG: ModuleDescriptor[] = [
     commands: ['tag'],
     dependsOn: [],
   },
+  {
+    id: 'tickets',
+    label: 'Tickets',
+    description: 'Support tickets with claim, close, transcripts and logs.',
+    commands: ['ticket'],
+    dependsOn: [],
+  },
+  {
+    id: 'roles',
+    label: 'Reaction roles',
+    description: 'Self-serve role menu, editable live.',
+    commands: ['roles'],
+    dependsOn: [],
+  },
+  {
+    id: 'levels',
+    label: 'Levels',
+    description: 'XP per message, role rewards, leaderboard and announcements.',
+    commands: ['rank', 'leaderboard'],
+    dependsOn: [],
+    recommends: [],
+  },
 ];
 
 export function findModuleById(moduleId: string): ModuleDescriptor | undefined {

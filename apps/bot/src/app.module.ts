@@ -17,6 +17,9 @@ import { MetaController } from './modules/api/meta.controller';
 import { PingModule } from './modules/ping/ping.module';
 import { SetupModule } from './modules/setup/setup.module';
 import { TagsModule } from './modules/tags/tags.module';
+import { LevelsModule } from './modules/levels/levels.module';
+import { TicketsModule } from './modules/tickets/tickets.module';
+import { RolesModule } from './modules/roles/roles.module';
 import { ToolRegistryModule } from './modules/tool-registry/tool-registry.module';
 import { WelcomeModule } from './modules/welcome/welcome.module';
 
@@ -28,7 +31,7 @@ import { WelcomeModule } from './modules/welcome/welcome.module';
   middleware: [new LoggerMiddleware()],
 })
 @Module({
-  imports: [AuditModule, DatabaseModule, HttpModule, GuildConfigModule, InfoModule, LocaleModule, LoggingModule, ModerationModule, ModuleManagerModule, PingModule, SetupModule, TagsModule, ToolRegistryModule, AgentModule, WelcomeModule],
+  imports: [AuditModule, DatabaseModule, HttpModule, GuildConfigModule, InfoModule, LevelsModule, LocaleModule, LoggingModule, ModerationModule, ModuleManagerModule, PingModule, RolesModule, SetupModule, TagsModule, TicketsModule, ToolRegistryModule, AgentModule, WelcomeModule],
   providers: [AuthController, MetaController, GuildsController],
 })
 export class AppModule {}
