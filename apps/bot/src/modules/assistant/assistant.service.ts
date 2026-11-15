@@ -10,6 +10,7 @@ import { LocaleService } from '../locale/locale.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { AuditService } from '../audit/audit.service';
+import { MemoryService } from '../memory/memory.service';
 
 const log = new Logger('Assistant');
 
@@ -60,6 +61,7 @@ function buildSystemPrompt(
   guildName: string,
   toolNames: string[],
   permissions: string[],
+  memories: { guildMemories: string[]; memberMemories: string[] },
 ): string {
   const isAdministrator = permissions.includes("Administrator");
   const permissionLine = isAdministrator
@@ -90,6 +92,17 @@ function buildSystemPrompt(
     "<SERVER_CONTEXT>",
     `Serveur : ${guildName}. Contexte advisory : les vraies vérifications se font dans les tools.`,
     "</SERVER_CONTEXT>",
+    "<MEMORY>",
+    memories.guildMemories.length > 0
+      ? `Mémoire du serveur (du plus récent) : ${memories.guildMemories.join(' | ')}`
+      : 'Mémoire du serveur : vide pour le moment.',
+    memories.memberMemories.length > 0
+      ? `Mémoire sur CET utilisateur : ${memories.memberMemories.join(' | ')}`
+      : 'Mémoire sur cet utilisateur : vide.',
+    "Ta mémoire est ta force : respecte les règles mémorisées, reprends les habitudes, adapte ton ton aux membres via memory.member.get (par ID).",
+    "Enregistre spontanément via memory.guild.add / memory.member.add : infos structurantes d'abord (règles, hiérarchie, préférences), puis faits durables.",
+    "Append-only : une correction = un NOUVEL ajout, jamais une suppression.",
+    "</MEMORY>",
     "<TOOL_USE_GUIDANCE>",
     `Tools disponibles : ${toolNames.join(", ") || "aucun"}.`,
     "Read-before-write : toujours lire l'état actuel avant de modifier.",
@@ -123,6 +136,7 @@ export class AssistantService {
     private readonly locales: LocaleService,
     private readonly config: GuildConfigService,
     private readonly audit: AuditService,
+    private readonly memory: MemoryService,
     private readonly client: Client,
   ) {}
 
@@ -213,6 +227,11 @@ export class AssistantService {
     if (!guild || !message.guildId) return;
 
     const locale = await this.locales.resolve(message.author.id, defaultLocale);
+    // Mémoire persistante injectée : contexte serveur + utilisateur à chaque échange.
+    const [guildMemories, memberMemories] = await Promise.all([
+      this.memory.listGuild(message.guildId, 20).catch(() => [] as string[]),
+      this.memory.listMember(message.guildId, message.author.id, 10).catch(() => [] as string[]),
+    ]);
     const member = message.member;
     // Permissions Discord réelles de l'appelant — le prompt système ET le registry s'appuient dessus.
     const permissions: string[] = member ? (member.permissions.toArray() as string[]) : [];
@@ -278,6 +297,7 @@ export class AssistantService {
           guild.name,
           tools.map((tool) => tool.name),
           permissions,
+          { guildMemories, memberMemories },
         ),
       },
       {

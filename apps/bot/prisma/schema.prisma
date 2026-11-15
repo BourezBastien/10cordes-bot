@@ -251,3 +251,28 @@ model IntegrationConfig {
   model     String   @default("")
   updatedAt DateTime @updatedAt
 }
+
+// ── Mémoire persistante de l'agent IA (append-only) ─────────
+
+model GuildMemory {
+  id        String   @id @default(cuid())
+  guildId   String
+  kind      String   @default("fact") // fact | rule | presentation | preference
+  content   String
+  createdAt DateTime @default(now())
+
+  @@index([guildId])
+  @@map("guild_memories")
+}
+
+model MemberMemory {
+  id        String   @id @default(cuid())
+  guildId   String
+  userId    String
+  kind      String   @default("fact") // fact | preference | note
+  content   String
+  createdAt DateTime @default(now())
+
+  @@index([guildId, userId])
+  @@map("member_memories")
+}

@@ -14,6 +14,7 @@ import { ImagelabModule } from './modules/imagelab/imagelab.module';
 import { LevelsModule } from './modules/levels/levels.module';
 import { LocaleModule } from './modules/locale/locale.module';
 import { LoggingModule } from './modules/logging/logging.module';
+import { MemoryModule } from './modules/memory/memory.module';
 import { ModerationModule } from './modules/moderation/moderation.module';
 import { ModuleManagerModule } from './modules/module-manager/module-manager.module';
 import { GuildsController } from './modules/api/guilds.controller';
@@ -46,6 +47,7 @@ import { WelcomeModule } from './modules/welcome/welcome.module';
     LevelsModule,
     LocaleModule,
     LoggingModule,
+    MemoryModule,
     ModerationModule,
     ModuleManagerModule,
     RolesModule,
