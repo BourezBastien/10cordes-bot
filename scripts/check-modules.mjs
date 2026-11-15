@@ -40,7 +40,7 @@ for (const dir of dirs) {
     if (hasCommands) {
       // Les modules à commandes doivent être togglables via le catalogue,
       // sauf les commandes système (allowlist).
-      const SYSTEM = new Set(['setup', 'info', 'locale', 'audit', 'guild-config', 'module-manager']);
+      const SYSTEM = new Set(['setup', 'info', 'locale', 'audit', 'guild-config', 'module-manager', 'agent']);
       if (!SYSTEM.has(name) && !catalog.includes(`id: '${name}'`)) {
         errors.push(`Module "${name}" exposes commands but is not registered in module.catalog.ts.`);
       }
