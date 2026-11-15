@@ -2,6 +2,7 @@ import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
 import { z } from 'zod';
 import { safeFetch } from '../../shared/utils/safe-fetch';
 import { AppEnv } from '../../app.env';
+import { PrismaService } from '../database/prisma.service';
 import type { BotTool, ToolResult } from '@10cordes/shared';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 
@@ -14,30 +15,51 @@ interface PixfluxResponse {
 
 /**
  * PixelLab API v2 - génération pixel art (icônes, émojis, sprites).
- * La clé est fournie par l'Opérateur via PIXELLAB_API_KEY : sans clé,
- * les tools répondent fail-closed avec la marche à suivre.
+ * Clé : modale owner (table IntegrationConfig, effet immédiat) sinon env
+ * PIXELLAB_API_KEY. Sans clé, les tools répondent fail-closed avec la marche à suivre.
  */
 @Injectable()
 export class ImagelabService implements SpraxiumOnBoot {
+  private runtimeKey: string | null = null;
+
   constructor(
     private readonly env: AppEnv,
+    private readonly prisma: PrismaService,
     private readonly registry: ToolRegistryService,
   ) {}
 
   async onBoot(): Promise<void> {
+    try {
+      const row = await this.prisma.integrationConfig.findUnique({ where: { id: 'imagelab' } });
+      if (row) this.runtimeKey = row.apiKey;
+    } catch {
+      // Table pas encore migrée au tout premier boot.
+    }
     for (const tool of this.buildTools()) this.registry.register(tool);
   }
 
   get configured(): boolean {
-    return Boolean(this.env.PIXELLAB_API_KEY);
+    return Boolean(this.runtimeKey || this.env.PIXELLAB_API_KEY);
+  }
+
+  /** Branche la clé PixelLab saisie via la modale (effet immédiat). */
+  async setPixellabKey(apiKey: string): Promise<void> {
+    const row = { provider: 'pixellab', baseUrl: API_BASE, apiKey, model: '' };
+    await this.prisma.integrationConfig.upsert({
+      where: { id: 'imagelab' },
+      create: { id: 'imagelab', ...row },
+      update: row,
+    });
+    this.runtimeKey = apiKey;
   }
 
   private notConfigured(): ToolResult {
     return {
       ok: false,
       summary:
-        "PIXELLAB_API_KEY n'est pas configurée sur cette instance. " +
-        "L'Opérateur doit définir sa propre clé (https://pixellab.ai) dans l'environnement avant d'activer la génération d'images.",
+        "Clé PixelLab manquante : la génération d'images est désactivée. " +
+        "Informe l'utilisateur que l'owner du serveur peut la connecter via la modale " +
+        "(mentionne le bot pour l'ouvrir, champ PixelLab optionnel).",
     };
   }
 
@@ -47,11 +69,12 @@ export class ImagelabService implements SpraxiumOnBoot {
     size: number,
     opts: { transparent: boolean; palette?: string[] },
   ): Promise<{ base64: string; costUsd?: number }> {
+    const apiKey = this.runtimeKey ?? this.env.PIXELLAB_API_KEY;
     const response = await safeFetch(`${API_BASE}/create-image-pixflux`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${this.env.PIXELLAB_API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
         description,

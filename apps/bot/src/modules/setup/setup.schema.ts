@@ -294,6 +294,9 @@ export class AgentGroup {
 
   @SlashSubcommand({ name: 'plans', description: 'List pending plans in this channel.' })
   plans() {}
+
+  @SlashSubcommand({ name: 'status', description: 'IA connections (LLM, PixelLab) and available tools.' })
+  status() {}
 }
 
 /**

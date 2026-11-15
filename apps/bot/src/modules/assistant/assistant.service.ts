@@ -1,9 +1,11 @@
 import { Injectable } from '@spraxium/common';
 import { Logger } from '@spraxium/logger';
-import { Client, type Message } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, MessageFlags, type Message } from 'discord.js';
 import { z } from 'zod';
 import type { BotTool, ToolRunContext } from '@10cordes/shared';
 import { LlmService, type ChatMessage, type OpenAiTool } from './llm.service';
+import { IA_CONFIG_BUTTON_ID } from './components/ia-config.components';
+import { panel } from '../../shared/ui';
 import { LocaleService } from '../locale/locale.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
@@ -147,11 +149,34 @@ export class AssistantService {
     }
 
     if (!this.llm.configured) {
-      await message
-        .reply({
-          content: "🤖 Le module IA n'est pas configuré sur cette instance (DEEPSEEK_API_KEY manquante côté opérateur).",
-        })
-        .catch(() => {});
+      const isOwner = message.guild.ownerId === message.author.id;
+      if (isOwner) {
+        // L'owner peut connecter l'IA immédiatement : panneau + bouton modale.
+        await message
+          .reply({
+            flags: [MessageFlags.IsComponentsV2],
+            components: [
+              panel({
+                title: '## 🔌 Module IA non connecté',
+                lines: [
+                  'Connecte ton fournisseur (DeepSeek, OpenRouter, tout endpoint compatible OpenAI) pour que je puisse agir.',
+                  'Clique sur le bouton : base URL, clé API et modèle, test de connexion immédiat.',
+                ],
+                accentColor: 0xd9_59_26,
+              }),
+              new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId(IA_CONFIG_BUTTON_ID).setLabel("🔑 Connecter l'IA").setStyle(ButtonStyle.Primary),
+              ),
+            ],
+          })
+          .catch(() => {});
+      } else {
+        await message
+          .reply({
+            content: "🤖 Le module IA n'est pas encore connecté : l'owner du serveur peut le faire en me mentionnant.",
+          })
+          .catch(() => {});
+      }
       return;
     }
 

@@ -240,3 +240,14 @@ model UserLevel {
   @@index([guildId, xp])
   @@map("user_levels")
 }
+
+// ── Intégrations configurables au runtime (modale owner, sans restart) ──
+
+model IntegrationConfig {
+  id        String   @id // 'llm' | 'imagelab'
+  provider  String   @default("custom")
+  baseUrl   String
+  apiKey    String
+  model     String   @default("")
+  updatedAt DateTime @updatedAt
+}
