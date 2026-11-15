@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // Génère les propositions d'icônes pixel art via PixelLab v2 (create-image-pixflux).
-// Usage: node scripts/generate-branding.mjs <bot|support> [count]
-// Clé lue depuis apps/bot/.env (PIXELLAB_API_KEY) - jamais commitée.
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+// Usage: node scripts/generate-branding.mjs <PIXELLAB_API_KEY> <bot|support> [count]
+// Clé passée en argument (source : apps/bot/.env local, jamais commitée).
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const key = process.argv[2];
 const kind = process.argv[3] ?? 'bot';
@@ -44,34 +44,48 @@ const SUPPORT_CONCEPTS = [
 
 const concepts = kind === 'bot' ? BOT_CONCEPTS : SUPPORT_CONCEPTS;
 const outDir = join('docs', 'branding', 'proposals');
-mkdirSync(dirname(join(outDir, 'x')), { recursive: true });
+mkdirSync(outDir, { recursive: true });
 
 let ok = 0;
-for (let i = 0; i < Math.min(count, concepts.length); i++) {
+const total = Math.min(count, concepts.length);
+
+for (let i = 0; i < total; i = i + 1) {
   const [description, color] = concepts[i];
   const num = String(i + 1).padStart(2, '0');
   const file = join(outDir, `${kind}-${num}.png`);
   try {
     const res = await fetch('https://api.pixellab.ai/v2/create-image-pixflux', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${key}`,
+      },
       body: JSON.stringify({
         description: `pixel art icon, ${description}, accent color ${color}, dark background ${BG}, bold black outline, crisp readable pixel art`,
         image_size: { width: 128, height: 128 },
         no_background: false,
       }),
     });
-    const data = await res.json().catch(() => ({}));
-    const b64 = data?.image?.base64?.replace(/^data:image\/png;base64,/, '');
+    let data = {};
+    try {
+      data = await res.json();
+    }
+    catch {
+      data = {};
+    }
+    const rawBase64 = data?.image?.base64;
+    const b64 = typeof rawBase64 === 'string' ? rawBase64.replace(/^data:image\/png;base64,/u, '') : undefined;
     if (!res.ok || !b64) {
-      console.log(`FAIL ${file} status=${res.status} ${JSON.stringify(data).slice(0, 120)}`);
+      console.log(`FAIL ${file} status=${res.status}`);
       continue;
     }
     writeFileSync(file, Buffer.from(b64, 'base64'));
-    ok++;
+    ok = ok + 1;
     console.log(`OK  ${file} (${color})`);
-  } catch (error) {
-    console.log(`ERR ${file}: ${error.message}`);
+  }
+  catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(`ERR ${file}: ${message}`);
   }
 }
-console.log(`Done: ${ok}/${Math.min(count, concepts.length)} generated.`);
+console.log(`Done: ${ok}/${total} generated.`);
