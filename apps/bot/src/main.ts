@@ -19,7 +19,9 @@ async function main(): Promise<void> {
   app.useModule(AppModule);
   app.provide(AppEnv, environment);
   app.useGlobalGuards(ModuleEnabledGuard);
-  app.intents(IntentPreset.Standard);
+  // MessageContent : requis pour l'historique des conversations de l'assistant IA
+  // (intent privileged, à activer aussi dans le portail développeur Discord).
+  app.intents(IntentPreset.WithMessageContent);
 
   logger.info('Starting application...');
   await app.listen();

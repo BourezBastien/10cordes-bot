@@ -35,6 +35,19 @@ export interface ChatOptions {
 
 const API_URL = "https://api.deepseek.com/chat/completions";
 
+/**
+ * L'API DeepSeek refuse les noms de tools hors `^[a-zA-Z0-9_-]+$` : nos noms
+ * namespacés ("discord.channel.list") sont encodés "discord__channel__list"
+ * à l'appel et décodés dans les réponses. '__' est réservé à cet usage.
+ */
+export function toApiToolName(name: string): string {
+  return name.replaceAll('.', '__');
+}
+
+export function fromApiToolName(apiName: string): string {
+  return apiName.replaceAll('__', '.');
+}
+
 /** Client DeepSeek (compatible OpenAI chat completions + tool calling). */
 @Injectable()
 export class LlmService {
@@ -53,6 +66,11 @@ export class LlmService {
       throw new Error("DEEPSEEK_API_KEY is not configured on this instance.");
     }
 
+    const apiTools = tools.map((tool) => ({
+      ...tool,
+      function: { ...tool.function, name: toApiToolName(tool.function.name) },
+    }));
+
     const response = await safeFetch(API_URL, {
       method: "POST",
       headers: {
@@ -63,7 +81,7 @@ export class LlmService {
         model: this.env.DEEPSEEK_MODEL,
         messages,
         user_id: options.guildId ?? options.userId,
-        ...(tools.length > 0 ? { tools, tool_choice: "auto" } : {}),
+        ...(apiTools.length > 0 ? { tools: apiTools, tool_choice: "auto" } : {}),
       }),
     });
 
@@ -85,7 +103,7 @@ export class LlmService {
       content: message?.content ?? null,
       toolCalls: (message?.tool_calls ?? []).map((call) => ({
         id: call.id,
-        name: call.function.name,
+        name: fromApiToolName(call.function.name),
         arguments: call.function.arguments,
       })),
     };

@@ -1,8 +1,11 @@
 import { Listener } from '@spraxium/common';
+import { Logger } from '@spraxium/logger';
 import { Events, type Message } from 'discord.js';
 import { AssistantService } from '../assistant.service';
 
-/** Mention du bot → assistant en langage naturel avec tools du registry. */
+const log = new Logger('AssistantListener');
+
+/** Mention du bot → agent conversationnel avec tools du registry. */
 @Listener(Events.MessageCreate)
 export class AssistantMentionListener {
   constructor(private readonly assistant: AssistantService) {}
@@ -12,6 +15,8 @@ export class AssistantMentionListener {
     const me = message.client.user;
     if (!me || !message.mentions.users.has(me.id)) return;
 
-    await this.assistant.handleMention(message).catch(() => {});
+    await this.assistant.handleMention(message).catch((error: unknown) => {
+      log.error(`handleMention rejected: ${error instanceof Error ? error.message : String(error)}`);
+    });
   }
 }
