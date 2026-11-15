@@ -179,11 +179,33 @@ export class LlmService implements SpraxiumOnBoot {
     this.runtime = null;
   }
 
+  /**
+   * Appel chat avec garde-fou : Promise.race + setTimeout. L'AbortSignal seul
+   * ne se déclenche pas de façon fiable sur tous les runtimes : sans cette
+   * course, un appel qui ne répond jamais fait taire l'agent indéfiniment.
+   */
   async chat(messages: ChatMessage[], tools: OpenAiTool[], options: ChatOptions): Promise<ChatCompletionResult> {
     if (!this.configured) {
       throw new Error('Le module IA n\'est pas configuré (aucune clé API).');
     }
+    return Promise.race([this.doChat(messages, tools, options), this.timeoutGuard()]);
+  }
 
+  private timeoutGuard(): Promise<never> {
+    return new Promise((_, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('Le modèle IA n\'a pas répondu dans les 60 secondes.')),
+        60_000,
+      );
+      timer.unref?.();
+    });
+  }
+
+  private async doChat(
+    messages: ChatMessage[],
+    tools: OpenAiTool[],
+    options: ChatOptions,
+  ): Promise<ChatCompletionResult> {
     const baseUrl = this.runtime?.baseUrl ?? 'https://api.deepseek.com';
     const apiKey = this.runtime?.apiKey ?? this.env.DEEPSEEK_API_KEY;
     const model = this.model;

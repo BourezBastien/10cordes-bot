@@ -23,6 +23,11 @@ async function main(): Promise<void> {
   // (intent privileged, à activer aussi dans le portail développeur Discord).
   app.intents(IntentPreset.WithMessageContent);
 
+  // Promesses rejetées sans catch (ex: écritures audit void) : visibles en console.
+  process.on('unhandledRejection', (reason) => {
+    logger.error(`Unhandled rejection: ${reason instanceof Error ? reason.message : String(reason)}`);
+  });
+
   logger.info('Starting application...');
   await app.listen();
 }

@@ -11,6 +11,8 @@ import { GuildConfigService } from '../guild-config/guild-config.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { AuditService } from '../audit/audit.service';
 import { MemoryService } from '../memory/memory.service';
+import { AssistantQueue } from './assistant.queue';
+import { buildIntroPanel } from './intro.panel';
 
 const log = new Logger('Assistant');
 
@@ -138,8 +140,17 @@ export class AssistantService {
     private readonly config: GuildConfigService,
     private readonly audit: AuditService,
     private readonly memory: MemoryService,
+    private readonly queue: AssistantQueue,
     private readonly client: Client,
-  ) {}
+  ) {
+    // Le worker de la file traite chaque demande via handleMention.
+    queue.setProcessor((message) => this.handleMention(message));
+  }
+
+  /** Point d'entrée du listener : met la demande en file (FIFO par utilisateur). */
+  enqueue(message: Message): void {
+    this.queue.enqueue(message);
+  }
 
   /** Salon dédié configuré (vide = aucun) — le listener y engage toute conversation. */
   async dedicatedChannelId(): Promise<string | null> {
@@ -205,6 +216,28 @@ export class AssistantService {
     }
 
     this.cooldowns.set(cooldownKey, Date.now());
+
+    // Mention nue ou pure salutation → panneau d'identité immédiat (sans LLM).
+    const stripped = message.content.replace(/<@?\d+>/g, '').trim();
+    const bareGreeting =
+      stripped.length === 0 ||
+      /^(salut|bonjour|hello|yo|hey|coucou|slt|bjr|ping|hi)[\s!.,?]*$/i.test(stripped);
+    if (bareGreeting) {
+      await message
+        .reply({
+          components: [buildIntroPanel(guildConfig.defaultLocale)],
+          flags: [MessageFlags.IsComponentsV2],
+        })
+        .catch(() => {});
+      this.audit.record({
+        guildId: message.guildId,
+        source: 'agent',
+        action: 'assistant.intro',
+        actorId: message.author.id,
+        metadata: {},
+      });
+      return;
+    }
 
     try {
       await withTypingIndicator(message, () => this.converse(message, guildConfig.defaultLocale));
