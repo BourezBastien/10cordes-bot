@@ -1,5 +1,8 @@
-import { Injectable } from '@spraxium/common';
+import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
 import { PrismaService } from '../database/prisma.service';
+import { GuildConfigService } from '../guild-config/guild-config.service';
+import { ToolRegistryService } from '../tool-registry/tool-registry.service';
+import { makeStatusTool } from '../../shared/tools/status-tool';
 
 export const XP_PER_LEVEL_BASE = 100;
 
@@ -19,11 +22,35 @@ export interface GrantResult {
 }
 
 @Injectable()
-export class LevelsService {
+export class LevelsService implements SpraxiumOnBoot {
   /** Cooldown XP par utilisateur (en mémoire — reset au restart, non bloquant). */
   private readonly cooldowns = new Map<string, number>();
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: GuildConfigService,
+    private readonly registry: ToolRegistryService,
+  ) {}
+
+  async onBoot(): Promise<void> {
+    this.registry.register(
+      makeStatusTool({
+        name: 'levels.status',
+        category: 'levels',
+        description: 'Levels system setup on this server: enabled state, XP rate, rewards.',
+        summary: async (guildId) => {
+          const c = await this.config.get(guildId);
+          return [
+            `**Système** : ${c.levels.enabled ? 'activé' : 'désactivé'}`,
+            `**XP/message** : ${c.levels.xpPerMessage}`,
+            `**Cooldown** : ${c.levels.cooldownMinutes} min`,
+            `**Annonces** : ${c.levels.announceChannelId ? `<#${c.levels.announceChannelId}>` : 'canal courant'}`,
+            `**Récompenses** : ${c.levels.roleRewards.length} rôle(s)`,
+          ].join(' · ');
+        },
+      }),
+    );
+  }
 
   isOnCooldown(guildId: string, userId: string, cooldownMs: number): boolean {
     if (cooldownMs <= 0) return false;

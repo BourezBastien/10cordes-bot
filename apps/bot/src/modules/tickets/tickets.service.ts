@@ -1,7 +1,9 @@
-import { Injectable } from '@spraxium/common';
+import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
 import { PermissionFlagsBits, Client, type Guild, type GuildMember, type User } from 'discord.js';
 import { PrismaService } from '../database/prisma.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
+import { ToolRegistryService } from '../tool-registry/tool-registry.service';
+import { makeStatusTool } from '../../shared/tools/status-tool';
 
 export interface OpenedTicket {
   channelId: string;
@@ -9,12 +11,34 @@ export interface OpenedTicket {
 }
 
 @Injectable()
-export class TicketsService {
+export class TicketsService implements SpraxiumOnBoot {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: GuildConfigService,
     private readonly client: Client,
+    private readonly registry: ToolRegistryService,
   ) {}
+
+  async onBoot(): Promise<void> {
+    this.registry.register(
+      makeStatusTool({
+        name: 'tickets.status',
+        category: 'tickets',
+        description: 'Ticket system setup on this server: category, staff role, panel and logs channels.',
+        summary: async (guildId) => {
+          const c = await this.config.get(guildId);
+          const line = (label: string, id: string | null): string =>
+            `**${label}** : ${id ? `<#${id}>` : 'non configuré'}`;
+          return [
+            line('Catégorie', c.tickets.categoryId),
+            line('Salon du panneau', c.tickets.panelChannelId),
+            `**Rôle staff** : ${c.tickets.staffRoleId ? `<@&${c.tickets.staffRoleId}>` : 'non configuré'}`,
+            line('Transcripts', c.tickets.logChannelId),
+          ].join(' · ');
+        },
+      }),
+    );
+  }
 
   private async nextNumber(guildId: string): Promise<number> {
     const counter = await this.prisma.ticketCounter.upsert({

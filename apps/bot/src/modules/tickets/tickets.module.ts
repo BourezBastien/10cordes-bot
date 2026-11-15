@@ -1,5 +1,6 @@
 import { Module } from '@spraxium/common';
 import { GuildConfigModule } from '../guild-config/guild-config.module';
+import { ToolRegistryModule } from '../tool-registry/tool-registry.module';
 import {
   TicketCategoryHandler,
   TicketLogsHandler,
@@ -15,7 +16,7 @@ import { TicketsService } from './tickets.service';
 import { SetupCommand } from '../setup/setup.schema';
 
 @Module({
-  imports: [GuildConfigModule],
+  imports: [GuildConfigModule, ToolRegistryModule],
   commands: [SetupCommand],
   handlers: [
     TicketCategoryHandler,

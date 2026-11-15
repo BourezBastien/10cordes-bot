@@ -1,12 +1,20 @@
 import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
+import type { BotTool } from '@10cordes/shared';
+import { z } from 'zod';
 import { safeFetch } from '../../shared/utils/safe-fetch';
 import { AppEnv } from '../../app.env';
 import { PrismaService } from '../database/prisma.service';
+import { ToolRegistryService } from '../tool-registry/tool-registry.service';
+import { ImagelabService } from '../imagelab/imagelab.service';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
   tool_call_id?: string;
+  /** Requis sur le message assistant qui précède des messages tool (exigé par l'API). */
+  tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>;
+  /** Modèle thinking : le reasoning_content doit être renvoyé tel quel à l'écho assistant. */
+  reasoning_content?: string | null;
 }
 
 export interface OpenAiTool {
@@ -26,6 +34,7 @@ export interface ToolCallRequest {
 
 export interface ChatCompletionResult {
   content: string | null;
+  reasoningContent: string | null;
   toolCalls: ToolCallRequest[];
 }
 
@@ -72,6 +81,8 @@ export class LlmService implements SpraxiumOnBoot {
   constructor(
     private readonly env: AppEnv,
     private readonly prisma: PrismaService,
+    private readonly registry: ToolRegistryService,
+    private readonly imagelab: ImagelabService,
   ) {}
 
   async onBoot(): Promise<void> {
@@ -83,6 +94,33 @@ export class LlmService implements SpraxiumOnBoot {
     } catch {
       // Table pas encore migrée au tout premier boot : l'env prend le relais.
     }
+    this.registry.register(this.statusTool());
+  }
+
+  /** Tool ia.status : l'agent vérifie lui-même l'état des connexions IA. */
+  private statusTool(): BotTool {
+    return {
+      name: 'ia.status',
+      description: 'Connexion IA de cette instance : fournisseur, modèle, clé (masquée), PixelLab.',
+      category: 'assistant',
+      paramsSchema: z.object({}).loose(),
+      requiredModules: [],
+      permissions: ['ManageGuild'],
+      destructive: false,
+      systemPrompt:
+        'Read-only. Call FIRST when the user asks whether the IA/DeepSeek/provider is configured, connected or working.',
+      handler: async () => {
+        const status = this.status();
+        const lines =
+          status.source === 'none'
+            ? ['IA non connectée : aucun fournisseur. L\'owner peut la connecter via la modale (bouton du panneau).']
+            : [
+                `IA connectée via ${status.source === 'modal' ? 'la modale' : "l'environnement"} : ${status.provider} / \`${status.model}\` (clé ${status.maskedKey}).`,
+              ];
+        lines.push(this.imagelab.configured ? 'PixelLab connecté.' : 'PixelLab non configuré.');
+        return { ok: true, summary: lines.join(' '), data: { ...status, pixellab: this.imagelab.configured } };
+      },
+    };
   }
 
   get configured(): boolean {
@@ -178,6 +216,7 @@ export class LlmService implements SpraxiumOnBoot {
       choices?: Array<{
         message?: {
           content?: string | null;
+          reasoning_content?: string | null;
           tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }>;
         };
       }>;
@@ -185,6 +224,7 @@ export class LlmService implements SpraxiumOnBoot {
     const message = data.choices?.[0]?.message;
     return {
       content: message?.content ?? null,
+      reasoningContent: message?.reasoning_content ?? null,
       toolCalls: (message?.tool_calls ?? []).map((call) => ({
         id: call.id,
         name: fromApiToolName(call.function.name),

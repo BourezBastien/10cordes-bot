@@ -29,7 +29,7 @@ export class ToolRegistryService {
     private readonly audit: AuditService,
   ) {
     registryInstance = this;
-    for (const tool of builtinTools(modules, configService, audit)) this.register(tool);
+    for (const tool of builtinTools(this, modules, configService, audit)) this.register(tool);
   }
 
   register(tool: BotTool): void {
@@ -115,6 +115,7 @@ export class ToolRegistryService {
 
 /** Tools système builtin — les modules en ajoutent d'autres via `register()`. */
 function builtinTools(
+  registry: ToolRegistryService,
   modules: ModuleManagerService,
   configService: GuildConfigService,
   audit: AuditService,
@@ -124,6 +125,39 @@ function builtinTools(
     ctx.guildId !== null;
 
   return [
+    {
+      name: 'tools.list',
+      description: 'List the tools the CALLER can use right now, filtered by their Discord permissions and active modules.',
+      category: 'tool-registry',
+      paramsSchema: z.object({}).loose(),
+      requiredModules: [],
+      permissions: [],
+      destructive: false,
+      systemPrompt:
+        'Call when the user asks what you can do. Summarize by category; the registry already excluded what the user cannot use.',
+      handler: async (_input, ctx) => {
+        const active = await modules.activeModules(ctx.guildId);
+        const isAdmin = ctx.permissions.includes('Administrator');
+        const usable = registry
+          .list()
+          .filter((tool) => tool.requiredModules.every((id) => active.has(id)))
+          .filter(
+            (tool) => isAdmin || (tool.permissions ?? []).every((permission) => ctx.permissions.includes(permission)),
+          );
+        const byCategory = new Map<string, string[]>();
+        for (const tool of usable) {
+          const names = byCategory.get(tool.category) ?? [];
+          names.push(`\`${tool.name}\``);
+          byCategory.set(tool.category, names);
+        }
+        const lines = [...byCategory.entries()].map(([category, names]) => `**${category}** : ${names.join(' ')}`);
+        return {
+          ok: true,
+          summary: `${usable.length} tools accessibles à cet utilisateur. ${lines.join(' · ')}`,
+          data: { count: usable.length, byCategory: Object.fromEntries(byCategory) },
+        };
+      },
+    },
     {
       name: 'modules.list',
       description: 'List modules and their enabled state (global + per-server).',

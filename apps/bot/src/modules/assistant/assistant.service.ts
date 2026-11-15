@@ -3,7 +3,7 @@ import { Logger } from '@spraxium/logger';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, MessageFlags, type Message } from 'discord.js';
 import { z } from 'zod';
 import type { BotTool, ToolRunContext } from '@10cordes/shared';
-import { LlmService, type ChatMessage, type OpenAiTool } from './llm.service';
+import { LlmService, toApiToolName, type ChatMessage, type OpenAiTool } from './llm.service';
 import { IA_CONFIG_BUTTON_ID } from './components/ia-config.components';
 import { panel } from '../../shared/ui';
 import { LocaleService } from '../locale/locale.service';
@@ -279,6 +279,9 @@ export class AssistantService {
 
     let finalText: string | null = null;
     let userScoped = false;
+    // Progression visible : un message éphémère édité à chaque étape, supprimé à la réponse finale.
+    const progress = await message.reply({ content: '🧠 Analyse de ta demande...' }).catch(() => null);
+    const executed: string[] = [];
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
       const completion = await this.llm.chat(messages, openAiTools, {
         userId: message.author.id,
@@ -286,7 +289,18 @@ export class AssistantService {
       });
 
       if (completion.toolCalls.length > 0) {
-        messages.push({ role: "assistant", content: completion.content ?? "" });
+        // L'API exige que le message assistant porte SES tool_calls : les tool
+        // messages qui suivent y répondent par tool_call_id.
+        messages.push({
+          role: "assistant",
+          content: completion.content ?? "",
+          reasoning_content: completion.reasoningContent ?? "",
+          tool_calls: completion.toolCalls.map((call) => ({
+            id: call.id,
+            type: "function" as const,
+            function: { name: toApiToolName(call.name), arguments: call.arguments },
+          })),
+        });
         for (const call of completion.toolCalls) {
           let input: unknown = {};
           try {
@@ -295,6 +309,12 @@ export class AssistantService {
             input = {};
           }
           const result = await this.registry.run(call.name, input, ctx);
+          executed.push(call.name);
+          if (progress) {
+            await progress
+              .edit({ content: `🧠 ${executed.map((name) => `\`${name}\``).join(' · ')}${result.ok ? ' ✓' : ' ✗'}...` })
+              .catch(() => {});
+          }
           if (result.ok && this.registry.get(call.name)?.scope === "user") {
             userScoped = true;
           }
@@ -322,6 +342,10 @@ export class AssistantService {
 
     if (finalText === null) {
       finalText = "J'ai traité ta demande via les tools - vérifie les résultats ci-dessus.";
+    }
+
+    if (progress) {
+      await progress.delete().catch(() => {});
     }
 
     // Info personnelle (scope "user") → réponse en MP, le canal ne garde qu'un accusé éphémère.
