@@ -2,7 +2,7 @@
 
 # 10cordes-bot
 
-**The modular, agentic Discord bot — every feature is a module, every module is a command away.**
+**The modular, agentic Discord bot - every feature is a module, every module is a command away.**
 
 Built on [Spraxium](https://github.com/spraxium/spraxium) (discord.js v14) · TypeScript · Prisma · Fully typed
 
@@ -16,17 +16,17 @@ Built on [Spraxium](https://github.com/spraxium/spraxium) (discord.js v14) · Ty
 
 ---
 
-> ⚠️ **This repository is private during active development.** Public release comes later — the structure (releases, CI, contributing) is already production-grade.
+> ⚠️ **This repository is private during active development.** Public release comes later - the structure (releases, CI, contributing) is already production-grade.
 
 ## ✨ Highlights
 
-- 🧩 **Everything is a module** — enable/disable any feature live, globally **and per server**, with a **dependency graph**: disabling `economy` cleanly cascades to `shop`, unless `shop` is required by another active module.
-- 🛡️ **Per-module governance** — channel whitelists, required roles, per-user cooldowns, **mod quotas by role** (e.g. *3 mutes/hour max for moderators*), admin bypass — all configurable from Discord, no restart.
-- 🌍 **Language follows the user** — every user picks their own language (`/language`); auto-detected from their Discord client on first interaction. Never imposed by the server.
-- 📦 **One typed config per guild** — a single Zod-validated JSON document (`packages/shared`), editable via `/config` or transferable between servers (`/config export` / `/config import`).
-- 💬 **Native Components V2 rendering** — every reply is a bordered container with text sections; embeds are the exception, not the rule.
-- ⚡ **Live-edit everything** — every write goes through the same service layer used by slash commands: instant effect, persisted, cache-invalidated.
-- 🔐 **Safety-first agentic admin (roadmap)** — plan → human confirmation → execute, **archive by default** (never hard-delete), destructive actions restricted to owner + ID whitelist.
+- 🧩 **Everything is a module** - enable/disable any feature live, globally **and per server**, with a **dependency graph**: disabling `economy` cleanly cascades to `shop`, unless `shop` is required by another active module.
+- 🛡️ **Per-module governance** - channel whitelists, required roles, per-user cooldowns, **mod quotas by role** (e.g. *3 mutes/hour max for moderators*), admin bypass - all configurable from Discord, no restart.
+- 🌍 **Language follows the user** - every user picks their own language (`/language`); auto-detected from their Discord client on first interaction. Never imposed by the server.
+- 📦 **One typed config per guild** - a single Zod-validated JSON document (`packages/shared`), editable via `/config` or transferable between servers (`/config export` / `/config import`).
+- 💬 **Native Components V2 rendering** - every reply is a bordered container with text sections; embeds are the exception, not the rule.
+- ⚡ **Live-edit everything** - every write goes through the same service layer used by slash commands: instant effect, persisted, cache-invalidated.
+- 🔐 **Safety-first agentic admin (roadmap)** - plan → human confirmation → execute, **archive by default** (never hard-delete), destructive actions restricted to owner + ID whitelist.
 
 ## 🧰 Commands (P0 foundation)
 
@@ -68,14 +68,14 @@ Full architecture: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) · Feature bac
 
 ## 🧩 Adding a module
 
-1. Scaffold `apps/bot/src/modules/<feature>/` — `commands/`, `handlers/`, `<feature>.module.ts`
+1. Scaffold `apps/bot/src/modules/<feature>/` - `commands/`, `handlers/`, `<feature>.module.ts`
 2. Register in the catalog: `module.catalog.ts` (`id`, `label`, `commands`, `dependsOn`, `recommends`)
 3. Add its Zod schema + tools in `packages/shared` if it exposes new config or agent tools
-4. Import the module in `apps/bot/src/app.module.ts` — done, it is toggleable like the rest
+4. Import the module in `apps/bot/src/app.module.ts` - done, it is toggleable like the rest
 
 ## 🗺 Roadmap
 
-See [docs/ROADMAP.md](./docs/ROADMAP.md) — enriched from 200+ validated community suggestions: welcome cards, logging, moderation with case system, reaction roles, leveling, tickets, **agentic Discord administration** (plan → confirm → execute), realtime games, multi-provider AI (OpenRouter/OpenAI/Gemini/Ollama), and more.
+See [docs/ROADMAP.md](./docs/ROADMAP.md) - enriched from 200+ validated community suggestions: welcome cards, logging, moderation with case system, reaction roles, leveling, tickets, **agentic Discord administration** (plan → confirm → execute), realtime games, multi-provider AI (OpenRouter/OpenAI/Gemini/Ollama), and more.
 
 ## 🤝 Contributing
 

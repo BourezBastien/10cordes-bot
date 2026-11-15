@@ -1,6 +1,7 @@
 {
   "name": "10cordes",
   "private": true,
+  "packageManager": "pnpm@12.18.0",
   "engines": {
     "node": ">=22"
   },

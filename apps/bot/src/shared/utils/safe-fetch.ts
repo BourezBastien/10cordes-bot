@@ -13,9 +13,10 @@ const BLOCKED_HOST_PATTERNS = [
 
 /**
  * Fetch restreint : https uniquement, host validé (jamais localhost / privé / réservé).
- * Utilisé pour télécharger des fichiers distants fournis par des interactions (ex: import de config).
+ * Utilisé pour télécharger des fichiers distants fournis par des interactions (ex: import de config)
+ * et appeler des APIs externes (ex: PixelLab).
  */
-export async function safeFetch(url: string): Promise<Response> {
+export async function safeFetch(url: string, init?: RequestInit): Promise<Response> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -26,5 +27,5 @@ export async function safeFetch(url: string): Promise<Response> {
   if (BLOCKED_HOST_PATTERNS.some((pattern) => pattern.test(parsed.hostname))) {
     throw new Error(`Blocked host: ${parsed.hostname}`);
   }
-  return fetch(parsed);
+  return fetch(parsed, init);
 }

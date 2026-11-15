@@ -35,4 +35,22 @@ export class AppEnv extends SpraxiumBaseEnv {
   @Secret()
   @IsString()
   HTTP_API_KEY?: string;
+
+  /** PixelLab API — génération pixel art (icônes, emojis). Requis pour le module image. */
+  @Env('PIXELLAB_API_KEY')
+  @IsOptional()
+  @Secret()
+  @IsString()
+  PIXELLAB_API_KEY?: string;
+
+  /** DeepSeek (LLM de l'agent) — https://api.deepseek.com, compatible OpenAI. */
+  @Env('DEEPSEEK_API_KEY')
+  @IsOptional()
+  @Secret()
+  @IsString()
+  DEEPSEEK_API_KEY?: string;
+
+  @Env('DEEPSEEK_MODEL', { default: 'deepseek-flash', secret: false })
+  @IsString()
+  DEEPSEEK_MODEL!: string;
 }

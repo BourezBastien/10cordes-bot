@@ -15,6 +15,12 @@ data/
 .env
 .env.*
 !.env.example
+.mcp.json
+
+# ── Tooling local state (never commit) ───────────────────────
+.zcode/
+.mimosa/
+.video_agent/
 
 # ── Logs ─────────────────────────────────────────────────────
 *.log

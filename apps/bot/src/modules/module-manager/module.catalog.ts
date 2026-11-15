@@ -7,13 +7,6 @@ import type { ModuleDescriptor } from '@10cordes/shared';
  */
 export const MODULE_CATALOG: ModuleDescriptor[] = [
   {
-    id: 'ping',
-    label: 'Ping',
-    description: 'Latency check command.',
-    commands: ['ping'],
-    dependsOn: [],
-  },
-  {
     id: 'logging',
     label: 'Logging',
     description: 'Message, member, voice and ban logs routed per category.',

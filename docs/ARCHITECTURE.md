@@ -1,7 +1,7 @@
-# 🏗️ Architecture — 10cordes-bot
+# 🏗️ Architecture - 10cordes-bot
 
 > Plan d'architecture détaillé pour validation. Complète [ROADMAP.md](./ROADMAP.md) (périmètre fonctionnel enrichi de l'analyse des 200+ suggestions communautaires Crow Bots).
-> Décisions validées : **Prisma**, **config guild JSON typé**, **dashboard React (plus tard)**, **better-auth + Discord (Lucia déprécié — confirmé)**, **Zod**, **OpenRouter inclus**, **slash commands uniquement**, **langue par utilisateur**, **modules avec dépendances**, **ToolRegistry façon MCP (chat + vocal + HTTP)**, **partage d'écran bot : impossible/ToS → rejeté**.
+> Décisions validées : **Prisma**, **config guild JSON typé**, **dashboard React (plus tard)**, **better-auth + Discord (Lucia déprécié - confirmé)**, **Zod**, **OpenRouter inclus**, **slash commands uniquement**, **langue par utilisateur**, **modules avec dépendances**, **ToolRegistry façon MCP (chat + vocal + HTTP)**, **partage d'écran bot : impossible/ToS → rejeté**.
 
 ---
 
@@ -31,14 +31,14 @@
 |---|---|---|
 | Framework | Spraxium 0.9.x (existant) | modules/DI/guards/exceptions déjà en place |
 | ORM | **Prisma** + SQLite (`file:./data/bot.db`) | validé ; switch Postgres = provider + URL ; migrations propres ; adapter Prisma pour better-auth |
-| Validation | **Zod** (+ `packages/shared`) | source de vérité unique config/DTO ; la ValidationPipe de @spraxium/http (class-validator) ne sera pas utilisée — parse Zod manuel dans les controllers |
+| Validation | **Zod** (+ `packages/shared`) | source de vérité unique config/DTO ; la ValidationPipe de @spraxium/http (class-validator) ne sera pas utilisée - parse Zod manuel dans les controllers |
 | Dates/durées | `dayjs` + parsing custom `1h30m` | reminders, cooldowns, giveaways |
 | Images welcome | `@napi-rs/canvas` (P2) | binaires précompilés, rapide, sans build natif |
 | IA | **AI SDK (Vercel)** + `@openrouter/ai-sdk-provider` officiel + `@ai-sdk/openai` + `@ai-sdk/google` + Ollama via `@ai-sdk/openai-compatible` | interface `generateText/streamText` unifiée ; OpenRouter = 300+ modèles ; fallback natif |
 | Tests | `vitest` | standard écosystème |
 | Lint/format | **Biome** | même choix que le framework Spraxium ; remplace ESLint+Prettier |
 
-### 2.2 Dashboard (`apps/dashboard`, phase 2 — spécifié maintenant pour ne pas bloquer l'API)
+### 2.2 Dashboard (`apps/dashboard`, phase 2 - spécifié maintenant pour ne pas bloquer l'API)
 
 | Domaine | Choix | Pourquoi |
 |---|---|---|
@@ -57,10 +57,10 @@
 
 - **Tokens** (mode dark par défaut) : `--color-canvas #111114`, `--color-surface #19191E`, `--color-border #303038`, texte `#F2F2F5`, muted `#A0A0AD`, accent vert `#72C99B` (série de charts 1-8 reprise pour les graphs).
 - **Typo** : IBM Plex Sans (variable) + IBM Plex Mono.
-- **Radius** : controls `.375rem`, cards `.5rem`, overlays `.75rem` (vos screenshots) — **pas de rounded-2xl TailAdmin sur les overlays**.
+- **Radius** : controls `.375rem`, cards `.5rem`, overlays `.75rem` (vos screenshots) - **pas de rounded-2xl TailAdmin sur les overlays**.
 - **Zéro ombre sur les surfaces** : cartes = `border` + fond, profondeur uniquement sur overlays (dropdown/dialog) via ombre douce `--shadow-theme-lg`.
 - **Dark mode** : classe `.dark` + Provider light/dark/system persisté localStorage (pattern TailAdmin).
-- **Rendu Discord : Components V2 systématique** — tout message du bot (vues, confirmations, logs) est rendu en composants natifs (`Container`/`TextDisplay`/`Section`/`Separator`, flag `MessageFlags.IsComponentsV2`). Le code n'utilise **aucun suffixe « v2 »** : c'est le rendu de base — helpers dans `apps/bot/src/shared/ui/` (`ui.card()`, `ui.panel()`). Les embeds restent réservés aux cas où un composant n'a pas d'équivalent.
+- **Rendu Discord : Components V2 systématique** - tout message du bot (vues, confirmations, logs) est rendu en composants natifs (`Container`/`TextDisplay`/`Section`/`Separator`, flag `MessageFlags.IsComponentsV2`). Le code n'utilise **aucun suffixe « v2 »** : c'est le rendu de base - helpers dans `apps/bot/src/shared/ui/` (`ui.card()`, `ui.panel()`). Les embeds restent réservés aux cas où un composant n'a pas d'équivalent.
 
 ## 3. Structure du monorepo
 
@@ -94,7 +94,7 @@
 
 Règles de dépendance : `bot → shared ← dashboard`. Interdiction d'importer `discord.js` ou Prisma depuis `shared` (reste isomorphe/léger).
 
-## 4. Couche API REST (dès P0 — le dashboard l'attendra)
+## 4. Couche API REST (dès P0 - le dashboard l'attendra)
 
 Basé sur le template `http-bot` + docs `@spraxium/http` :
 
@@ -123,9 +123,9 @@ export const httpConfig = defineHttp({
 - **Enveloppe réponse** : succès `{ … }` (JSON) ; erreurs `{ ok: false, error, details? }` via `HttpError` (BadRequestError 400, UnauthorizedError 401, ForbiddenError 403, NotFoundError 404, ConflictError 409, TooManyRequestsError 429…).
 - **Versioning** : tous les controllers sous `/api/v1/…` (`@HttpController('/api/v1/guilds')`).
 - **Rate limit** : `RateLimitMiddleware` sous-classé (`windowMs: 15_000, max: 100`) en middleware global.
-- **Règle framework respectée** : `@HttpClientModule` directement sur `AppModule` (jamais de module HTTP séparé — ignoré silencieusement sinon).
+- **Règle framework respectée** : `@HttpClientModule` directement sur `AppModule` (jamais de module HTTP séparé - ignoré silencieusement sinon).
 
-### 4.1 Auth (better-auth + Discord) — la pièce centrale
+### 4.1 Auth (better-auth + Discord) - la pièce centrale
 
 **Server** (`src/auth/auth.instance.ts`) :
 ```ts
@@ -143,13 +143,13 @@ export const auth = betterAuth({
   trustedOrigins: [env.DASHBOARD_ORIGIN],
 });
 ```
-- **Montage sans accès Hono brut** : `HttpMiddleware` global qui intercepte `ctx.req.path.startsWith('/api/auth')` → `return auth.handler(ctx.req.raw)` (un middleware peut court-circuiter en retournant une `Response` — supporté). *Point à vérifier à l'implémentation : ordre du middleware vs CORS (le préflight OPTIONS de /api/auth doit passer par CorsMiddleware — sinon intercepter aussi OPTIONS).*
+- **Montage sans accès Hono brut** : `HttpMiddleware` global qui intercepte `ctx.req.path.startsWith('/api/auth')` → `return auth.handler(ctx.req.raw)` (un middleware peut court-circuiter en retournant une `Response` - supporté). *Point à vérifier à l'implémentation : ordre du middleware vs CORS (le préflight OPTIONS de /api/auth doit passer par CorsMiddleware - sinon intercepter aussi OPTIONS).*
 - **Tables better-auth** : générées dans `schema.prisma` via `npx @better-auth/cli generate --output prisma/schema.prisma` (User, Session, Account, Verification). Re-générer après chaque ajout de plugin.
 
 **Guards API** (`src/auth/guards/`) :
-1. `SessionGuard implements HttpGuard` — `auth.api.getSession({ headers: ctx.req.raw.headers })` ; 401 sinon. Global sur `/api/v1`.
-2. `GuildAccessGuard` — sur `@HttpGuards` des routes `/guilds/:guildId/*` : vérifie que l'utilisateur de la session possède **ManageGuild ou Administrator** sur le guild (fetch discord.js via Client injecté, cache 5 min Map<guildId+userId>). 403 sinon.
-3. `ApiKeyGuard` — actif par config pour les appels serveur-à-serveur (webhooks, CI), contournement de session.
+1. `SessionGuard implements HttpGuard` - `auth.api.getSession({ headers: ctx.req.raw.headers })` ; 401 sinon. Global sur `/api/v1`.
+2. `GuildAccessGuard` - sur `@HttpGuards` des routes `/guilds/:guildId/*` : vérifie que l'utilisateur de la session possède **ManageGuild ou Administrator** sur le guild (fetch discord.js via Client injecté, cache 5 min Map<guildId+userId>). 403 sinon.
+3. `ApiKeyGuard` - actif par config pour les appels serveur-à-serveur (webhooks, CI), contournement de session.
 
 **Flux auth complet** :
 ```
@@ -158,7 +158,7 @@ Dashboard → GET /api/auth/signin/discord (signIn.social) → redirect Discord
 → Dashboard useSession() OK → GET /api/v1/guilds (liste des guilds Discord du user, cross user.accounts + guilds.bot)
 → pour chaque guild : bot présent ? user admin ? → UI liste des guilds gérables
 ```
-L'**invite du bot** passe par une URL OAuth séparée avec scope `bot` + `permissions` calculées (constante partagée dans `packages/shared`) — jamais mélangée au login (principe moindre privilège ; le scope `guilds` du login sert juste à lister les guilds du user).
+L'**invite du bot** passe par une URL OAuth séparée avec scope `bot` + `permissions` calculées (constante partagée dans `packages/shared`) - jamais mélangée au login (principe moindre privilège ; le scope `guilds` du login sert juste à lister les guilds du user).
 
 ### 4.2 Endpoints P0
 
@@ -170,7 +170,7 @@ L'**invite du bot** passe par une URL OAuth séparée avec scope `bot` + `permis
 | `PATCH /api/v1/guilds/:guildId/config` | Session + GuildAccess | Patch partiel → Zod parse → persist → invalidate cache |
 | `GET /api/v1/guilds/:guildId/modules` | Session + GuildAccess | États modules per-guild |
 | `PATCH /api/v1/guilds/:guildId/modules/:moduleId` | Session + GuildAccess | Toggle + whitelist (channels/roles/users) |
-| `GET /api/v1/meta/modules` | Session | Catalogue (id/label/description/commandes) — pour rendre l'UI générique |
+| `GET /api/v1/meta/modules` | Session | Catalogue (id/label/description/commandes) - pour rendre l'UI générique |
 | `GET /api/v1/meta/session` | Session | Profil courant (pour l'UI) |
 
 Convention live-edit : **toute écriture API passe par les mêmes services que les commandes Discord** (une seule implémentation, deux interfaces). Le dashboard n'est qu'un client de plus.
@@ -178,7 +178,7 @@ Convention live-edit : **toute écriture API passe par les mêmes services que l
 ## 5. Couche données (Prisma)
 
 ```prisma
-// P0 — socle (les tables better-auth s'ajoutent via le CLI à l'étape API)
+// P0 - socle (les tables better-auth s'ajoutent via le CLI à l'étape API)
 model Guild {
   id        String   @id                     // snowflake Discord
   settings  Json                             // GuildConfigSchema (Zod → JSON typé)
@@ -271,8 +271,8 @@ export const AiConfigSchema = z.object({
   budgetPerGuildPerDay: z.number().int().positive().default(50), // requêtes/jour
 });
 ```
-- Registry `AiProviderService` (bot) : construit le model AI SDK selon config (OpenRouter via `@openrouter/ai-sdk-provider`, clé lue depuis env `AI_PROVIDER_API_KEY`/`OPENROUTER_API_KEY` — **jamais en DB ni en dur**) ; `generateText`/`streamText` ; fallback automatique sur `fallbackModel` en cas d'erreur provider.
-- Budget : compteur `AiUsage` en DB (guild, jour, requêtes) — 429-like `RateLimitException` au-delà.
+- Registry `AiProviderService` (bot) : construit le model AI SDK selon config (OpenRouter via `@openrouter/ai-sdk-provider`, clé lue depuis env `AI_PROVIDER_API_KEY`/`OPENROUTER_API_KEY` - **jamais en DB ni en dur**) ; `generateText`/`streamText` ; fallback automatique sur `fallbackModel` en cas d'erreur provider.
+- Budget : compteur `AiUsage` en DB (guild, jour, requêtes) - 429-like `RateLimitException` au-delà.
 - Modules IA (résumé, traduction, modération assistée) : opt-in par serveur, jamais actifs par défaut.
 
 ## 9. Qualité & DX
@@ -300,11 +300,11 @@ Chaque étape = 1 PR reviewable. **Rien du dashboard ne bloque : l'API (étape 6
 
 ## 11. Risques & points à vérifier à l'implémentation
 
-1. **better-auth dans Hono via middleware** — le montage par `HttpMiddleware` (native `Response` pass-through) est supporté par le framework mais non testé avec better-auth ; fallback documenté : serveur better-auth autonome (port séparé) — l'API du bot reste inchangée.
-2. **OPTIONS preflight vs middleware d'auth** — s'assurer que CorsMiddleware précède l'interception `/api/auth` (ordre pipeline §4) sinon exclure OPTIONS dans le matcher.
-3. **Cookies cross-origin** — dashboard dev (5173) vs API (3000) : `credentials: true` + `trustedOrigins` + `sameSite: lax` (default better-auth). En prod, viser même domaine derrière reverse-proxy pour éviter les soucis de cookies tiers.
-4. **ValidationPipe vs Zod** — `@HttpBody(DtoClass)` du framework utilise class-validator ; on garde `@HttpBody()` brut + parse Zod explicite (DTOs Zod partagés). Ne jamais déclarer de DTO class-validator pour éviter deux sources de vérité.
-5. **Spraxium 0.x** — breaking changes possibles : pinner la version exacte dans `apps/bot/package.json`, surveiller les changelogs du framework.
+1. **better-auth dans Hono via middleware** - le montage par `HttpMiddleware` (native `Response` pass-through) est supporté par le framework mais non testé avec better-auth ; fallback documenté : serveur better-auth autonome (port séparé) - l'API du bot reste inchangée.
+2. **OPTIONS preflight vs middleware d'auth** - s'assurer que CorsMiddleware précède l'interception `/api/auth` (ordre pipeline §4) sinon exclure OPTIONS dans le matcher.
+3. **Cookies cross-origin** - dashboard dev (5173) vs API (3000) : `credentials: true` + `trustedOrigins` + `sameSite: lax` (default better-auth). En prod, viser même domaine derrière reverse-proxy pour éviter les soucis de cookies tiers.
+4. **ValidationPipe vs Zod** - `@HttpBody(DtoClass)` du framework utilise class-validator ; on garde `@HttpBody()` brut + parse Zod explicite (DTOs Zod partagés). Ne jamais déclarer de DTO class-validator pour éviter deux sources de vérité.
+5. **Spraxium 0.x** - breaking changes possibles : pinner la version exacte dans `apps/bot/package.json`, surveiller les changelogs du framework.
 
 ## 12. Modules & sous-modules : graphe de dépendances
 
@@ -316,14 +316,14 @@ Le catalogue (`ModuleDescriptor`) gagne `dependsOn: string[]` (obligatoires) et 
 
 Le guard bloque toute commande d'un module dont une dépendance est inactive (`ModuleDependencyException`). UI : `/modules disable` liste la cascade et demande confirmation (`confirm: true` en P0 ; upgrade boutons avec `@spraxium/components` en P1).
 
-## 13. i18n — langue par utilisateur (jamais par serveur)
+## 13. i18n - langue par utilisateur (jamais par serveur)
 
-Résolution : préférence explicite (`/language set`, `UserLocale.source = manual`) > **langue du client Discord** (`interaction.locale`, capturée automatiquement à la première interaction si aucune préférence — `source = auto`) > défaut du bot. Persistance Prisma (`UserLocale`) + cache mémoire. L'interface `I18nStore` de `@spraxium/i18n` est implémentée par ce store Prisma. Toute la chaîne (messages bot, exceptions, layouts, dashboard i18next) consomme la même résolution. Référence framework : `I18nService.tUser(userId, key, vars)`.
+Résolution : préférence explicite (`/language set`, `UserLocale.source = manual`) > **langue du client Discord** (`interaction.locale`, capturée automatiquement à la première interaction si aucune préférence - `source = auto`) > défaut du bot. Persistance Prisma (`UserLocale`) + cache mémoire. L'interface `I18nStore` de `@spraxium/i18n` est implémentée par ce store Prisma. Toute la chaîne (messages bot, exceptions, layouts, dashboard i18next) consomme la même résolution. Référence framework : `I18nService.tUser(userId, key, vars)`.
 
 ## 14. ToolRegistry (MCP interne) & Assistant
 
 ```ts
-// packages/shared — contrat
+// packages/shared - contrat
 interface BotTool {
   name: string;                    // "music.play", "channels.lock"
   description: string;
@@ -334,7 +334,7 @@ interface BotTool {
 ```
 
 - **Registry** central (`ToolRegistryService`) : enregistrement au boot par chaque module, exécution validée (Zod) + autorisée (modules actifs du guild).
-- **Frontends** : ① **chat** — mention du bot / canal dédié / DM ; ② **vocal** — `@discordjs/voice` + Silero VAD (ONNX, supérieur au WebRTC VAD) + STT (Deepgram streaming ou Whisper, Opus→PCM via prism-media/ffmpeg) + TTS ; ③ **MCP over HTTP** (P3) — le même registry exposé via `@spraxium/http`.
+- **Frontends** : ① **chat** - mention du bot / canal dédié / DM ; ② **vocal** - `@discordjs/voice` + Silero VAD (ONNX, supérieur au WebRTC VAD) + STT (Deepgram streaming ou Whisper, Opus→PCM via prism-media/ffmpeg) + TTS ; ③ **MCP over HTTP** (P3) - le même registry exposé via `@spraxium/http`.
 - **Résolution d'intention** : hooks déterministes d'abord (patterns de phrases fr/en par tool), puis **LLM tool-calling** (AI SDK : `generateText({ tools })` + OpenRouter/OpenAI/Gemini/Ollama) avec budget par guild (`AiUsage` en DB) et opt-in par serveur.
 - Inventory des tools : voir [ROADMAP.md §Tools](./ROADMAP.md#-inventory-des-tools-toolregistry-cible-200300).
 
@@ -344,7 +344,7 @@ interface BotTool {
 - **Auth** : Lucia déprécié (mars 2025, l'auteur recommande better-auth) → **better-auth confirmé**, Discord-only (email/password désactivé), adapter Prisma, cookie sessions, tables générées dans notre schema.
 - **Vocal** : Silero VAD > WebRTC VAD (filtrage du bruit) ; Deepgram pour le streaming, Whisper pour du batch.
 
-## 16. Agent Admin — architecture de sécurité (P2, flagship)
+## 16. Agent Admin - architecture de sécurité (P2, flagship)
 
 L'agent qui administre Discord par langage naturel suit le modèle **plan → confirmation → exécution → rapport → audit**, inspiré de la file d'actions typées wardhive :
 
@@ -353,44 +353,44 @@ demande utilisateur ("refais le serveur sur le thème de Noël")
 → LLM + tools → PLAN (liste d'ops typées, diff avant/après, rendu container V2)
 → vérifications AVANT proposition : perms Discord du demandeur (op par op)
    + perms du BOT (l'agent vérifie qu'il peut exécuter chaque op)
-→ confirmation humaine (bouton) — réservée selon l'op :
+→ confirmation humaine (bouton) - réservée selon l'op :
      destructif (delete) = owner + whitelist d'IDs (table admin_whitelist)
      créations/modifs    = ManageGuild / Administrator
 → exécution via file d'ops : union discriminée Zod
      channel.create|rename|archive|delete · role.create|update|delete
      permission.overwrite · automod.policy.set · server.remodel(theme)
    → jobs idempotents, snapshot ARCHIVÉ avant toute suppression
-     (archive = structure salons/rôles, restaurable — jamais de hard-delete en cascade)
+     (archive = structure salons/rôles, restaurable - jamais de hard-delete en cascade)
 → rapport d'exécution (container V2, par op : ✅/❌ + raison)
 → audit : acteur · plan JSON · qui a confirmé · résultat · coût IA (cause-typed)
 ```
 
-Règles système : le system prompt impose identité/ton (jamais d'insultes), politique de filtrage des messages, vérification des permissions AVANT toute proposition, protocole de confirmation obligatoire, refus hors périmètre. Traduction « policy-as-config » : *« supprime tous les liens et averti »* → règle automod Zod-typée (salons/rôles ciblés) passant par le même pipeline confirmé. Nuance API : AutoMod ne sait pas « avertir » → la demande se décompose en [règle AutoMod HARMFUL_LINK + block] + [handler bot `auto_moderation_action_execution` pour le warn] — les DEUX parties sont proposées explicitement (limits API : 6 règles keyword/guild, 1000 keywords/règle).
+Règles système : le system prompt impose identité/ton (jamais d'insultes), politique de filtrage des messages, vérification des permissions AVANT toute proposition, protocole de confirmation obligatoire, refus hors périmètre. Traduction « policy-as-config » : *« supprime tous les liens et averti »* → règle automod Zod-typée (salons/rôles ciblés) passant par le même pipeline confirmé. Nuance API : AutoMod ne sait pas « avertir » → la demande se décompose en [règle AutoMod HARMFUL_LINK + block] + [handler bot `auto_moderation_action_execution` pour le warn] - les DEUX parties sont proposées explicitement (limits API : 6 règles keyword/guild, 1000 keywords/règle).
 
 **10 règles d'or** (recherche Anthropic / OpenAI Agents SDK / LangGraph / discord-mcp, 2026) :
 
-1. **Fail-closed partout** — mode écriture par défaut = preview (mutations bloquées) ; requête ambiguë → question de clarification, jamais une mutation au meilleur jugement.
-2. **Confirmation avant TOUTE mutation** (pas seulement les destructives) — les tools read-only tournent libres ; tier 2 (créer/modifier) = confirmation légère, tier 3 (supprimer/ban/masse) = confirmation renforcée avec conséquences explicites.
-3. **Autoriser le CLIQUEUR, pas le demandeur** — le clic sur le bouton est une interaction fraîche : re-vérifier ses permissions à ce moment-là, jamais se fier à l'auteur du message initial.
-4. **Timeout = annulation** — sans confirmation en N minutes, la proposition expire (boutons désactivés, log) ; jamais d'auto-exécution.
+1. **Fail-closed partout** - mode écriture par défaut = preview (mutations bloquées) ; requête ambiguë → question de clarification, jamais une mutation au meilleur jugement.
+2. **Confirmation avant TOUTE mutation** (pas seulement les destructives) - les tools read-only tournent libres ; tier 2 (créer/modifier) = confirmation légère, tier 3 (supprimer/ban/masse) = confirmation renforcée avec conséquences explicites.
+3. **Autoriser le CLIQUEUR, pas le demandeur** - le clic sur le bouton est une interaction fraîche : re-vérifier ses permissions à ce moment-là, jamais se fier à l'auteur du message initial.
+4. **Timeout = annulation** - sans confirmation en N minutes, la proposition expire (boutons désactivés, log) ; jamais d'auto-exécution.
 5. **Trois gates indépendants ÉVALUÉS EN CODE, jamais dans le prompt** : (a) perms Discord du demandeur + position de rôle vs cible ; (b) capacités du bot (flags + rôle au-dessus de la cible) ; (c) allowlists config + deny rules non contournables même en bypass. Snapshot de hiérarchie injecté au prompt = contexte advisory seulement.
 6. **Archivage = états explicites** `active | archived | trashed` (jamais un booléen) : canal → renommé `#archive-…` + catégorie Archive, ou config capturée → suppression → restore-data avec purge programmée.
-7. **Une proposition = un plan exécutable complet** — tous les tool-calls gated batchés en UNE confirmation (pattern LangGraph batched interrupts), exécution de l'ensemble approuvé, atomique quand possible.
+7. **Une proposition = un plan exécutable complet** - tous les tool-calls gated batchés en UNE confirmation (pattern LangGraph batched interrupts), exécution de l'ensemble approuvé, atomique quand possible.
 8. **Tools conçus pour l'agent** : namespacés (`automod_rule_create`), consolidés (`set_channel_overwrite` au lieu de 3 primitives), erreurs actionnables (quoi/pourquoi/exemple corrigé), annotations `readOnlyHint`/`destructiveHint`.
-9. **Policy-as-config : Zod = contrat de sécurité** — l'IA ne fait que REMPLIR le schéma (structured output), jamais le contour ; limites API vérifiées avant proposition.
-10. **Audit intégral + exécution idempotente** — chaque proposition persistée (demande, plan, approbateur, résultat) ; audit-log reasons Discord sur chaque action ; clés d'idempotence pour qu'une approbation rejouée ne double-exécute pas ; readback post-exécution (« Activity Evidence ») pour vérifier l'état réel.
+9. **Policy-as-config : Zod = contrat de sécurité** - l'IA ne fait que REMPLIR le schéma (structured output), jamais le contour ; limites API vérifiées avant proposition.
+10. **Audit intégral + exécution idempotente** - chaque proposition persistée (demande, plan, approbateur, résultat) ; audit-log reasons Discord sur chaque action ; clés d'idempotence pour qu'une approbation rejouée ne double-exécute pas ; readback post-exécution (« Activity Evidence ») pour vérifier l'état réel.
 
-**Squelette du system prompt (10 sections)** — `<IDENTITY>` (opérateur délégué, jamais d'insulte, déclin neutre) · `<TONE_AND_MESSAGING>` (registre, langue du demandeur, interdits) · `<SCOPE>` (allow/deny explicites ; demande mixte valide+invalide = rejet total expliqué) · `<SERVER_CONTEXT>` (snapshot hiérarchie/perms injecté au runtime — advisory) · `<TOOL_USE_GUIDANCE>` (read-before-write, préférer archive à delete, jamais d'IDs devinés) · `<CONFIRMATION_PROTOCOL>` (jamais d'exécution sans proposal ID approuvé par bouton ; un « oui » en chat ne compte pas) · `<DESTRUCTIVE_ACTION_POLICY>` (archive-first, masse interdit sans confirmation multi-étapes, irréversibilité énoncée dans l'embed) · `<POLICY_TRANSLATION_RULES>` (schémas AutoMod, décompositions, questions à poser si ambigu) · `<ERROR_HANDLING>` (auto-correction si fixable, jamais de retry aveugle sur un destructif) · `<AUDIT_AND_REPORTING>` (rapport avec noms+IDs, dire quelle gate a refusé sans leak de config).
+**Squelette du system prompt (10 sections)** - `<IDENTITY>` (opérateur délégué, jamais d'insulte, déclin neutre) · `<TONE_AND_MESSAGING>` (registre, langue du demandeur, interdits) · `<SCOPE>` (allow/deny explicites ; demande mixte valide+invalide = rejet total expliqué) · `<SERVER_CONTEXT>` (snapshot hiérarchie/perms injecté au runtime - advisory) · `<TOOL_USE_GUIDANCE>` (read-before-write, préférer archive à delete, jamais d'IDs devinés) · `<CONFIRMATION_PROTOCOL>` (jamais d'exécution sans proposal ID approuvé par bouton ; un « oui » en chat ne compte pas) · `<DESTRUCTIVE_ACTION_POLICY>` (archive-first, masse interdit sans confirmation multi-étapes, irréversibilité énoncée dans l'embed) · `<POLICY_TRANSLATION_RULES>` (schémas AutoMod, décompositions, questions à poser si ambigu) · `<ERROR_HANDLING>` (auto-correction si fixable, jamais de retry aveugle sur un destructif) · `<AUDIT_AND_REPORTING>` (rapport avec noms+IDs, dire quelle gate a refusé sans leak de config).
 
-Réfs : [Anthropic — Writing effective tools](https://www.anthropic.com/research/writing-tools-for-agents) · [Claude Agent SDK — Permissions](https://code.claude.com/docs/en/agent-sdk/permissions) · [OpenAI Agents SDK — Human-in-the-loop](https://openai.github.io/openai-agents-python/human_in_the_loop/) · [LangGraph humanInTheLoopMiddleware](https://reference.langchain.com/javascript/langchain/index/humanInTheLoopMiddleware) · [cappyeo/discord-mcp](https://github.com/cappyeo/discord-mcp) (222 tools, preview-first, dry-run) · [KOBA789/human-in-the-loop](https://github.com/KOBA789/human-in-the-loop) (Discord comme canal d'approbation MCP) · [MCP Tools spec](https://modelcontextprotocol.io/docs/concepts/tools).
+Réfs : [Anthropic - Writing effective tools](https://www.anthropic.com/research/writing-tools-for-agents) · [Claude Agent SDK - Permissions](https://code.claude.com/docs/en/agent-sdk/permissions) · [OpenAI Agents SDK - Human-in-the-loop](https://openai.github.io/openai-agents-python/human_in_the_loop/) · [LangGraph humanInTheLoopMiddleware](https://reference.langchain.com/javascript/langchain/index/humanInTheLoopMiddleware) · [cappyeo/discord-mcp](https://github.com/cappyeo/discord-mcp) (222 tools, preview-first, dry-run) · [KOBA789/human-in-the-loop](https://github.com/KOBA789/human-in-the-loop) (Discord comme canal d'approbation MCP) · [MCP Tools spec](https://modelcontextprotocol.io/docs/concepts/tools).
 
-**Mémoire conversationnelle par canal** (pattern Discord-AI-Bot) : l'historique Discord est la mémoire — fetch des N derniers messages du canal, rendu `[Label (ID)] : contenu` avec préfixes inforgeables (contenu neutralisé), messages du bot = turns assistant. Pas d'état partagé entre canaux. Gate de triage : appel cheap model OUI/NON avant génération coûteuse (mention/DM bypass).
+**Mémoire conversationnelle par canal** (pattern Discord-AI-Bot) : l'historique Discord est la mémoire - fetch des N derniers messages du canal, rendu `[Label (ID)] : contenu` avec préfixes inforgeables (contenu neutralisé), messages du bot = turns assistant. Pas d'état partagé entre canaux. Gate de triage : appel cheap model OUI/NON avant génération coûteuse (mention/DM bypass).
 
 ## 17. Realtime bot ↔ dashboard
 
 Bot et API vivent dans le même process (§1) → **event bus interne** (EventEmitter typé) + broadcast **WebSocket** depuis Hono vers le dashboard (Salons configurés, modules togglés, audit en direct). Migration Postgres : `LISTEN/NOTIFY` remplace le bus interne sans changer le contrat des events. RethinkDB écarté (moins maintenu, PostgreSQL/SQLite couvrent le besoin).
 
-## 18. Jeux — trois couches de rendu
+## 18. Jeux - trois couches de rendu
 
 1. **Chat tour-par-tour** : limite ~5 msgs/5s/canal → boards rendus `@napi-rs/canvas` (Skia, zéro dep système, `imageSmoothingEnabled=false` pour le pixel net), contrôles boutons (`custom_id` typé), animations GIF via `gifenc`, assets CC0 Kenney/itch.io.
 2. **Discord Activities** (seul vrai realtime) : Embedded App SDK, Hono sert OAuth token exchange + SPA + **serveur Colyseus** sur le même process ; URL Mappings portail (dev : cloudflared) ; lancement via callback `LAUNCH_ACTIVITY` (type 12) ; rooms Colyseus indexées par `instanceId` du SDK ; WebSockets only (pas de WebRTC derrière le proxy Discord).
@@ -400,7 +400,7 @@ Réfs : discord/embedded-app-sdk (1.4k⭐) · colyseus/discord-activity · embed
 
 ## 19. Audit & error boundary
 
-- **AuditService** (pattern wardhive) : `record(guildId, source, action, actor, target, metadata)` fire-and-forget — une erreur d'audit n'échoue jamais sur l'action ; **feed unifié** mergant les tables hétérogènes (audit, sanctions, logs messages, ops agentic, jeux) en timeline normalisée.
+- **AuditService** (pattern wardhive) : `record(guildId, source, action, actor, target, metadata)` fire-and-forget - une erreur d'audit n'échoue jamais sur l'action ; **feed unifié** mergant les tables hétérogènes (audit, sanctions, logs messages, ops agentic, jeux) en timeline normalisée.
 - **Coûts IA** (pattern Discord-AI-Bot) : table `model_usage` clé `cause` (reply | triage | admin-agent | game …), tokens + prix via API OpenRouter → page audit = « qui a fait quoi + ce que ça a coûté ».
 - **Error boundary** : tout throw non géré → layout utilisateur (langue du user) + log structuré (Logger.error) + option salon d'incidents ; jamais de stack côté utilisateur.
 
