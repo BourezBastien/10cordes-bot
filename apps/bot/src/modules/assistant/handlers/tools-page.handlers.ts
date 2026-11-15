@@ -1,40 +1,47 @@
-import { Button, ButtonHandler } from '@spraxium/components';
+import { Button, ButtonHandler, V2Service } from '@spraxium/components';
 import { MessageFlags, type ButtonInteraction } from 'discord.js';
-import { getToolsPage, renderToolsNavRow, renderToolsPanel } from '../tools.panel';
+import { TOOLS_PER_PAGE, getToolsPage } from '../tools.panel';
+import { ToolsListContainer } from '../v2.containers';
 
-@Button({ customId: 'tools:prev', label: '⬅', style: 'secondary' })
+@Button({ customId: 'tools:nav-prev', label: '<', style: 'secondary' })
 export class ToolsPrevButton {}
 
-@Button({ customId: 'tools:next', label: '➡', style: 'secondary' })
+@Button({ customId: 'tools:nav-next', label: '>', style: 'secondary' })
 export class ToolsNextButton {}
 
-function paginate(interaction: ButtonInteraction, delta: number): void {
+async function paginate(interaction: ButtonInteraction, delta: number, v2: V2Service): Promise<void> {
   const state = getToolsPage(interaction.message.id);
   if (!state) {
-    void interaction.reply({ content: '⌛ Panneau expiré : relance ta demande.', flags: MessageFlags.Ephemeral }).catch(() => {});
+    void interaction.reply({ content: 'Panneau expiré : relance ta demande.', flags: MessageFlags.Ephemeral }).catch(() => {});
     return;
   }
-  const pages = Math.max(1, Math.ceil(state.tools.length / 12));
+  const pages = Math.max(1, Math.ceil(state.tools.length / TOOLS_PER_PAGE));
   state.page = Math.min(Math.max(0, state.page + delta), pages - 1);
-  void interaction.update({
-    components: [
-      renderToolsPanel(state) as unknown as never,
-      renderToolsNavRow(state.page > 0, state.page < pages - 1) as unknown as never,
-    ],
-    flags: MessageFlags.IsComponentsV2,
+  const payload = await v2.buildReply(ToolsListContainer, {
+    intro: state.intro ?? '',
+    tools: state.tools,
+    page: state.page,
+  });
+  await interaction.update({
+    components: payload.components as never,
+    flags: payload.flags as never,
   });
 }
 
 @ButtonHandler(ToolsPrevButton)
 export class ToolsPrevHandler {
+  constructor(private readonly v2: V2Service) {}
+
   async handle(interaction: ButtonInteraction): Promise<void> {
-    paginate(interaction, -1);
+    await paginate(interaction, -1, this.v2);
   }
 }
 
 @ButtonHandler(ToolsNextButton)
 export class ToolsNextHandler {
+  constructor(private readonly v2: V2Service) {}
+
   async handle(interaction: ButtonInteraction): Promise<void> {
-    paginate(interaction, 1);
+    await paginate(interaction, 1, this.v2);
   }
 }

@@ -9,16 +9,17 @@ import { panel } from '../../shared/ui';
 import { LocaleService } from '../locale/locale.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
+import { V2Service } from '@spraxium/components';
 import { AuditService } from '../audit/audit.service';
 import { MemoryService } from '../memory/memory.service';
 import { AssistantQueue } from './assistant.queue';
-import { buildIntroPanel } from './intro.panel';
-import { renderToolsNavRow, renderToolsPanel, storeToolsPanel } from './tools.panel';
+import { IntroContainer, type IntroData, ToolsListContainer, type ToolsData, TOOLS_PER_PAGE } from './v2.containers';
+import { storeToolsPanel } from './tools.panel';
 
 const log = new Logger('Assistant');
 
 const MAX_ITERATIONS = 8;
-const USER_COOLDOWN_MS = 8_000;
+const USER_COOLDOWN_MS = 4_000;
 const TRANSCRIPT_SIZE = 12;
 const TYPING_REFRESH_MS = 8_000;
 const ACK_TTL_MS = 15_000;
@@ -82,7 +83,7 @@ function buildSystemPrompt(
     "</IDENTITY_RULES>",
     "<TONE_AND_MESSAGING>",
     `Réponds toujours dans la langue : ${locale}. Ton professionnel, bref, chaleureux quand le contexte s'y prête.`,
-    "Format : Discord markdown léger. CONCIS (2 à 6 phrases maximum, jamais de tableaux ni de listes exhaustives reformatées : les panneaux paginés s'en chargent).",
+    "Format : Discord markdown léger, AUCUN emoji dans tes réponses. CONCIS (2 à 6 phrases maximum, jamais de tableaux ni de listes exhaustives reformatées : les panneaux paginés s'en chargent).",
     "Pas de tournures d'assistant générique : va droit au but.",
     "</TONE_AND_MESSAGING>",
     "<SCOPE_AND_PERMISSIONS>",
@@ -142,6 +143,7 @@ export class AssistantService {
     private readonly audit: AuditService,
     private readonly memory: MemoryService,
     private readonly queue: AssistantQueue,
+    private readonly v2: V2Service,
     private readonly client: Client,
   ) {
     // Le worker de la file traite chaque demande via handleMention.
@@ -180,7 +182,12 @@ export class AssistantService {
     const last = this.cooldowns.get(cooldownKey);
     if (last !== undefined && Date.now() - last < USER_COOLDOWN_MS) {
       const waitSeconds = Math.ceil((USER_COOLDOWN_MS - (Date.now() - last)) / 1_000);
-      await message.reply({ content: `⏳ Patiente encore ${waitSeconds}s entre deux demandes.` }).catch(() => {});
+      const cooldownReply = await message
+        .reply({ content: `Antispam : attends encore ${waitSeconds}s avant ta prochaine demande.` })
+        .catch(() => null);
+      if (cooldownReply) {
+        setTimeout(() => cooldownReply.delete().catch(() => {}), 6_000).unref?.();
+      }
       return;
     }
 
@@ -224,17 +231,43 @@ export class AssistantService {
       stripped.length === 0 ||
       /^(salut|bonjour|hello|yo|hey|coucou|slt|bjr|ping|hi)[\s!.,?]*$/i.test(stripped);
     if (bareGreeting) {
+      const displayName = message.member?.displayName ?? message.author.globalName ?? message.author.username;
+      const staff =
+        message.guild.ownerId === message.author.id ||
+        (message.member?.permissions.has(PermissionFlagsBits.ManageGuild) ?? false);
+      const introData: IntroData = {
+        displayName,
+        staff,
+        avatarUrl: this.client.user?.displayAvatarURL({ size: 128 }) ?? '',
+        roleLine: staff
+          ? `Ton **administrateur Discord délégué** : je pilote ton serveur de A à Z, sous tes ordres, ${displayName}.`
+          : `L'**assistant IA du serveur** : pose tes questions, demande ton rang, navigue dans les tags, ${displayName}.`,
+        permsLine:
+          "Je vérifie toujours tes permissions avant d'agir, et je demande confirmation avant tout acte destructeur.",
+        talkLines: [
+          '- **Mentionne-moi** avec ta demande : `@10cordes active les logs`',
+          "- **Réponds** à l'une de mes réponses pour continuer",
+          '- **Salon dédié IA** : `/setup` → Agent IA',
+        ].join('\n'),
+        exampleLines: staff
+          ? [
+              '- `configure les logs dans #logs` · `crée un salon annonces`',
+              '- `bannis ce trouble-maker` (je demande confirmation) · `présente le serveur`',
+              '- `/setup` pour le panneau complet · `/help` pour tout',
+            ].join('\n')
+          : [
+              '- `mon rang` · `le classement` · `montre-moi le tag règles`',
+              '- Partage tes préférences : ma mémoire les retient',
+              '- `/help` pour tout',
+            ].join('\n'),
+        memoryLine:
+          'Mémoire persistante · permissions vérifiées · confirmation humaine sur le destructeur',
+      };
+      const introPayload = await this.v2.buildReply(IntroContainer, introData);
       await message
         .reply({
-          components: [
-            buildIntroPanel(
-              guildConfig.defaultLocale,
-              message.member?.displayName ?? message.author.globalName ?? message.author.username,
-              message.guild.ownerId === message.author.id ||
-                (message.member?.permissions.has(PermissionFlagsBits.ManageGuild) ?? false),
-            ),
-          ],
-          flags: [MessageFlags.IsComponentsV2],
+          components: introPayload.components as never,
+          flags: introPayload.flags as never,
         })
         .catch(() => {});
       this.audit.record({
@@ -357,7 +390,7 @@ export class AssistantService {
     const progressState: { message: Message | null } = { message: null };
     const progressTimer = setTimeout(() => {
       void message
-        .reply({ content: '⏳ Génération en cours...' })
+        .reply({ content: 'Génération en cours…' })
         .then((sent) => {
           progressState.message = sent;
         })
@@ -469,9 +502,14 @@ export class AssistantService {
           // MP impossible (fermés, webhook...) ou panne Discord : fallback salon,
           // en texte brut si le panneau lui-même est refusé.
           log.error(`Réponse panneau échouée : ${error instanceof Error ? error.message : String(error)}`);
-          const fallback = { content: lines.join(' | ').slice(0, 1900) };
-          if (toAuthor) await message.author.send(fallback).catch(() => message.reply(fallback).catch(() => {}));
-          else await message.reply(fallback).catch(() => {});
+          if (toAuthor) {
+            // MP indisponible : le contenu personnel ne fuite JAMAIS en salon.
+            await message
+              .reply({ content: "Je ne peux pas t'envoyer de message privé (MP fermés ?). Ouvre-les puis relance ta demande." })
+              .catch(() => {});
+          } else {
+            await message.reply({ content: lines.join(' | ').slice(0, 1900) }).catch(() => {});
+          }
         }
       };
       if (!finalText) return;
@@ -484,21 +522,24 @@ export class AssistantService {
       }
     };
 
-    // Réponse dédiée tools.list : panneau V2 paginé, DÉTERMINISTE (le LLM ne
-    // reformate pas la liste — il ne produit qu'une phrase d'intro courte).
+    // Réponse dédiée tools.list : container V2 paginé, DÉTERMINISTE (le LLM ne
+    // reformate pas la liste — sa phrase sert d'intro au panneau).
     if (toolsCards && !userScoped) {
-      finalText = `Voici les ${toolsCards.length} tools auxquels tu as accès — navigue avec ⬅ ➡ ci-dessus.`;
+      const toolsData: ToolsData = {
+        intro: finalText ?? '',
+        tools: toolsCards,
+        page: 0,
+      };
+      const toolsPayload = await this.v2.buildReply(ToolsListContainer, toolsData);
       const panelMessage = await message
         .reply({
-          components: [
-            renderToolsPanel({ tools: toolsCards, page: 0 }) as unknown as never,
-            renderToolsNavRow(toolsCards.length <= 12, toolsCards.length > 12) as unknown as never,
-          ],
-          flags: [MessageFlags.IsComponentsV2],
+          components: toolsPayload.components as never,
+          flags: toolsPayload.flags as never,
         })
         .catch(() => null);
-      if (panelMessage) storeToolsPanel(panelMessage.id, { tools: toolsCards, page: 0 });
+      if (panelMessage) storeToolsPanel(panelMessage.id, { tools: toolsCards, page: 0, intro: toolsData.intro });
       toolsCards = null;
+      finalText = '';
     }
 
     // Info personnelle (scope "user") → réponse en MP, le canal ne garde qu'un accusé éphémère.
