@@ -194,6 +194,8 @@ export class LlmService implements SpraxiumOnBoot {
     }));
 
     const response = await safeFetch(`${baseUrl}/chat/completions`, {
+      // Modèle thinking : la génération non streamée peut dépasser la minute.
+      timeoutMs: 180_000,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

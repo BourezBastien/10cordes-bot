@@ -5,7 +5,6 @@ import { GuildConfigModule } from '../guild-config/guild-config.module';
 import { LocaleModule } from '../locale/locale.module';
 import { ToolRegistryModule } from '../tool-registry/tool-registry.module';
 import { IaConfigureButtonHandler, IaConfigureModalSubmitHandler } from './handlers/ia-config.handlers';
-import { IaStatusHandler } from './handlers/ia-status.handler';
 import { AssistantMentionListener } from './listeners/assistant-mention.listener';
 import { AssistantService } from './assistant.service';
 import { LlmService } from './llm.service';
@@ -13,7 +12,7 @@ import { LlmService } from './llm.service';
 @Module({
   imports: [AuditModule, GuildConfigModule, ImagelabModule, LocaleModule, ToolRegistryModule],
   listeners: [AssistantMentionListener],
-  handlers: [IaConfigureButtonHandler, IaConfigureModalSubmitHandler, IaStatusHandler],
+  handlers: [IaConfigureButtonHandler, IaConfigureModalSubmitHandler],
   providers: [AssistantService, LlmService],
   exports: [LlmService],
 })

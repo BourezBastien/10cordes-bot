@@ -126,6 +126,15 @@ export class AssistantService {
     private readonly client: Client,
   ) {}
 
+  /** Salon dédié configuré (vide = aucun) — le listener y engage toute conversation. */
+  async dedicatedChannelId(): Promise<string | null> {
+    for (const guild of this.client.guilds.cache.values()) {
+      const config = await this.config.get(guild.id).catch(() => null);
+      if (config?.assistant.channelId) return config.assistant.channelId;
+    }
+    return null;
+  }
+
   async handleMention(message: Message): Promise<void> {
     if (!message.guild || !message.guildId || !message.channelId) return;
 
@@ -279,14 +288,26 @@ export class AssistantService {
 
     let finalText: string | null = null;
     let userScoped = false;
-    // Progression visible : un message éphémère édité à chaque étape, supprimé à la réponse finale.
-    const progress = await message.reply({ content: '🧠 Analyse de ta demande...' }).catch(() => null);
+    // Progression PRIVÉE : éditée dans les MP de l'utilisateur (fallback salon auto-supprimé).
+    const publicProgress = await message.reply({ content: '🧠 Analyse de ta demande...' }).catch(() => null);
+    let progress: { edit: (payload: { content: string }) => Promise<unknown>; delete: () => Promise<unknown> } | null =
+      publicProgress;
+    const dmProgress = await message.author.send({ content: '🧠 Analyse de ta demande...' }).catch(() => null);
+    if (dmProgress) {
+      progress = dmProgress;
+      if (publicProgress) await publicProgress.delete().catch(() => {});
+    }
     const executed: string[] = [];
+    const loopState: { error: Error | null } = { error: null };
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
       const completion = await this.llm.chat(messages, openAiTools, {
         userId: message.author.id,
         guildId: message.guildId,
+      }).catch((error: unknown) => {
+        loopState.error = error instanceof Error ? error : new Error(String(error));
+        return null;
       });
+      if (!completion) break;
 
       if (completion.toolCalls.length > 0) {
         // L'API exige que le message assistant porte SES tool_calls : les tool
@@ -341,6 +362,14 @@ export class AssistantService {
     }
 
     if (finalText === null) {
+      if (loopState.error) {
+        if (progress) {
+          await progress
+            .edit({ content: `❌ Erreur IA : ${loopState.error.message.slice(0, 180)}` })
+            .catch(() => {});
+        }
+        throw loopState.error;
+      }
       finalText = "J'ai traité ta demande via les tools - vérifie les résultats ci-dessus.";
     }
 
@@ -348,19 +377,35 @@ export class AssistantService {
       await progress.delete().catch(() => {});
     }
 
+    // Réponse riche : panneau Components V2 (rendu embed) tant que la taille le permet.
+    const sendAnswer = async (toAuthor: boolean): Promise<void> => {
+      const post = async (lines: string[]): Promise<void> => {
+        const payload = {
+          components: [panel({ title: '🤖 10cordes', lines, accentColor: 0xd9_59_26 })],
+          flags: MessageFlags.IsComponentsV2,
+        };
+        if (toAuthor) await message.author.send(payload as never).catch(() => {});
+        else await message.reply(payload as never).catch(() => {});
+      };
+      if (!finalText) return;
+      if (finalText.length <= 1500) {
+        await post([finalText]);
+        return;
+      }
+      for (const chunk of splitReplyChunks(finalText)) {
+        await post([chunk]);
+      }
+    };
+
     // Info personnelle (scope "user") → réponse en MP, le canal ne garde qu'un accusé éphémère.
     if (userScoped) {
-      for (const chunk of splitReplyChunks(finalText)) {
-        await message.author.send({ content: chunk }).catch(() => {});
-      }
+      await sendAnswer(true);
       const ack = await message.reply({ content: "📩 Réponse envoyée en message privé." }).catch(() => null);
       if (ack) {
         setTimeout(() => ack.delete().catch(() => {}), ACK_TTL_MS).unref?.();
       }
     } else {
-      for (const chunk of splitReplyChunks(finalText)) {
-        await message.reply({ content: chunk }).catch(() => {});
-      }
+      await sendAnswer(false);
     }
     this.audit.record({
       guildId: message.guildId,

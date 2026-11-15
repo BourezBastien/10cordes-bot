@@ -16,7 +16,10 @@ const BLOCKED_HOST_PATTERNS = [
  * Utilisé pour télécharger des fichiers distants fournis par des interactions (ex: import de config)
  * et appeler des APIs externes (ex: PixelLab).
  */
-export async function safeFetch(url: string, init?: RequestInit): Promise<Response> {
+export async function safeFetch(
+  url: string,
+  init?: RequestInit & { timeoutMs?: number },
+): Promise<Response> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -27,5 +30,6 @@ export async function safeFetch(url: string, init?: RequestInit): Promise<Respon
   if (BLOCKED_HOST_PATTERNS.some((pattern) => pattern.test(parsed.hostname))) {
     throw new Error(`Blocked host: ${parsed.hostname}`);
   }
-  return fetch(parsed, init);
+  const { timeoutMs = 30_000, ...rest } = init ?? {};
+  return fetch(parsed, { ...rest, signal: AbortSignal.timeout(timeoutMs) });
 }

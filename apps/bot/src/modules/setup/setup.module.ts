@@ -1,22 +1,84 @@
 import { Module } from '@spraxium/common';
-import { SetupHandler } from './setup.command';
+import { AssistantModule } from '../assistant/assistant.module';
+import { AuditModule } from '../audit/audit.module';
+import { GuildConfigModule } from '../guild-config/guild-config.module';
+import { ImagelabModule } from '../imagelab/imagelab.module';
+import { ModuleManagerModule } from '../module-manager/module-manager.module';
+import { ToolRegistryModule } from '../tool-registry/tool-registry.module';
+import { SetupHandler } from './setup.handlers';
+import { HelpCommand, HelpHandler } from './setup.help';
 import { SetupCommand } from './setup.schema';
 import {
-  SetupAssistantChannelSelectHandler,
   SetupAssistantClearHandler,
-  SetupLanguageSelectHandler,
-  SetupWelcomeChannelSelectHandler,
+  SetupBackHandler,
+  SetupCategoryHandler,
+  SetupConfigKeyHandler,
+  SetupConfigValueHandler,
+  SetupLanguageHandler,
+  SetupLevelsChannelHandler,
+  SetupLevelsToggleHandler,
+  SetupLogsCatHandler,
+  SetupLogsChannelHandler,
+  SetupModChannelHandler,
+  SetupModDerankHandler,
+  SetupModulesDisableHandler,
+  SetupModulesEnableHandler,
+  SetupModulesPickHandler,
+  SetupRolesAddHandler,
+  SetupRolesChannelHandler,
+  SetupRolesPostHandler,
+  SetupRolesRefreshHandler,
+  SetupTicketsCategoryHandler,
+  SetupTicketsLogsHandler,
+  SetupTicketsPanelHandler,
+  SetupTicketsPostHandler,
+  SetupTicketsStaffHandler,
+  SetupWelcomeAutoroleHandler,
+  SetupWelcomeChannelHandler,
+  SetupWelcomeDeleteLeaveHandler,
   SetupWelcomeToggleHandler,
 } from './setup.handlers';
 
 @Module({
-  commands: [SetupCommand],
+  imports: [
+    AssistantModule,
+    AuditModule,
+    GuildConfigModule,
+    ImagelabModule,
+    ModuleManagerModule,
+    ToolRegistryModule,
+  ],
+  commands: [SetupCommand, HelpCommand],
   handlers: [
     SetupHandler,
-    SetupLanguageSelectHandler,
-    SetupWelcomeChannelSelectHandler,
+    HelpHandler,
+    SetupCategoryHandler,
+    SetupBackHandler,
+    SetupModulesPickHandler,
+    SetupModulesEnableHandler,
+    SetupModulesDisableHandler,
+    SetupWelcomeChannelHandler,
+    SetupWelcomeAutoroleHandler,
     SetupWelcomeToggleHandler,
-    SetupAssistantChannelSelectHandler,
+    SetupWelcomeDeleteLeaveHandler,
+    SetupLogsCatHandler,
+    SetupLogsChannelHandler,
+    SetupTicketsCategoryHandler,
+    SetupTicketsStaffHandler,
+    SetupTicketsPanelHandler,
+    SetupTicketsLogsHandler,
+    SetupTicketsPostHandler,
+    SetupRolesAddHandler,
+    SetupRolesChannelHandler,
+    SetupRolesPostHandler,
+    SetupRolesRefreshHandler,
+    SetupLevelsToggleHandler,
+    SetupLevelsChannelHandler,
+    SetupModChannelHandler,
+    SetupModDerankHandler,
+    SetupConfigKeyHandler,
+    SetupConfigValueHandler,
+    SetupLanguageHandler,
     SetupAssistantClearHandler,
   ],
 })

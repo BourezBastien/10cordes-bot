@@ -235,6 +235,40 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       },
     },
     {
+      name: 'discord.message.purge',
+      description:
+        "Supprime en masse les messages récents d'un salon (par lots de 100, max 1000, uniquement les moins de 14 jours).",
+      category: 'agent',
+      paramsSchema: z.object({
+        channelId: z.string().min(1).optional(),
+        count: z.number().int().min(1).max(1000).default(100),
+      }),
+      requiredModules: [],
+      permissions: ['ManageMessages'],
+      destructive: false,
+      systemPrompt:
+        'Bulk delete, irreversible. When the user asks to wipe a whole channel, confirm the scope first, then purge in batches until done.',
+      handler: async (input, ctx) => {
+        const guild = guildOf(ctx);
+        if (!guild) return noGuild();
+        const { channelId, count } = input as { channelId?: string; count?: number };
+        const targetId = channelId || ctx.channelId || '';
+        const channel = await guild.channels.fetch(targetId).catch(() => null);
+        if (!channel || !channel.isTextBased()) return { ok: false, summary: 'Salon introuvable ou non textuel.' };
+        if (!guild.members.me?.permissions.has(PermissionFlagsBits.ManageMessages)) {
+          return { ok: false, summary: "Le bot n'a pas la permission ManageMessages." };
+        }
+        const budget = count ?? 100;
+        let deleted = 0;
+        for (let round = 0; round < 10 && deleted < budget; round++) {
+          const batch = await channel.bulkDelete(Math.min(100, budget - deleted), true).catch(() => null);
+          if (!batch || batch.size === 0) break;
+          deleted += batch.size;
+        }
+        return { ok: true, summary: `🧹 ${deleted} message(s) supprimé(s) dans <#${channel.id}>.` };
+      },
+    },
+    {
       name: 'discord.channel.delete',
       description: 'Supprime un salon — passe obligatoirement par un plan confirmé (snapshot archivé avant suppression).',
       category: 'agent',

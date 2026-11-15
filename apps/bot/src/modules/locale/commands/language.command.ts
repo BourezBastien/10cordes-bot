@@ -2,7 +2,7 @@ import { SlashCommand, SlashOption, SlashSubcommand } from '@spraxium/common';
 
 // Handlers : LanguageSetHandler, LanguageViewHandler, LanguageResetHandler.
 // La langue est propre à CHAQUE utilisateur — indépendante du serveur.
-@SlashCommand({ name: 'language', description: 'Set your own bot language (per user, not per server).' })
+@SlashCommand({ name: 'lang', description: 'Ta langue personnelle du bot (fr/en, auto-détectée sinon).' })
 export class LanguageCommand {
   @SlashOption.String('locale', {
     description: 'Preferred language',
