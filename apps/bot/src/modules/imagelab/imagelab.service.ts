@@ -1,7 +1,7 @@
 import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
 import { z } from 'zod';
 import { safeFetch } from '../../shared/utils/safe-fetch';
-import type { AppEnv } from '../../app.env';
+import { AppEnv } from '../../app.env';
 import type { BotTool, ToolResult } from '@10cordes/shared';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 

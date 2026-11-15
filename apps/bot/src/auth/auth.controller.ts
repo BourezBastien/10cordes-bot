@@ -1,7 +1,7 @@
 import { HttpCtx, HttpController, HttpGet, HttpPost } from '@spraxium/http';
 import type { Context } from 'hono';
-import type { AppEnv } from '../app.env';
-import type { PrismaService } from '../modules/database/prisma.service';
+import { AppEnv } from '../app.env';
+import { PrismaService } from '../modules/database/prisma.service';
 import { getAuth } from './auth.instance';
 
 /**

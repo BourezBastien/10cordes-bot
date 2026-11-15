@@ -1,6 +1,6 @@
 import { Injectable } from '@spraxium/common';
 import { safeFetch } from '../../shared/utils/safe-fetch';
-import type { AppEnv } from '../../app.env';
+import { AppEnv } from '../../app.env';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
