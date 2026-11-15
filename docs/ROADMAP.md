@@ -169,12 +169,13 @@
 
 **B. Agent Admin — tout gérer Discord par langage naturel** (P2, flagship) :
 - **Capacités** : créer / renommer / archiver / supprimer salons, catégories, rôles ; gérer les permission overwrites par canal ; construire un serveur sur mesure depuis une demande (« refais le serveur sur le thème de Noël » = plan multi-étapes) ; configurer des **politiques** en langage naturel → règles structurées : *« supprime tous les liens postés et averti l'utilisateur »* → automod rule Zod-typée avec salons/rôles ciblés.
-- **Sécurité non négociable** (patterns wardhive + Discord-AI-Bot) :
-  1. **Plan → confirmation humaine → exécution** : l'agent produit un **plan** (liste d'ops typées, diff avant/après) rendu en container ; exécution uniquement après clic d'un utilisateur autorisé.
-  2. **Archivage par défaut** : toute suppression = snapshot archivé (structure salons/rôles, façon backup wardhive `merge|replicate`) + restauration possible ; le hard-delete est une action séparée, jamais en cascade.
-  3. **Destructif = owner + whitelist d'IDs Discord** (table `admin_whitelist`) ; tout le reste (créations/modifs) = `ManageGuild`/`Administrator` + perms du **bot** vérifiées op par op (l'agent vérifie qu'il PEUT faire l'action avant de la proposer).
-  4. **File d'actions typées** (pattern wardhive) : union discriminée Zod d'ops (`channel.create|archive|delete`, `role.create|update|delete`, `permission.overwrite`, `automod.policy.set`…) → job idempotent → exécution → rapport d'exécution → audit.
-  5. **System prompt ultra-poussé** (recherche dédiée en cours) : identité + ton (jamais d'insultes), politique de filtrage, règles de vérification des permissions AVANT proposition, protocole de confirmation, refus hors périmètre.
+- **Sécurité non négociable** (recherche 2026 : Anthropic / OpenAI Agents SDK / LangGraph / discord-mcp — détails ARCHITECTURE §16) :
+  1. **Plan → confirmation humaine → exécution** : l'agent produit un **plan** (liste d'ops typées, diff avant/après) rendu en container ; UNE seule confirmation pour tout le plan batché ; exécution idempotente (clés) + readback de vérification.
+  2. **Fail-closed** : mode écriture par défaut = preview ; ambiguïté = question de clarification ; **timeout = annulation** ; le clic sur le bouton re-vérifie les permissions du CLIQUEUR (pas du demandeur initial).
+  3. **Archivage par défaut** : états `active | archived | trashed`, snapshot restaurable avant suppression ; hard-delete = action séparée jamais en cascade ; ops de masse interdites sans confirmation multi-étapes.
+  4. **Destructif = owner + whitelist d'IDs Discord** (`admin_whitelist`) ; tout le reste = `ManageGuild`/`Administrator` ; **trois gates évalués en code** (demandeur / bot / config), le prompt ne fait qu'informer.
+  5. **File d'actions typées** : union discriminée Zod → jobs idempotents → rapport par op → audit complet ; tools namespacés/consolidés avec erreurs actionnables.
+  6. **System prompt 10 sections** (IDENTITY, TONE, SCOPE, SERVER_CONTEXT, TOOL_USE_GUIDANCE, CONFIRMATION_PROTOCOL, DESTRUCTIVE_ACTION_POLICY, POLICY_TRANSLATION_RULES, ERROR_HANDLING, AUDIT) — squelette complet en ARCHITECTURE §16.
 - **Audit** : chaque op agentic → journal audit (acteur, action, cible, metadata, plan JSON, qui a confirmé) + table de coûts IA par cause.
 
 **C. Games** (voir §4.8) et commandes utilitaires IA (`/translate`, `/summarize`) s'appuient sur le même socle.
