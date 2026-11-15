@@ -12,6 +12,11 @@ export interface ModuleDescriptor {
   group?: string;
   /** Modules obligatoires — si inactifs, ce module est bloqué. */
   dependsOn: string[];
+  /**
+   * Modules optionnels — sans eux, une PARTIE de la fonctionnalité est indisponible
+   * (le module reste utilisable). Ex: `birthdays` sans `economy` = pas de cadeau.
+   */
+  optionalDeps?: string[];
   /** Modules conseillés — proposés (jamais imposés) à l'activation. */
   recommends?: string[];
 }

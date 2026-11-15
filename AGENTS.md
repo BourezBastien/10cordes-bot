@@ -2,64 +2,64 @@
 
 ## Project
 
-**10cordes-bot** — a Discord bot built on the **Spraxium** framework (`@spraxium/*` v0.9.x), which wraps **discord.js v14** with a NestJS-style decorator/module system. Private, ESM (`"type": "module"`), pnpm, Node `^22 || ^24 || ^26`.
+**10cordes-bot** — modular all-in-one Discord bot (slash commands only) built on the **Spraxium** framework (`@spraxium/*` v0.9.x, wraps discord.js v14). pnpm monorepo, ESM, Node 22/24/26, Prisma 6 + SQLite, Zod everywhere, **Components V2 as the default rendering** (no "v2" suffixes in names — it is the base UI, helpers live in `apps/bot/src/shared/ui`).
+
+## Monorepo
+
+```
+apps/bot          Spraxium bot (+ REST API & better-auth at the API step)
+packages/shared   @10cordes/shared — Zod schemas, dependency-graph engine, template engine
+docs/             ROADMAP.md (feature backlog) · ARCHITECTURE.md (deep dive)
+```
+
+Dependency rule: `apps/bot → @10cordes/shared ← future dashboard`. Nothing hardcoded: config = Zod schemas in shared; strings flagged for i18n; durations via `parseDurationMs`.
 
 ## Framework resources (read before adding features)
 
-- **Framework source (monorepo, version of record):** `C:\Users\Bastien\Documents\Projects\Discord Bot Framework examples\spraxium` — packages in `packages/` (core, common, env, components, http, i18n, schedule, signal, logger, webhook, cli), runnable examples in `apps/` (slash-bot, guard-bot, components-bot, modal-bot, schedule-bot…), ORM scaffolds in `templates/database/`. If docs disagree with installed behavior, **trust this source**.
-- **Docs site source (cloned from github.com/spraxium/docs):** `C:\Users\Bastien\Documents\Projects\Discord Bot Framework examples\spraxium-docs` — English docs in `en/<topic>/`, plus `articles/` and `changelogs/`. Locales: `en`, `es`, `pt`.
-- **Doc map (`en/`):** `getting-started/` (modules, providers & lifecycle) · `slash-commands/` (options, subcommands, defer, autocomplete, guards) · `listeners/` · `guards/` · `exceptions/` · `configuration/` (config fields, dev loading, plugins) · `env/` · `cli/` · `components/` + `modals/` (buttons, selects, modals, embeds) · `prefix-commands/` · `schedule/` · `i18n/` · `http/` · `logger/` · `presence/` · `sharding/` · `signal/` · `webhook/`.
+- **Framework source (version of record):** `C:\Users\Bastien\Documents\Projects\Discord Bot Framework examples\spraxium` — packages in `packages/`, runnable examples in `apps/`, ORM scaffolds in `templates/database/`. If docs disagree with installed behavior, trust this source.
+- **Docs site source:** `...\Discord Bot Framework examples\spraxium-docs` (locales `en/es/pt`) — full doc map inside.
+- **Reference bots (read-only inspiration):** `...\Discord Bot Framework examples\reference-bots\` — skyra (settings/i18n patterns), discord-tickets (Prisma/i18n/tickets), CorwinDev+saiteja (multipurpose patterns + anti-patterns), Discord-AI-Bot (per-channel AI memory, triage gate, typed tools), wardhive (typed action queue, RBAC guards, audit service, geolock).
 
-## Commands
+## Commands (run at repo root unless noted)
 
 ```bash
-pnpm dev            # spraxium dev — SWC watcher; behavior from `dev` block of spraxium.config.ts
-pnpm build          # spraxium build — tsc --noEmit typecheck first, then tsdown → .spraxium/dist
-pnpm start          # spraxium start — runs built artifact with NODE_ENV=production
-npx tsc --noEmit    # typecheck only (no lint/test tooling is set up — don't invent any)
-npx spraxium g <schematic> <name>   # scaffold + auto-register into the target module
+pnpm dev            # builds @10cordes/shared then spraxium dev (in apps/bot)
+pnpm build          # build all workspaces (shared → dist, then spraxium build → .spraxium/dist)
+pnpm typecheck      # tsc --noEmit in every workspace (bot typecheck builds shared first)
+pnpm test           # vitest (packages/shared has the suites; bot uses --passWithNoTests)
+pnpm lint           # eslint (@bluzzi/eslint-config, flat config in eslint.config.mjs)
+pnpm --filter 10cordes-bot exec prisma migrate dev   # DB migrations (Prisma 6 pinned)
 ```
-
-Useful `spraxium g` schematics: `module` (m), `service` (s), `listener` (l), `slash-command` (sc) + `slash-handler` (sh) pairs, `guard` (gu), `button` (btn), `select` (sel), `modal` (md), `embed` (em), `task` (t) / `interval-task` (it). Module-scoped schematics prompt for a target module and auto-register; `module` itself does **not** auto-register — wire it into `AppModule.imports` yourself. Process lock: a second `dev`/`start` instance exits; use `--force-unlock` if stale.
 
 ## Architecture
 
-- `src/main.ts` — only file touching `SpraxiumFactory`: validate env → `SpraxiumFactory.create({ token })` → `useModule(AppModule)` → `provide(AppEnv, env)` → `intents(IntentPreset.Standard)` → `listen()`.
-- `src/app.module.ts` — root module; feature modules must be in its `imports` array or nothing inside them loads (silently).
-- `src/app.env.ts` — `@EnvSchema()` class extending `SpraxiumBaseEnv` (which already declares `DISCORD_TOKEN`, optional `DISCORD_CLIENT_ID`, `NODE_ENV`). Add vars as `@Env('NAME', { default?, secret? })` + validators (`IsString`, `IsNumber`, `IsBoolean`, `IsDiscordId`, `IsPort`, `IsUrl`, `IsEnum`, `IsOptional`, …) from `@spraxium/env`. All fields are **masked by default** (`secret: true`) — pass `secret: false` for non-sensitive values.
-- `spraxium.config.ts` + `config/*.config.ts` — `defineConfig((env) => ({...}))` from `@spraxium/core`. `env` derives from `NODE_ENV` read once at startup (`production` → isProd; `neutral|staging|test` → isNeutral; **anything else/unset → isDev**). Feature packages plug in via `plugins: [defineSchedule({...}), defineI18n({...}), ...]`; per-plugin factories live in `config/`.
+- `apps/bot/src/main.ts` — only file touching `SpraxiumFactory`: validate env → create → `useModule(AppModule)` → `provide(AppEnv)` → `useGlobalGuards(ModuleEnabledGuard)` → `intents(Standard)` → `listen()`.
+- `apps/bot/src/app.module.ts` — root module; every feature module must be in `imports`.
+- `apps/bot/src/app.env.ts` — `@EnvSchema()` extending `SpraxiumBaseEnv`; all fields masked unless `secret: false`.
+- `apps/bot/prisma/schema.prisma` — `Guild` (settings JSON-as-String, Zod-parsed), `GuildModuleState` (enabled + constraints JSON), `UserLocale`. better-auth tables come later via CLI.
 
-### Runtime module toggling (`src/modules/module-manager/`)
+### Feature module convention (`apps/bot/src/modules/<feature>/`)
 
-Every feature module is toggleable at runtime via `/modules list|enable|disable` (Administrator-only), persisted to `output/module-states.json` (absent = enabled). The framework has no runtime load/unload — modules stay loaded and are soft-blocked instead:
+Command classes = schema only; handler classes = logic only; follow `modules/ping/` and `modules/guild-config/`.
 
-- `module.catalog.ts` — **add an entry here when creating a feature module**: `{ id, label, description, commands: [root slash command names] }`. This is what lets the guard map a command to its module.
-- `ModuleEnabledGuard` — registered globally in `main.ts`; blocks cataloged commands of disabled modules with `ModuleDisabledException`. Unknown commands pass through (keeps `/modules` itself reachable).
-- `ModuleManagerService` (exported) — other modules inject it to check `isEnabled('<id>')` in **listeners** and component handlers (early-return when disabled; the guard only covers commands).
-- Note: `ModuleStateStore` is an import-time singleton because global guards are `new`-instantiated per interaction without DI — do not `new` another store instance.
-
-### Feature module convention (`src/modules/<feature>/`)
-
-Follow `modules/ping/`. Command classes = schema only (no logic, no service imports); handler classes = logic only.
-
-- `commands/<name>.command.ts` — `@SlashCommand({ name, description, defaultMemberPermissions?, dmPermission?, guild? })` class with empty `build()`; options are stacked `@SlashOption.<Type>(name, { description, required?, ... })` method decorators on `build()` (String/Integer/Number/Boolean/User/Channel/Role/Mentionable/Attachment). Subcommands: `@SlashSubcommand` on methods; groups: `@SlashSubcommandGroup` class + `@SlashSubcommandGroups([...])` stacked above `@SlashCommand` — group classes stay in the parent command file and are **not** listed in `commands`.
-- `handlers/<name>-command.handler.ts` — `@SlashCommandHandler(CommandClass, { sub?, group? })` class with `handle()`. Params: `@Ctx()` for the interaction + typed option params (`@SlashStringOption('name')`, `SlashUserOption`, `SlashChannelOption`, …). Long work: `@Defer({ ephemeral? })` or `@AutoDefer({ threshold? })` (default 2000ms) on the handler class; reply via `interaction.reply()` either way. Autocomplete: `autocomplete: true` on the option + `@SlashAutocompleteHandler(Command, 'option')` class using `@SlashFocused()`, must always `interaction.respond(...)` (≤25 items).
-- `<feature>.module.ts` — `@Module({ commands, handlers, providers, exports, listeners, imports })`. Only parent commands go in `commands`; handler classes in `handlers`.
-- Services: `@Injectable()` classes in `providers`, injected by **constructor only** (no `new`); expose across modules via `exports` + consumer's `imports`. Cross-cutting infra only → `@Global()` module.
-- Lifecycle: implement `SpraxiumOnBoot` / `SpraxiumOnReady(client)` / `SpraxiumOnShutdown` (type imports from `@spraxium/common`) on a service. Constructor = wiring only; I/O belongs in `onBoot` (whole DI graph resolves before Discord login).
-- Listeners: `@Listener(Events.MessageCreate)` class — exactly one event per class — with `@On()` / `@Once()` methods receiving discord.js payload args directly; register in the module `listeners` array. Keep them thin: filter → pass IDs to a service.
-- Guards: class implementing `SpraxiumGuard.canActivate(ctx)` with `@Guard()`; apply via `@UseGuards(...)` (class or method level) or `app.useGlobalGuards(...)`. Built-ins from `@spraxium/core`: `GuildOnly`, `DMOnly`, `OwnerOnly`, `PermissionGuard`, `RoleGuard`, `CooldownGuard` (ms!), `NoBotGuard`, `NSFWGuard`, `ThreadOnlyGuard`, `VoiceChannelGuard`; configure with `withOptions(Guard, {...})`. Return `false` for generic denial; throw a named exception for a specific user-facing reason.
-- Errors: throw `SpraxiumException` subclasses (typed `props`, `{{placeholder}}` message interpolation) instead of try/catching expected failures; user-facing reply rendering is configured via `exceptions.layouts` in `spraxium.config.ts` (keys = exception class names — update the map when renaming).
+1. **Register in the catalog** — `apps/bot/src/modules/module-manager/module.catalog.ts`: `{ id, label, description, commands: [root command names], dependsOn, optionalDeps?, recommends? }`. Unregistered = not toggleable.
+2. Module file wires `@Module({ commands, handlers, providers, exports, listeners })`.
+3. **The access pipeline** (global guard `ModuleEnabledGuard` → `ModuleManagerService.assertCommandUsable`) enforces, in order: catalog known → global on → guild on → **dependencies active** → user exempt → channel whitelist → required role → admin bypass → cooldown + role quotas. Unknown commands pass (system commands stay reachable).
+4. **Guards get no DI** (framework `new`es them per interaction) — services reachable from guards expose a runtime accessor (`getModuleManager()` pattern in `module-manager.service.ts`).
+5. **Per-user language** — never per-guild. Inject `LocaleService` (`modules/locale/`), resolve with `locales.resolve(userId, guildDefault)`.
+6. **Rendering** — reply with `flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]` and `panel()`/`text()` from `src/shared/ui`. Plain `interaction.reply('string')` is legacy.
+7. Config lives in `packages/shared/src/schemas/guild-config.ts` (`CONFIG_KEYS` drives `/config` autocomplete). New editable keys: schema + registry entry.
 
 ## Gotchas
 
-- Decorators are load-bearing: `experimentalDecorators` + `emitDecoratorMetadata` + **`useDefineForClassFields: false`** in `tsconfig.json`. Do not "modernize" these settings.
-- `isolatedModules` is on — use `import type` for type-only imports (lifecycle interfaces, discord.js types).
-- `tsconfig.json` only includes `src/`; `config/` and `spraxium.config.ts` sit outside the typecheck surface.
-- A handler/command/listener referencing classes in a module that isn't reachable from `AppModule` is **silently ignored** — new feature not firing? Check registration first, then gateway intents (`MessageCreate` needs GuildMessages/DirectMessages; `GuildMemberAdd` needs GuildMembers).
+- Decorator-critical tsconfig flags: `experimentalDecorators`, `emitDecoratorMetadata`, **`useDefineForClassFields: false`** — do not modernize.
+- `isolatedModules` → `import type` for type-only imports.
+- **`packages/shared` must be built (`pnpm --filter @10cordes/shared build`) before bot typecheck/dev** — the bot imports its `dist/`.
+- Zod: nested defaults need **`.prefault({})`**, not `.default({})` (default short-circuits and skips inner defaults).
+- Prisma **6 pinned** (v7/v8 changed config + migration workflow); SQLite has no Json type → String column + `JSON.parse/stringify` at service level.
 - Option decorator name strings must match exactly between command definition and handler param, or the value silently arrives `null`.
-- Reply within 3s (Discord limit) — use `@Defer`/`@AutoDefer` for slow handlers; never call `deferReply()` manually.
-- `dev.exclude` must contain `.spraxium/**` and `dist/**` or the watcher restart-loops.
-- Env files: `.env.local` wins over `.env`; `process.env` wins over both. No variable interpolation in env files.
-- Renaming a slash command `name` creates a new Discord registry entry (use `guild: '<id>'` + force re-register for dev iterations).
-- Build/dev artifacts live in `.spraxium/` (gitignored); `@swc/core` build allowed via `pnpm-workspace.yaml`.
+- Handler not firing? Check: module reachable from `AppModule` → command in catalog (or intentionally uncataloged) → gateway intents.
+- `dev.exclude` must keep `.spraxium/**` and `dist/**` (watcher restart loops otherwise).
+- Env files: `.env.local` > `.env` > `process.env`; no variable interpolation.
+- Artifacts: `.spraxium/` build, `data/` SQLite DB, `output/` module-state JSON — all gitignored.
+- Renaming a slash command `name` creates a new Discord registry entry.

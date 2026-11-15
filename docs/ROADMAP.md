@@ -40,6 +40,7 @@
 | 0.8 | **Logging applicatif** | `Logger` + `DiscordTransport` erreurs critiques, masking tokens. | 🟠 P1 |
 | 0.9 | **TemplateEngine** | Moteur de variables `{{user}}`, `{{server}}`, `{{memberCount}}`, `{{inviter}}`, `{{timestamp}}`, `{{image}}`… réutilisé par welcome/customs/tickets/birthdays/levelup. Crow valide la demande massivement : variables help msg (8✅ + 11✅), {ServerPic}/{ServerBanner}/{MemberCountNoBots} (8✅), {Inviter_Code} (8✅), {Timestamp} (6✅), variables images (7✅), footer user mention (14✅). | 🔴 P0 |
 | 0.10 | **ToolRegistry** | Contrat `BotTool { name, description, paramsSchema (Zod), handler, requiredModules }` ; exécution filtrée par modules actifs ; frontends : chat / vocal / MCP-HTTP (P3). Inventory complet §Tools. | 🟠 P1 (contrat P0) |
+| 0.11 | **Audit logging + error boundary** | Logger global qui enregistre TOUT (actions, commandes, ops agentic, erreurs) ; table d'audit unifiée (acteur/action/cible/metadata — pattern wardhive, fire-and-forget) ; **page audit dashboard** + `/audit` commands ; **error boundary custom** : toute erreur → layout utilisateur (langue du user) + log structuré + option salon d'incidents. | 🟠 P1 |
 
 ## Couche 1 — Modules core
 
@@ -148,14 +149,35 @@
 ### 3.5 Channel scheduling ⏱️ (nouveau)
 - **Ouverture/fermeture automatique à heures définies** (10✅), **autolock/autounlock durée** (13✅), autohide (13✅), salons exclus du renew (9✅)
 
+### 3.6 Protection réseau (inspiré wardhive — P3)
+- **Geolock** : règles par pays (ISO-2, mode block/flag), flow de vérification web pour les bloqués, file de review modo
+- **Trust score cross-serveurs** (optionnel, exige réseau multi-guilds) : score 0-1000, poids de sanctions pondérés par autorité du serveur émetteur ; ingest idempotent via audit-log IDs
+- **Backups de serveur** : snapshot structure (rôles/salons/permissions) avec restauration `merge|replicate` — sert aussi d'archivage à l'Agent Admin (§4.1.B)
+
 ## Couche 4 — Avancé
 
-### 4.1 Assistant IA + Tools 🤖 (nouveau — le cœur différenciant)
-- **ToolRegistry** (0.10) : tools de tous les modules, filtrés par modules actifs
-- **Chat** : mention du bot / canal dédié / DM → hooks déterministes (patterns fr/en) → sinon LLM tool-calling (AI SDK + **OpenRouter**/OpenAI/Gemini/Ollama), budget/guild, réponse streaming
+### 4.1 Assistant IA + Agent Admin 🤖 (nouveau — le cœur différenciant)
+
+**A. Agent « assistant »** (chat + vocal, tools de tous les modules) :
+- **ToolRegistry** (0.10) : tools filtrés par modules actifs du serveur
+- **Chat** : mention / canal dédié / DM → hooks déterministes (patterns fr/en) → sinon LLM tool-calling (AI SDK + **OpenRouter**/OpenAI/Gemini/Ollama), budget/guild
+- **Mémoire conversationnelle par canal** (pattern Discord-AI-Bot, à copier tel quel) : l'historique Discord EST la mémoire — fetch des N derniers messages, rendu `[Label (ID)] : contenu`, préfixes inforgeables (neutralisation des `[` `]` du contenu), messages du bot = turns assistant. Un autre salon = une autre conversation, sans état partagé.
+- **Triage gate** (coût) : appel cheap model OUI/NON « dois-je répondre ? » avant la génération coûteuse (mention/DM = bypass direct)
 - **Vocal** : `@discordjs/voice` + **Silero VAD** (ONNX) + STT (Deepgram streaming / Whisper) + TTS ; opt-in par serveur
-- **MCP over HTTP** (P3) : exposer le registry via `@spraxium/http`
-- Commandes IA utilitaires : **`/translate` toute langue (22✅ — la plus demandée)**, `/summarize`, GPT chat (15✅)
+- **MCP over HTTP** (P3) : le même registry exposé via `@spraxium/http`
+- Utilitaires : **`/translate` (22✅)**, `/summarize`, chat GPT (15✅)
+
+**B. Agent Admin — tout gérer Discord par langage naturel** (P2, flagship) :
+- **Capacités** : créer / renommer / archiver / supprimer salons, catégories, rôles ; gérer les permission overwrites par canal ; construire un serveur sur mesure depuis une demande (« refais le serveur sur le thème de Noël » = plan multi-étapes) ; configurer des **politiques** en langage naturel → règles structurées : *« supprime tous les liens postés et averti l'utilisateur »* → automod rule Zod-typée avec salons/rôles ciblés.
+- **Sécurité non négociable** (patterns wardhive + Discord-AI-Bot) :
+  1. **Plan → confirmation humaine → exécution** : l'agent produit un **plan** (liste d'ops typées, diff avant/après) rendu en container ; exécution uniquement après clic d'un utilisateur autorisé.
+  2. **Archivage par défaut** : toute suppression = snapshot archivé (structure salons/rôles, façon backup wardhive `merge|replicate`) + restauration possible ; le hard-delete est une action séparée, jamais en cascade.
+  3. **Destructif = owner + whitelist d'IDs Discord** (table `admin_whitelist`) ; tout le reste (créations/modifs) = `ManageGuild`/`Administrator` + perms du **bot** vérifiées op par op (l'agent vérifie qu'il PEUT faire l'action avant de la proposer).
+  4. **File d'actions typées** (pattern wardhive) : union discriminée Zod d'ops (`channel.create|archive|delete`, `role.create|update|delete`, `permission.overwrite`, `automod.policy.set`…) → job idempotent → exécution → rapport d'exécution → audit.
+  5. **System prompt ultra-poussé** (recherche dédiée en cours) : identité + ton (jamais d'insultes), politique de filtrage, règles de vérification des permissions AVANT proposition, protocole de confirmation, refus hors périmètre.
+- **Audit** : chaque op agentic → journal audit (acteur, action, cible, metadata, plan JSON, qui a confirmé) + table de coûts IA par cause.
+
+**C. Games** (voir §4.8) et commandes utilitaires IA (`/translate`, `/summarize`) s'appuient sur le même socle.
 
 ### 4.2 Dashboard web (React, phase 2)
 - Vite + React 19 + Tailwind 4 + shadcn/ui + Aceternity + TanStack Router/Query/Table + ApexCharts ; thème Tenkai (dark, sans ombres, radius .375–.75rem, IBM Plex Sans)
@@ -178,6 +200,53 @@
 
 ### 4.7 Musique 🎵 (P4 — app séparée du monorepo)
 - 17✅ mais lourde (LavaLink/ToS YouTube) — validé en fin de roadmap
+
+### 4.8 Jeux réels 🎮 (nouveau — recherche 2026 complète)
+
+Trois couches de rendu, du plus simple au plus immersif :
+
+1. **Jeux tour-par-tour en chat** (composants + canvas) :
+   - Contraintes Discord : reply ≤3s, webhook 15 min, **~5 msgs/5s par canal** → tour-par-tour seulement ; board rendu **`@napi-rs/canvas`** (Skia, zéro dep système) en pièce jointe, contrôles = boutons (`custom_id` typé `move:3:<playerId>`), carte de statut en container Components V2
+   - Pixel-art : assets CC0 **Kenney / itch.io / OpenGameArt**, `imageSmoothingEnabled=false` pour le rendu net ; animations de victoire en **GIF (`gifenc`)**
+   - Catalogue priorisé : **Word Duel** (Wordle 1v1 + IA) → **Classiques plateau avec IA minimax** (Morpion/Connect-4, ELO, skins) → **Pixel Battleship** → **Uno-style « 10cordes »** (2-4 joueurs + remplissage IA, flagship chat)
+2. **Discord Activities (Embedded App SDK)** — seul vrai temps réel (iframe dans les vocaux) :
+   - Le bot self-hosted sert son activity : Hono = OAuth token exchange + SPA statique + **serveur WS (Colyseus)** sur le même process ; URL Mappings dans le portail (dev : tunnel cloudflared) ; lancement via callback **`LAUNCH_ACTIVITY`** (type 12) depuis une slash command
+   - Rooms Colyseus indexées par **`instanceId`** du SDK (tous les participants d'un vocal dans la même room) ; validation serveur via API activity-instances
+   - Flagship : **Draw & Guess** (Sketch Heads-like, PixiJS, 3-8 joueurs) — les jeux chat ci-dessus gagnent un upgrade vocal gratuit
+3. **Liaison modules** : chaque jeu = sous-module du module `games` ; récompenses economy/XP si ces modules sont actifs (deps optionnelles), ELO et classements persistés
+
+Références : discord/embedded-app-sdk (1.4k⭐) · colyseus/discord-activity (template PixiJS) · utarwyn/discord-tictactoe · aniket091/Gamecord · poketwo (jeu chat à l'échelle)
+
+---
+
+## 🔌 Backlog d'intégrations communautaires (recherche 2026 — demandes réelles × gap open-source × fit local-first)
+
+Classé par intérêt pour notre stack auto-hébergée (tout est faisable sans service cloud propriétaire) :
+
+| # | Module | Pourquoi | Références OSS |
+|---|---|---|---|
+| 1 | **Assistant LLM local + FAQ RAG** | Flagship self-hosted : indexer wiki/pins du serveur, répondre avec citations via **Ollama** — personne ne le fait bien en local (llmcord 843⭐ est cloud-API) | llmcord · discord-ollama · Ollama (187k⭐) |
+| 2 | **Feeds hub** (RSS/YouTube/GitHub releases/blogs) | Demande evergreen ; MonitoRSS (1.3k⭐) trop lourd à self-host (Redis multi-services) — un module Node léger gagne | MonitoRSS · FeedCord · `releases.atom` natif GitHub |
+| 3 | **Bridge monitoring** (Uptime-Kuma 94k⭐ / Gatus) | Webhook sortant = one-way ; gap total en bidirectionnel : `/status`, `/incidents ack`, routing par rôle — public homelab exactement le nôtre | uptime-kuma · gatus (12.8k⭐) |
+| 4 | **Anti-phishing** | Bases Phisherman / SinkingYachts (APIs gratuites) + snapshot locale nikolaischunk (22k domains) ; scan-on-message + quarantaine | phisherman.gg · phish.sinking.yachts |
+| 5 | **Tickets + modmail** | Top-5 de toute bot-list ; discord-tickets (1.5k⭐) standalone → le nôtre = un module de l'all-in-one | discord-tickets · open-ticket (427⭐) |
+| 6 | **Events / LFG / scheduling** | Duopole fermé Apollo+Sesh ; pain réel = timezones ; OSS quasi vide | Sidekick · GroupUp |
+| 7 | **Bridge dev platforms** (GitHub/Gitea/Forgejo + CI) | Webhooks natifs insuffisants : `/issue search`, `/ci latest`, pins par canal, release notes résumées par IA | Gitea (59k⭐) |
+| 8 | **Traduction via LibreTranslate self-hosted** | Flag-react ou `/translate` vers NOTRE instance (zéro clé Google) — cohérent avec i18n per-user | LibreTranslate (17.7k⭐) |
+| 9 | **Suite média (Jellyfin/*arr/Jellyseerr)** | `/request`, « now streaming », pings par user ; buzz JellyCorrd (r/selfhosted) = appétit frais | Jellyfin (59k⭐) |
+| 10 | **Anti-nuke + gateway de vérification web** | Les bots ne voient pas les IPs → alt/VPN/geo-lock = **OAuth gate sur notre serveur HTTP** (voir wardhive geolock) — différenciant vs Wick/Double Counter fermés | Raid-Protect (250⭐, dormant) |
+| 11 | **Gacha/collection engine** | Mudae 3.37M serveurs ; OSS vide — moteur à collections branchables (communautés = leurs propres pools) + récompenses economy (deps optionnelles) | fable (49⭐) |
+| 12 | **Analytics serveur local-only** | Statbot fermé/payant, OSS = vide TOTAL ; analytics privacy-respecting sur notre SQLite = uncontested | — |
+| 13 | **Bump/discovery fédéré** | Disboard fermé ; protocole `/bump` ouvert + annuaire opt-in entre instances self-hosted | — (network effect : opt-in) |
+| 14 | **Song-ID vocal** (Shazam-compatible) | « C'est quoi ce son ? » en vocal : capture clip → fingerprint (SongRec/ShazamIO) — aucun bot poli | SongRec (2.1k⭐) |
+| 15 | **Bundle utilitaires** : météo (Open-Meteo), `/speedtest` (LibreSpeed), expander de liens, lookup IP/geo | Staples peu différenciants mais ronds-out l'all-in-one | librespeed (15.3k⭐) |
+
+**Wildcards (projets non-Discord, effet « wow » local-first)** :
+- **W1 · ntfy bridge bidirectionnel** (35.5k⭐) : salons Discord ↔ topics ntfy — alertes homelab sur mobile, push CLI → Discord. Concurrence nulle.
+- **W2 · Bulletin ISP hebdo** : Speedtest-Tracker (6.1k⭐) + LibreSpeed → embed hebdo vitesse/latence avec graphs. Aucun bot ne le fait.
+- **W3 · Home Assistant commands** (92.3k⭐) : `/ha status`, `/ha lights off`, événements de présence → salon serveur. S'appuie sur la plomberie W1.
+
+Verdict crypto/web3 : déclinant hors serveurs trading → ticker de prix optionnel P4 seulement, pas core.
 
 ---
 

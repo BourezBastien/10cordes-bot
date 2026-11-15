@@ -344,3 +344,46 @@ interface BotTool {
 - **Auth** : Lucia déprécié (mars 2025, l'auteur recommande better-auth) → **better-auth confirmé**, Discord-only (email/password désactivé), adapter Prisma, cookie sessions, tables générées dans notre schema.
 - **Vocal** : Silero VAD > WebRTC VAD (filtrage du bruit) ; Deepgram pour le streaming, Whisper pour du batch.
 
+## 16. Agent Admin — architecture de sécurité (P2, flagship)
+
+L'agent qui administre Discord par langage naturel suit le modèle **plan → confirmation → exécution → rapport → audit**, inspiré de la file d'actions typées wardhive :
+
+```
+demande utilisateur ("refais le serveur sur le thème de Noël")
+→ LLM + tools → PLAN (liste d'ops typées, diff avant/après, rendu container V2)
+→ vérifications AVANT proposition : perms Discord du demandeur (op par op)
+   + perms du BOT (l'agent vérifie qu'il peut exécuter chaque op)
+→ confirmation humaine (bouton) — réservée selon l'op :
+     destructif (delete) = owner + whitelist d'IDs (table admin_whitelist)
+     créations/modifs    = ManageGuild / Administrator
+→ exécution via file d'ops : union discriminée Zod
+     channel.create|rename|archive|delete · role.create|update|delete
+     permission.overwrite · automod.policy.set · server.remodel(theme)
+   → jobs idempotents, snapshot ARCHIVÉ avant toute suppression
+     (archive = structure salons/rôles, restaurable — jamais de hard-delete en cascade)
+→ rapport d'exécution (container V2, par op : ✅/❌ + raison)
+→ audit : acteur · plan JSON · qui a confirmé · résultat · coût IA (cause-typed)
+```
+
+Règles système : le system prompt (recherche dédiée) impose identité/ton (jamais d'insultes), politique de filtrage des messages, vérification des permissions AVANT toute proposition, protocole de confirmation obligatoire, refus hors périmètre. Traduction « policy-as-config » : *« supprime tous les liens et averti »* → règle automod Zod-typée (salons/rôles ciblés) passant par le même pipeline confirmé.
+
+**Mémoire conversationnelle par canal** (pattern Discord-AI-Bot) : l'historique Discord est la mémoire — fetch des N derniers messages du canal, rendu `[Label (ID)] : contenu` avec préfixes inforgeables (contenu neutralisé), messages du bot = turns assistant. Pas d'état partagé entre canaux. Gate de triage : appel cheap model OUI/NON avant génération coûteuse (mention/DM bypass).
+
+## 17. Realtime bot ↔ dashboard
+
+Bot et API vivent dans le même process (§1) → **event bus interne** (EventEmitter typé) + broadcast **WebSocket** depuis Hono vers le dashboard (Salons configurés, modules togglés, audit en direct). Migration Postgres : `LISTEN/NOTIFY` remplace le bus interne sans changer le contrat des events. RethinkDB écarté (moins maintenu, PostgreSQL/SQLite couvrent le besoin).
+
+## 18. Jeux — trois couches de rendu
+
+1. **Chat tour-par-tour** : limite ~5 msgs/5s/canal → boards rendus `@napi-rs/canvas` (Skia, zéro dep système, `imageSmoothingEnabled=false` pour le pixel net), contrôles boutons (`custom_id` typé), animations GIF via `gifenc`, assets CC0 Kenney/itch.io.
+2. **Discord Activities** (seul vrai realtime) : Embedded App SDK, Hono sert OAuth token exchange + SPA + **serveur Colyseus** sur le même process ; URL Mappings portail (dev : cloudflared) ; lancement via callback `LAUNCH_ACTIVITY` (type 12) ; rooms Colyseus indexées par `instanceId` du SDK ; WebSockets only (pas de WebRTC derrière le proxy Discord).
+3. Liaison modules : jeux = sous-modules de `games` ; récompenses economy/XP via deps optionnelles.
+
+Réfs : discord/embedded-app-sdk (1.4k⭐) · colyseus/discord-activity · embedded-app-sdk-examples · poketwo · Gamecord.
+
+## 19. Audit & error boundary
+
+- **AuditService** (pattern wardhive) : `record(guildId, source, action, actor, target, metadata)` fire-and-forget — une erreur d'audit n'échoue jamais sur l'action ; **feed unifié** mergant les tables hétérogènes (audit, sanctions, logs messages, ops agentic, jeux) en timeline normalisée.
+- **Coûts IA** (pattern Discord-AI-Bot) : table `model_usage` clé `cause` (reply | triage | admin-agent | game …), tokens + prix via API OpenRouter → page audit = « qui a fait quoi + ce que ça a coûté ».
+- **Error boundary** : tout throw non géré → layout utilisateur (langue du user) + log structuré (Logger.error) + option salon d'incidents ; jamais de stack côté utilisateur.
+
