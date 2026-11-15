@@ -39,7 +39,9 @@ describe('CONFIG_KEYS', () => {
 
   it('only references known top-level groups', () => {
     for (const key of CONFIG_KEYS) {
-      expect(['defaultLocale', 'welcome.', 'moderation.'].some((prefix) => key.path.startsWith(prefix))).toBe(true);
+      expect(
+        ['defaultLocale', 'welcome.', 'farewell.', 'moderation.'].some((prefix) => key.path.startsWith(prefix)),
+      ).toBe(true);
     }
   });
 });

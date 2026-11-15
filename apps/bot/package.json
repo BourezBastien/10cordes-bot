@@ -18,10 +18,15 @@
     "@10cordes/shared": "workspace:*",
     "@prisma/client": "^6.19.3",
     "@spraxium/common": "^0.9.0",
+    "@spraxium/components": "^0.9.0",
     "@spraxium/core": "^0.9.0",
     "@spraxium/env": "^0.9.0",
+    "@spraxium/http": "^0.9.0",
+    "@spraxium/i18n": "^0.9.0",
     "@spraxium/logger": "^0.9.0",
+    "better-auth": "^1.7.23",
     "discord.js": "^14.28.1",
+    "hono": "^4.13.18",
     "zod": "^4.6.7"
   },
   "devDependencies": {

@@ -10,8 +10,17 @@ export const WelcomeConfigSchema = z.object({
   cardEnabled: z.boolean().default(false),
   /** Supprimer le message de bienvenue si le membre quitte peu après. */
   deleteOnLeave: z.boolean().default(false),
+  /** Rôle automatique attribué à l'arrivée. */
+  autoRoleId: z.string().nullable().default(null),
 });
 export type WelcomeConfig = z.infer<typeof WelcomeConfigSchema>;
+
+export const FarewellConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  channelId: z.string().nullable().default(null),
+  template: z.string().default('{{user.name}} a quitté le serveur. Membres : {{member.count}}'),
+});
+export type FarewellConfig = z.infer<typeof FarewellConfigSchema>;
 
 export const ModerationConfigSchema = z.object({
   /** Salon réservé aux sanctions — null = partout. */
@@ -29,9 +38,8 @@ export type ModerationConfig = z.infer<typeof ModerationConfigSchema>;
 export const GuildConfigSchema = z.object({
   /** Langue par défaut du serveur (annonces, welcome). Les users gardent leur propre langue. */
   defaultLocale: SupportedLocale.default('fr'),
-  // prefault (et non default) : la valeur de repli est RE-PARSÉE par le sous-schéma,
-  // donc les defaults imbriqués (enabled=false, channelId=null…) sont appliqués.
   welcome: WelcomeConfigSchema.prefault({}),
+  farewell: FarewellConfigSchema.prefault({}),
   moderation: ModerationConfigSchema.prefault({}),
   /** Messages d'erreur personnalisés par code — template avec placeholders de l'exception. */
   errorMessages: z.record(z.string(), z.string()).default({}),
@@ -42,7 +50,7 @@ export type GuildConfig = z.infer<typeof GuildConfigSchema>;
 export interface ConfigKeyDescriptor {
   /** Chemin dans le document, ex: "welcome.channelId". */
   path: string;
-  type: 'string' | 'boolean' | 'number' | 'channel' | 'locale';
+  type: 'string' | 'boolean' | 'number' | 'channel' | 'role' | 'locale';
   description: string;
 }
 
@@ -53,6 +61,10 @@ export const CONFIG_KEYS: ConfigKeyDescriptor[] = [
   { path: 'welcome.template', type: 'string', description: 'Template du message de bienvenue' },
   { path: 'welcome.cardEnabled', type: 'boolean', description: 'Carte image de bienvenue' },
   { path: 'welcome.deleteOnLeave', type: 'boolean', description: 'Supprimer le message si le membre quitte' },
+  { path: 'welcome.autoRoleId', type: 'role', description: "Rôle automatique à l'arrivée" },
+  { path: 'farewell.enabled', type: 'boolean', description: 'Activer les messages de départ' },
+  { path: 'farewell.channelId', type: 'channel', description: 'Salon des messages de départ' },
+  { path: 'farewell.template', type: 'string', description: 'Template du message de départ' },
   { path: 'moderation.sanctionChannelId', type: 'channel', description: 'Salon réservé aux sanctions' },
   { path: 'moderation.muteDerank', type: 'boolean', description: 'Retirer les rôles pendant un mute' },
 ];

@@ -165,6 +165,9 @@
 - **Triage gate** (coût) : appel cheap model OUI/NON « dois-je répondre ? » avant la génération coûteuse (mention/DM = bypass direct)
 - **Vocal** : `@discordjs/voice` + **Silero VAD** (ONNX) + STT (Deepgram streaming / Whisper) + TTS ; opt-in par serveur
 - **MCP over HTTP** (P3) : le même registry exposé via `@spraxium/http`
+- **Tools d'analyse** (demande admin type : *« analyse les messages de ce salon / de cette personne sur tout le serveur et fais-moi un recap avec ses intentions potentielles »*) : `messages.readChannel`, `messages.readUserAcrossServer` (pagination + DB logs), `analysis.summarize`, `analysis.intentProfile` (tonalité, sujets, signaux de risque) — permission `ManageMessages`+ requise, résultat en container privé
+- **Tools de génération pixel-art 2D** : `image.icon`, `image.welcomeCard`, `image.gameSprite`… via `@napi-rs/canvas` + assets CC0 (Kenney/itch) — un system prompt dédié PAR tool de génération (style, palette, taille, contraintes), sorties validées (dimensions/format) avant envoi
+- **Chaque module exporte ses tools** : contrat `BotTool` obligatoire — modules, dashboard (MCP) et assistant consomment le même registry ; inventory cible 200–300 (§Tools)
 - Utilitaires : **`/translate` (22✅)**, `/summarize`, chat GPT (15✅)
 
 **B. Agent Admin — tout gérer Discord par langage naturel** (P2, flagship) :
@@ -174,6 +177,8 @@
   2. **Fail-closed** : mode écriture par défaut = preview ; ambiguïté = question de clarification ; **timeout = annulation** ; le clic sur le bouton re-vérifie les permissions du CLIQUEUR (pas du demandeur initial).
   3. **Archivage par défaut** : états `active | archived | trashed`, snapshot restaurable avant suppression ; hard-delete = action séparée jamais en cascade ; ops de masse interdites sans confirmation multi-étapes.
   4. **Destructif = owner + whitelist d'IDs Discord** (`admin_whitelist`) ; tout le reste = `ManageGuild`/`Administrator` ; **trois gates évalués en code** (demandeur / bot / config), le prompt ne fait qu'informer.
+  4b. **Tiers de sanctions agentiques** : `ban`/`kick` définitifs = **whitelist uniquement** ; `mute`/`timeout` temporaires accessibles à quiconque a la permission Discord correspondante (`ModerateMembers`) — la whitelist ne s'applique qu'aux actions irréversibles.
+  4c. **Un system prompt PAR TOOL** (en plus du prompt global en 10 sections) : chaque tool sensible embarque sa propre consigne détaillée (préconditions, effets, exemples valides/invalides, cas de refus) — zéro bavure possible ; vérification perms bot + user à CHAQUE action, whitelists relues à chaque appel.
   5. **File d'actions typées** : union discriminée Zod → jobs idempotents → rapport par op → audit complet ; tools namespacés/consolidés avec erreurs actionnables.
   6. **System prompt 10 sections** (IDENTITY, TONE, SCOPE, SERVER_CONTEXT, TOOL_USE_GUIDANCE, CONFIRMATION_PROTOCOL, DESTRUCTIVE_ACTION_POLICY, POLICY_TRANSLATION_RULES, ERROR_HANDLING, AUDIT) — squelette complet en ARCHITECTURE §16.
 - **Audit** : chaque op agentic → journal audit (acteur, action, cible, metadata, plan JSON, qui a confirmé) + table de coûts IA par cause.

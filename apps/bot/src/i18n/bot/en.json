@@ -1,0 +1,15 @@
+{
+  "setup.title": "## 🧰 Server setup",
+  "setup.welcome.line": "**Welcome** : {{state}} — channel {{channel}}",
+  "setup.language.line": "**Server default language** : {{locale}} (every member keeps their own language via /language)",
+  "setup.footer": "Changes apply instantly and are persisted.",
+  "setup.updated": "## ✅ Configuration updated",
+  "setup.welcome.enabled": "enabled",
+  "setup.welcome.disabled": "disabled",
+  "info.title": "## ℹ️ 10cordes-bot",
+  "info.uptime": "**Uptime** : {{uptime}}",
+  "info.ping": "**WebSocket latency** : {{ping}}ms",
+  "info.guilds": "**Servers** : {{guilds}}",
+  "info.modules": "**Modules** : {{active}}/{{total}} active (global)",
+  "info.footer": "Everything is configured through slash commands — /modules, /config, /language."
+}

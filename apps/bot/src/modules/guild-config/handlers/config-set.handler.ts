@@ -8,10 +8,11 @@ import { ConfigCommand } from '../commands/config.command';
 import { panel } from '../../../shared/ui';
 import { getPath, setPath } from '../../../shared/utils/object';
 
-function coerce(descriptorType: 'string' | 'boolean' | 'number' | 'channel' | 'locale', raw: string): unknown {
+function coerce(descriptorType: 'string' | 'boolean' | 'number' | 'channel' | 'role' | 'locale', raw: string): unknown {
   if (descriptorType === 'boolean') return raw.trim().toLowerCase() === 'true';
   if (descriptorType === 'number') return Number(raw);
   if (descriptorType === 'channel') return raw.replace(/<#(\d+)>/, '$1');
+  if (descriptorType === 'role') return raw.replace(/<@&(\d+)>/, '$1');
   return raw;
 }
 
