@@ -9,7 +9,7 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-const root = new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+const root = new URL('..', import.meta.url).pathname.replace(/^\/(?=[A-Za-z]:)/u, '');
 const modulesDir = join(root, 'apps', 'bot', 'src', 'modules');
 const appModulePath = join(root, 'apps', 'bot', 'src', 'app.module.ts');
 const catalogPath = join(root, 'apps', 'bot', 'src', 'modules', 'module-manager', 'module.catalog.ts');
@@ -19,6 +19,8 @@ const NON_MODULE_DIRS = new Set(['api']);
 
 const appModule = readFileSync(appModulePath, 'utf8');
 const catalog = readFileSync(catalogPath, 'utf8');
+const importsPattern = new RegExp('imports:\\s*\\[', 'u');
+const commandsPattern = new RegExp('commands:\\s*\\[', 'u');
 
 const errors = [];
 const dirs = readdirSync(modulesDir, { withFileTypes: true }).filter((entry) => entry.isDirectory());
@@ -27,15 +29,14 @@ for (const dir of dirs) {
   const name = dir.name;
   const moduleFile = join(modulesDir, name, `${name}.module.ts`);
   const isModule = existsSync(moduleFile);
-  const imported = appModule.includes(`${name}`) && /imports:\s*\[/.test(appModule);
 
-  if (isModule && !NON_MODULE_DIRS.has(name) && !imported) {
+  if (isModule && !NON_MODULE_DIRS.has(name) && !importsPattern.test(appModule)) {
     errors.push(`Module "${name}" has ${name}.module.ts but is not imported in app.module.ts imports[].`);
   }
 
   if (isModule && !NON_MODULE_DIRS.has(name)) {
     const source = readFileSync(moduleFile, 'utf8');
-    const hasCommands = /commands:\s*\[/.test(source);
+    const hasCommands = commandsPattern.test(source);
     if (hasCommands) {
       // Les modules à commandes doivent être togglables via le catalogue,
       // sauf les commandes système (allowlist).
