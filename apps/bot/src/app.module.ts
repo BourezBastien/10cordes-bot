@@ -1,5 +1,6 @@
 import { Module } from '@spraxium/common';
 import { HttpModule, HttpClientModule, LoggerMiddleware } from '@spraxium/http';
+import { I18nModule } from '@spraxium/i18n';
 import { AuthController } from './auth/auth.controller';
 import { SessionGuard } from './auth/guards/session.guard';
 import { GuildAccessGuard } from './auth/guards/guild-access.guard';
@@ -35,6 +36,7 @@ import { WelcomeModule } from './modules/welcome/welcome.module';
 @Module({
   imports: [
     DatabaseModule,
+    I18nModule,
     AuditModule,
     HttpModule,
     GuildConfigModule,
