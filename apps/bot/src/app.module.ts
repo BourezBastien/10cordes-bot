@@ -33,8 +33,8 @@ import { WelcomeModule } from './modules/welcome/welcome.module';
 })
 @Module({
   imports: [
-    AuditModule,
     DatabaseModule,
+    AuditModule,
     HttpModule,
     GuildConfigModule,
     ImagelabModule,
