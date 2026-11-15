@@ -1,0 +1,43 @@
+// 10cordes-bot — schéma P0.
+// Les tables better-auth (User, Session, Account, Verification) seront ajoutées
+// à l'étape API (P0-6) via `npx @better-auth/cli generate --output prisma/schema.prisma`.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Guild {
+  id                String             @id
+  settings          String             @default("{}")
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  guildModuleStates GuildModuleState[]
+
+  @@map("guilds")
+}
+
+model GuildModuleState {
+  id          String  @id @default(cuid())
+  guildId     String
+  moduleId    String
+  enabled     Boolean @default(true)
+  constraints String  @default("{}")
+  guild       Guild   @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, moduleId])
+  @@map("guild_module_states")
+}
+
+model UserLocale {
+  userId    String   @id
+  locale    String
+  source    String   @default("auto")
+  updatedAt DateTime @updatedAt
+
+  @@map("user_locales")
+}

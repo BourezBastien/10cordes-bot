@@ -1,0 +1,19 @@
+{
+  "name": "10cordes",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter 10cordes-bot dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "devDependencies": {
+    "@bluzzi/eslint-config": "^2.4.2",
+    "eslint": "^10.15.0"
+  }
+}

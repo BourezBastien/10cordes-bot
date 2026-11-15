@@ -1,0 +1,42 @@
+# ── Dependencies ─────────────────────────────────────────────
+node_modules/
+.pnpm-store/
+
+# ── Builds & outputs ─────────────────────────────────────────
+dist/
+build/
+out/
+output/
+.spraxium/
+data/
+*.tsbuildinfo
+
+# ── Environment & secrets (never commit) ─────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Logs ─────────────────────────────────────────────────────
+*.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# ── Caches & test artifacts ──────────────────────────────────
+.cache/
+.eslintcache
+.vitest/
+coverage/
+
+# ── Local tooling state ──────────────────────────────────────
+.mimosa/
+.video_agent/
+
+# ── Editors & OS ─────────────────────────────────────────────
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+Thumbs.db
+.DS_Store
