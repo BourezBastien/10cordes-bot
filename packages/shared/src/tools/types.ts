@@ -7,6 +7,11 @@ export interface ToolRunContext {
   channelId?: string | null;
   userId: string;
   locale: string;
+  /**
+   * Permissions Discord de l'appelant (noms des flags, ex: "ManageGuild", "Administrator").
+   * Le registry refuse les tools dont `permissions` n'est pas satisfaite.
+   */
+  permissions: string[];
   /** Canal de réponse humain du frontend appelant (chat, vocal→TTS, dashboard). */
   reply: (message: string) => Promise<void>;
 }
@@ -32,6 +37,17 @@ export interface BotTool {
   paramsSchema: z.ZodType;
   /** Modules obligatoires pour exécuter ce tool. */
   requiredModules: string[];
+  /**
+   * Permissions Discord requises (noms de flags, ex: "ManageChannels").
+   * Vide/absent = exécutable par tous. "Administrator" dans les permissions de
+   * l'appelant court-circuite la vérification.
+   */
+  permissions?: string[];
+  /**
+   * Portée du résultat : "guild" (défaut) = réponse publique dans le canal ;
+   * "user" = info personnelle → le frontend répond en privé (MP).
+   */
+  scope?: 'guild' | 'user';
   /** Tier 3 (irréversible) → whitelist d'IDs + confirmation obligatoire. */
   destructive: boolean;
   /**

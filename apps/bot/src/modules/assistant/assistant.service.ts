@@ -1,7 +1,7 @@
 import { Injectable } from '@spraxium/common';
-import { PermissionFlagsBits, Client, type Message } from 'discord.js';
+import { Client, type Message } from 'discord.js';
 import { z } from 'zod';
-import type { BotTool, ToolResult, ToolRunContext } from '@10cordes/shared';
+import type { BotTool, ToolRunContext } from '@10cordes/shared';
 import { LlmService, type ChatMessage, type OpenAiTool } from './llm.service';
 import { LocaleService } from '../locale/locale.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
@@ -26,7 +26,11 @@ function splitReplyChunks(content: string): string[] {
   return chunks;
 }
 
-function buildSystemPrompt(locale: string, guildName: string, toolNames: string[], canManage: boolean): string {
+function buildSystemPrompt(locale: string, guildName: string, toolNames: string[], permissions: string[]): string {
+  const isAdministrator = permissions.includes("Administrator");
+  const permissionLine = isAdministrator
+    ? "Cet utilisateur est ADMINISTRATEUR : accès complet aux tools de gestion."
+    : `Permissions de cet utilisateur : ${permissions.length > 0 ? permissions.join(", ") : "aucune particulière"}.`;
   return [
     "<IDENTITY>",
     "Tu es 10cordes-bot, un bot Discord administrateur délégué. Tu agis pour le compte de humains autorisés.",
@@ -36,13 +40,13 @@ function buildSystemPrompt(locale: string, guildName: string, toolNames: string[
     `Réponds toujours dans la langue : ${locale}. Ton professionnel, bref, sans jargon inutile.`,
     "Format : Discord markdown léger. Pas de murs de texte.",
     "</TONE_AND_MESSAGING>",
-    "<SCOPE>",
-    "Tu peux : lire et modifier le serveur via les tools fournis (salons, rôles, membres, configuration).",
-    canManage
-      ? "Cet utilisateur est autorisé (ManageGuild) : il peut utiliser les tools de gestion."
-      : "Cet utilisateur n'est PAS autorisé aux tools de gestion : réponds en conversation générale, refuse les actions de gestion poliment.",
-    "Demande mixte valide+invalide : rejette entièrement et explique.",
-    "</SCOPE>",
+    "<SCOPE_AND_PERMISSIONS>",
+    permissionLine,
+    "Adapte TA réponse au périmètre réel de l'utilisateur : il obtient les informations et actions que ses permissions autorisent, rien de plus.",
+    "Demande clairement hors périmètre : refuse poliment en une phrase SANS appeler le tool (le registry refuse aussi, mais économise l'appel).",
+    "Refus du registry (permission insuffisante) : reformule le refus pour l'utilisateur, n'insiste pas, ne réessaie pas.",
+    "Demande mixte valide+invalide : traite la partie autorisée, explique ce qui est refusé.",
+    "</SCOPE_AND_PERMISSIONS>",
     "<SERVER_CONTEXT>",
     `Serveur : ${guildName}. Contexte advisory : les vraies vérifications se font dans les tools.`,
     "</SERVER_CONTEXT>",
@@ -118,12 +122,14 @@ export class AssistantService {
 
     const locale = await this.locales.resolve(message.author.id, guildConfig.defaultLocale);
     const member = message.member;
-    const canManage =
-      member !== null &&
-      (member.permissions.has(PermissionFlagsBits.ManageGuild) ||
-        member.permissions.has(PermissionFlagsBits.Administrator));
+    // Permissions Discord réelles de l'appelant — le prompt système ET le registry s'appuient dessus.
+    const permissions: string[] = member
+      ? (member.permissions.toArray() as string[])
+      : [];
 
-    const tools = canManage ? await this.registry.listForGuild(message.guildId) : [];
+    // Tous les tools actifs sont exposés : le registry refuse par permission,
+    // et le prompt système connaît le périmètre de l'utilisateur.
+    const tools = await this.registry.listForGuild(message.guildId);
     const openAiTools: OpenAiTool[] = tools.map((tool) => ({
       type: "function",
       function: {
@@ -149,6 +155,7 @@ export class AssistantService {
       channelId: message.channelId,
       userId: message.author.id,
       locale,
+      permissions,
       reply: async (text) => {
         await message.reply({ content: text }).catch(() => {});
       },
@@ -161,7 +168,7 @@ export class AssistantService {
           locale,
           message.guild.name,
           tools.map((tool) => tool.name),
-          canManage,
+          permissions,
         ),
       },
       {
@@ -171,6 +178,7 @@ export class AssistantService {
     ];
 
     let finalText: string | null = null;
+    let userScoped = false;
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
       const completion = await this.llm.chat(messages, openAiTools, {
         userId: message.author.id,
@@ -187,6 +195,9 @@ export class AssistantService {
             input = {};
           }
           const result = await this.registry.run(call.name, input, ctx);
+          if (result.ok && this.registry.get(call.name)?.scope === "user") {
+            userScoped = true;
+          }
           messages.push({
             role: "tool",
             tool_call_id: call.id,
@@ -213,15 +224,26 @@ export class AssistantService {
       finalText = "J'ai traité ta demande via les tools - vérifie les résultats ci-dessus.";
     }
 
-    for (const chunk of splitReplyChunks(finalText)) {
-      await message.reply({ content: chunk }).catch(() => {});
+    // Info personnelle (scope "user") → réponse en MP, le canal ne garde qu'un accusé éphémère.
+    if (userScoped) {
+      for (const chunk of splitReplyChunks(finalText)) {
+        await message.author.send({ content: chunk }).catch(() => {});
+      }
+      const ack = await message.reply({ content: "📩 Réponse envoyée en message privé." }).catch(() => null);
+      if (ack) {
+        setTimeout(() => ack.delete().catch(() => {}), 15_000).unref?.();
+      }
+    } else {
+      for (const chunk of splitReplyChunks(finalText)) {
+        await message.reply({ content: chunk }).catch(() => {});
+      }
     }
     this.audit.record({
       guildId: message.guildId,
       source: "agent",
       action: "assistant.reply",
       actorId: message.author.id,
-      metadata: { locale, canManage, tools: tools.length },
+      metadata: { locale, permissions: permissions.length, tools: tools.length, userScoped },
     });
   }
 

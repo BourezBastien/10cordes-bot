@@ -107,6 +107,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
         topic: z.string().max(1024).optional(),
       }),
       requiredModules: [],
+      permissions: ['ManageChannels'],
       destructive: false,
       systemPrompt:
         'Tier 2 (reversible via rename/archive with confirmation). Requires bot ManageChannels. Use channel.list first to avoid duplicates.',
@@ -132,6 +133,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       category: 'agent',
       paramsSchema: z.object({ channelId: z.string().min(1), name: z.string().min(1).max(100) }),
       requiredModules: [],
+      permissions: ['ManageChannels'],
       destructive: false,
       systemPrompt: 'Tier 2 (reversible). Requires bot ManageChannels. Resolve the channel via channel.list first — never guess IDs.',
       handler: async (input, ctx) => {
@@ -153,6 +155,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       category: 'agent',
       paramsSchema: z.object({ channelId: z.string().min(1) }),
       requiredModules: [],
+      permissions: ['ManageChannels'],
       destructive: false,
       systemPrompt:
         'Preferred over deletion. Reversible. Requires bot ManageChannels. Explain to the user that nothing is deleted.',
@@ -178,6 +181,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
         color: z.number().int().min(0).max(0xffffff).optional(),
       }),
       requiredModules: [],
+      permissions: ['ManageRoles'],
       destructive: false,
       systemPrompt: 'Tier 2 (reversible). Requires bot ManageRoles. Ask the user for the color if ambiguous.',
       handler: async (input, ctx) => {
@@ -201,6 +205,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
         reason: z.string().max(512).optional(),
       }),
       requiredModules: [],
+      permissions: ['ModerateMembers'],
       destructive: false,
       systemPrompt:
         'Temporary sanction (max 28 days) — available to anyone with ModerateMembers, NOT whitelist-gated. Creates a moderation case. Requires bot ModerateMembers and a bot role above the target.',
@@ -235,6 +240,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       category: 'agent',
       paramsSchema: z.object({ channelId: z.string().min(1) }),
       requiredModules: [],
+      permissions: ['ManageChannels'],
       destructive: true,
       systemPrompt:
         'Tier 3 / DESTRUCTIVE — never executes directly: it creates a PLAN requiring owner-or-whitelist approval within 5 minutes. The default alternative is discord.channel.archive — prefer it unless the user explicitly wants deletion.',
@@ -246,6 +252,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       category: 'agent',
       paramsSchema: z.object({ roleId: z.string().min(1) }),
       requiredModules: [],
+      permissions: ['ManageRoles'],
       destructive: true,
       systemPrompt: 'Tier 3 / DESTRUCTIVE — creates a plan for human approval. Never guess the roleId: use role.list.',
       handler: async (input, ctx) => proposePlan(ctx, 'Suppression de rôle', [input as Record<string, unknown>]),
@@ -259,6 +266,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
         reason: z.string().max(512).optional(),
       }),
       requiredModules: [],
+      permissions: ['KickMembers'],
       destructive: true,
       systemPrompt:
         'Tier 3 / DESTRUCTIVE and WHITELIST-GATED (owner + whitelisted IDs only). Creates a plan for approval. Temporary alternative: discord.member.timeout.',
@@ -273,6 +281,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
         reason: z.string().max(512).optional(),
       }),
       requiredModules: [],
+      permissions: ['BanMembers'],
       destructive: true,
       systemPrompt:
         'Tier 3 / DESTRUCTIVE and WHITELIST-GATED. Creates a plan; a moderation case is created at execution time.',

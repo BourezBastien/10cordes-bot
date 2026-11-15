@@ -36,6 +36,10 @@ export class ToolRegistryService {
     this.tools.set(tool.name, tool);
   }
 
+  get(name: string): BotTool | undefined {
+    return this.tools.get(name);
+  }
+
   list(): BotTool[] {
     return [...this.tools.values()];
   }
@@ -46,35 +50,66 @@ export class ToolRegistryService {
     return this.list().filter((tool) => tool.requiredModules.every((id) => active.has(id)));
   }
 
-  /** Exécution : gates de modules → validation Zod → handler → audit. */
+  /** Vérifie les permissions Discord de l'appelant contre un tool ("Administrator" bypass). */
+  private missingPermissions(tool: BotTool, ctx: ToolRunContext): string[] {
+    const required = tool.permissions ?? [];
+    if (required.length === 0 || ctx.permissions.includes('Administrator')) return [];
+    return required.filter((permission) => !ctx.permissions.includes(permission));
+  }
+
+  /** Exécution : gates de modules + permissions → validation Zod → handler → audit. */
   async run(name: string, input: unknown, ctx: ToolRunContext): Promise<ToolResult> {
     const tool = this.tools.get(name);
     if (!tool) return { ok: false, summary: `Unknown tool \`${name}\`.` };
 
+    const audited = tool.destructive || tool.name.startsWith('config.');
+    const finish = (result: ToolResult, deniedPermission?: string[]): ToolResult => {
+      if (audited) {
+        this.audit.record({
+          guildId: ctx.guildId,
+          source: 'agent',
+          action: deniedPermission ? `tool.denied.${name}` : `tool.${name}`,
+          actorId: ctx.userId,
+          metadata: deniedPermission
+            ? { missing: deniedPermission }
+            : { ok: result.ok, input: (input as Record<string, unknown>) ?? {} },
+        });
+      }
+      return result;
+    };
+
     const active = await this.modules.activeModules(ctx.guildId);
     const inactive = tool.requiredModules.filter((id) => !active.has(id));
     if (inactive.length > 0) {
-      return { ok: false, summary: `Modules requis inactifs : ${inactive.join(', ')}.` };
+      return finish({
+        ok: false,
+        summary: `Modules requis inactifs : ${inactive.join(', ')}.`,
+      });
+    }
+
+    const missing = this.missingPermissions(tool, ctx);
+    if (missing.length > 0) {
+      return finish(
+        {
+          ok: false,
+          summary: `Permission Discord insuffisante : ${missing.join(' + ')} requise(s). Informe poliment l'utilisateur qu'il n'a pas le niveau d'accès nécessaire pour cette action.`,
+        },
+        missing,
+      );
     }
 
     const parsed = tool.paramsSchema.safeParse(input);
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
       const path = issue?.path.join('.') || 'input';
-      return { ok: false, summary: `Paramètres invalides (${path}) : ${issue?.message ?? 'validation failed'}` };
+      return finish({
+        ok: false,
+        summary: `Paramètres invalides (${path}) : ${issue?.message ?? 'validation failed'}`,
+      });
     }
 
     const result = await tool.handler(parsed.data, ctx);
-    if (tool.destructive || tool.name.startsWith('config.')) {
-      this.audit.record({
-        guildId: ctx.guildId,
-        source: 'agent',
-        action: `tool.${name}`,
-        actorId: ctx.userId,
-        metadata: { ok: result.ok, input: parsed.data },
-      });
-    }
-    return result;
+    return finish(result);
   }
 }
 
@@ -95,6 +130,7 @@ function builtinTools(
       category: 'module-manager',
       paramsSchema: z.object({}).loose(),
       requiredModules: [],
+      permissions: ['ManageGuild'],
       destructive: false,
       systemPrompt: 'Read-only. Call before any module toggle to know current states.',
       handler: async (_input, ctx) => {
@@ -110,6 +146,7 @@ function builtinTools(
       category: 'module-manager',
       paramsSchema: z.object({ moduleId: z.string().min(1) }),
       requiredModules: [],
+      permissions: ['ManageGuild'],
       destructive: false,
       systemPrompt: 'Mutating but reversible. Check modules.list first; dependencies are enabled automatically.',
       handler: async (input, ctx) => {
@@ -125,6 +162,7 @@ function builtinTools(
       category: 'module-manager',
       paramsSchema: z.object({ moduleId: z.string().min(1), confirm: z.boolean().default(false) }),
       requiredModules: [],
+      permissions: ['ManageGuild'],
       destructive: true,
       systemPrompt:
         'Destructive. First call with confirm=false returns the cascade; show it to the user, then re-run with confirm=true only after explicit approval.',
@@ -148,6 +186,7 @@ function builtinTools(
       category: 'guild-config',
       paramsSchema: z.object({}).loose(),
       requiredModules: [],
+      permissions: ['ManageGuild'],
       destructive: false,
       systemPrompt: 'Read-only. Use before any config mutation.',
       handler: async (_input, ctx) => {
@@ -162,6 +201,7 @@ function builtinTools(
       category: 'guild-config',
       paramsSchema: z.object({ path: z.string().min(1), value: z.unknown() }),
       requiredModules: [],
+      permissions: ['ManageGuild'],
       destructive: false,
       systemPrompt:
         'Mutating but reversible. Only dotted paths from the CONFIG_KEYS registry are valid; booleans are true/false, numbers plain digits.',

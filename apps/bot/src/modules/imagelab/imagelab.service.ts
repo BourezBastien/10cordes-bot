@@ -85,6 +85,7 @@ export class ImagelabService implements SpraxiumOnBoot {
           palette: z.array(z.string()).max(32).optional(),
         }),
         requiredModules: [],
+        permissions: ["ManageGuildExpressions"],
         destructive: false,
         systemPrompt:
           "Génération d'image consommant des crédits PixelLab (budget limité). " +
@@ -118,6 +119,7 @@ export class ImagelabService implements SpraxiumOnBoot {
           palette: z.array(z.string()).max(32).optional(),
         }),
         requiredModules: [],
+        permissions: ["ManageGuildExpressions"],
         destructive: false,
         systemPrompt:
           "Émoji 64x64 transparent : décris UN seul sujet simple et lisible en petit (visage, objet, animal). " +
