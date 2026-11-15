@@ -108,6 +108,7 @@ function buildSystemPrompt(
     "Read-before-write : toujours lire l'état actuel avant de modifier.",
     "Ne devine jamais un ID : résous les noms via les tools de liste.",
     "Chaîne tes appels : tu peux enchaîner plusieurs tools avant de répondre (jusqu'à 8 étapes).",
+    "APRÈS les tools : réponds TOUJOURS par une ou plusieurs phrases claires et complètes qui répondent directement à la demande, avec le résultat concret (état, chiffres, noms). Ne compte jamais sur l'utilisateur pour lire les données brutes des tools.",
     "</TOOL_USE_GUIDANCE>",
     "<CONFIRMATION_PROTOCOL>",
     "Les tools marqués destructive ne s'exécutent pas : ils créent un PLAN soumis à confirmation humaine.",
@@ -308,15 +309,9 @@ export class AssistantService {
 
     let finalText: string | null = null;
     let userScoped = false;
-    // Progression PRIVÉE : éditée dans les MP de l'utilisateur (fallback salon auto-supprimé).
-    const publicProgress = await message.reply({ content: '🧠 Analyse de ta demande...' }).catch(() => null);
-    let progress: { edit: (payload: { content: string }) => Promise<unknown>; delete: () => Promise<unknown> } | null =
-      publicProgress;
-    const dmProgress = await message.author.send({ content: '🧠 Analyse de ta demande...' }).catch(() => null);
-    if (dmProgress) {
-      progress = dmProgress;
-      if (publicProgress) await publicProgress.delete().catch(() => {});
-    }
+    // Progression : un seul message édité à chaque étape, supprimé à la réponse finale.
+    // (L'éphémère natif n'existe que pour les interactions slash, pas pour les messages.)
+    const progress = await message.reply({ content: '🧠 Analyse de ta demande...' }).catch(() => null);
     const executed: string[] = [];
     const loopState: { error: Error | null } = { error: null };
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {

@@ -53,4 +53,8 @@ export class AppEnv extends SpraxiumBaseEnv {
   @Env('DEEPSEEK_MODEL', { default: 'deepseek-flash', secret: false })
   @IsString()
   DEEPSEEK_MODEL!: string;
+
+  /** Effort de raisonnement du modèle thinking : low = réponses rapides. */
+  @Env('DEEPSEEK_EFFORT', { default: 'low', secret: false })
+  DEEPSEEK_EFFORT!: string;
 }

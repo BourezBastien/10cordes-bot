@@ -205,6 +205,7 @@ export class LlmService implements SpraxiumOnBoot {
         model,
         messages,
         user_id: options.guildId ?? options.userId,
+        reasoning_effort: this.env.DEEPSEEK_EFFORT || 'low',
         ...(apiTools.length > 0 ? { tools: apiTools, tool_choice: 'auto' } : {}),
       }),
     });
