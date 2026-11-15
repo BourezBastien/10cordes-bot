@@ -55,5 +55,5 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
-            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/bourezbastien/10cordes-bot:${{ github.ref_name }}
+            ghcr.io/bourezbastien/10cordes-bot:latest
