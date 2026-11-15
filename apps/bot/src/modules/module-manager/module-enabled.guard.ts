@@ -10,6 +10,9 @@ import { getModuleManager } from './module-manager.service';
 @Guard()
 export class ModuleEnabledGuard implements SpraxiumGuard {
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
+    // Le guard ne concerne que les slash commands : les listeners (ex. messageDelete
+    // avec message partial, author null) doivent toujours passer.
+    if (!ctx.isSlashCommand()) return true;
     const manager = getModuleManager();
     // Groupe de sous-commandes du /setup : source de résolution du module
     // (une seule commande racine, une catégorie par module).

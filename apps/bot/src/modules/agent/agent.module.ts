@@ -4,24 +4,15 @@ import { GuildConfigModule } from '../guild-config/guild-config.module';
 import { ModerationModule } from '../moderation/moderation.module';
 import { ModuleManagerModule } from '../module-manager/module-manager.module';
 import { ToolRegistryModule } from '../tool-registry/tool-registry.module';
-import { AgentPlansHandler, AgentProposeHandler, AgentWhitelistAddHandler, AgentWhitelistHandler, AgentWhitelistRemoveHandler } from './commands/agent.command';
 import { AgentApproveHandler, AgentCancelHandler } from './components/agent-buttons.handler';
 import { AgentService } from './agent.service';
 import { AdminWhitelistService } from './whitelist.service';
-import { SetupCommand } from '../setup/setup.schema';
 
+// Plus de commandes slash agent : propose/approve passent par l'agent conversationnel
+// (tools discord.* créent les plans) et les boutons de validation.
 @Module({
   imports: [AuditModule, GuildConfigModule, ModerationModule, ModuleManagerModule, ToolRegistryModule],
-  commands: [SetupCommand],
-  handlers: [
-    AgentWhitelistAddHandler,
-    AgentWhitelistRemoveHandler,
-    AgentWhitelistHandler,
-    AgentProposeHandler,
-    AgentPlansHandler,
-    AgentApproveHandler,
-    AgentCancelHandler,
-  ],
+  handlers: [AgentApproveHandler, AgentCancelHandler],
   providers: [AgentService, AdminWhitelistService],
   exports: [AgentService, AdminWhitelistService],
 })

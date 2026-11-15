@@ -1,4 +1,5 @@
 import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
+import { z } from 'zod';
 import { PrismaService } from '../database/prisma.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
@@ -33,6 +34,47 @@ export class LevelsService implements SpraxiumOnBoot {
   ) {}
 
   async onBoot(): Promise<void> {
+    this.registry.register({
+      name: 'levels.rank',
+      description: "Ton propre rang : niveau, XP et progression vers le niveau suivant (réponse en message privé).",
+      category: 'levels',
+      paramsSchema: z.object({}).loose(),
+      requiredModules: ['levels'],
+      permissions: [],
+      destructive: false,
+      scope: 'user',
+      systemPrompt: "Personnel : l'appelant reçoit son rang en privé. Utilise levels.leaderboard pour voir les autres.",
+      handler: async (_input, ctx) => {
+        if (ctx.guildId === null) return { ok: false, summary: 'Contexte de serveur requis.' };
+        const row = await this.get(ctx.guildId, ctx.userId);
+        if (!row) return { ok: true, summary: "Tu n'as pas encore d'XP : envoie des messages pour grimper !" };
+        const nextLevel = row.level + 1;
+        const remaining = Math.max(0, xpForLevel(nextLevel) - row.xp);
+        return {
+          ok: true,
+          summary: `Niveau **${row.level}** avec **${row.xp}** XP. Prochain niveau à ${xpForLevel(nextLevel)} XP (${remaining} restants).`,
+          data: { ...row, nextLevelXp: xpForLevel(nextLevel), remaining },
+        };
+      },
+    });
+    this.registry.register({
+      name: 'levels.leaderboard',
+      description: 'Classement des membres par XP et niveau (top 10).',
+      category: 'levels',
+      paramsSchema: z.object({ limit: z.number().int().min(3).max(25).default(10) }),
+      requiredModules: ['levels'],
+      permissions: [],
+      destructive: false,
+      systemPrompt: 'Read-only. Rends le classement en liste numérotée avec mentions.',
+      handler: async (input, ctx) => {
+        if (ctx.guildId === null) return { ok: false, summary: 'Contexte de serveur requis.' };
+        const { limit } = input as { limit?: number };
+        const rows = await this.leaderboard(ctx.guildId, limit ?? 10);
+        if (rows.length === 0) return { ok: true, summary: 'Aucun XP attribué pour le moment.' };
+        const lines = rows.map((row, index) => `${index + 1}. <@${row.userId}> — niveau **${row.level}** (${row.xp} XP)`);
+        return { ok: true, summary: `Classement : ${lines.join(' | ')}`, data: { rows } };
+      },
+    });
     this.registry.register(
       makeStatusTool({
         name: 'levels.status',
