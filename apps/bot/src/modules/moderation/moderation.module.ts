@@ -28,5 +28,6 @@ import { ModerationService } from './moderation.service';
     ModRestoreRolesHandler,
   ],
   providers: [ModerationService],
+  exports: [ModerationService],
 })
 export class ModerationModule {}

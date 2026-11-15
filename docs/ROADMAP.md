@@ -170,8 +170,10 @@
 - **Chaque module exporte ses tools** : contrat `BotTool` obligatoire — modules, dashboard (MCP) et assistant consomment le même registry ; inventory cible 200–300 (§Tools)
 - Utilitaires : **`/translate` (22✅)**, `/summarize`, chat GPT (15✅)
 
-**B. Agent Admin — tout gérer Discord par langage naturel** (P2, flagship) :
+**B. Agent Admin — tout gérer Discord par langage naturel** (P2 — ✅ socle v1 implémenté, LLM à brancher) :
 - **Capacités** : créer / renommer / archiver / supprimer salons, catégories, rôles ; gérer les permission overwrites par canal ; construire un serveur sur mesure depuis une demande (« refais le serveur sur le thème de Noël » = plan multi-étapes) ; configurer des **politiques** en langage naturel → règles structurées : *« supprime tous les liens postés et averti l'utilisateur »* → automod rule Zod-typée avec salons/rôles ciblés.
+- **✅ Implémenté (v1)** : `/agent whitelist add|remove|list` (owner only), `/agent propose <ops-json>` (union discriminée `AdminOpSchema` — 10 ops : channel.create/rename/archive/delete, role.create/rename/delete, member.timeout/kick/ban), panneau Components V2 + boutons **Approuver/Annuler**, expiration 5 min = annulation, gate au clic (whitelist/owner pour destructif, ManageGuild sinon), **archive-first pour les suppressions de salons** (snapshot restaurable), exécution avec vérification perms bot en code, **11 tools `discord.*`** dans le ToolRegistry (systemPrompt dédié par tool, tiers destructive), audit par op.
+- **Reste à brancher** : la traduction langage naturel → plan via LLM (AI SDK + OpenRouter, clés `OPENROUTER_API_KEY`) — le pipeline plan/confirm/execute est prêt et testable via `/agent propose`.
 - **Sécurité non négociable** (recherche 2026 : Anthropic / OpenAI Agents SDK / LangGraph / discord-mcp — détails ARCHITECTURE §16) :
   1. **Plan → confirmation humaine → exécution** : l'agent produit un **plan** (liste d'ops typées, diff avant/après) rendu en container ; UNE seule confirmation pour tout le plan batché ; exécution idempotente (clés) + readback de vérification.
   2. **Fail-closed** : mode écriture par défaut = preview ; ambiguïté = question de clarification ; **timeout = annulation** ; le clic sur le bouton re-vérifie les permissions du CLIQUEUR (pas du demandeur initial).

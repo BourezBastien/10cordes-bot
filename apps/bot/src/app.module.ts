@@ -4,6 +4,7 @@ import { AuthController } from './auth/auth.controller';
 import { SessionGuard } from './auth/guards/session.guard';
 import { GuildAccessGuard } from './auth/guards/guild-access.guard';
 import { AuditModule } from './modules/audit/audit.module';
+import { AgentModule } from './modules/agent/agent.module';
 import { DatabaseModule } from './modules/database/database.module';
 import { GuildConfigModule } from './modules/guild-config/guild-config.module';
 import { InfoModule } from './modules/info/info.module';
@@ -27,7 +28,7 @@ import { WelcomeModule } from './modules/welcome/welcome.module';
   middleware: [new LoggerMiddleware()],
 })
 @Module({
-  imports: [AuditModule, DatabaseModule, HttpModule, GuildConfigModule, InfoModule, LocaleModule, LoggingModule, ModerationModule, ModuleManagerModule, PingModule, SetupModule, TagsModule, ToolRegistryModule, WelcomeModule],
+  imports: [AuditModule, DatabaseModule, HttpModule, GuildConfigModule, InfoModule, LocaleModule, LoggingModule, ModerationModule, ModuleManagerModule, PingModule, SetupModule, TagsModule, ToolRegistryModule, AgentModule, WelcomeModule],
   providers: [AuthController, MetaController, GuildsController],
 })
 export class AppModule {}

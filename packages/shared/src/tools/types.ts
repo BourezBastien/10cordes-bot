@@ -3,6 +3,8 @@ import type { z } from 'zod';
 /** Contexte d'exécution fourni au tool par son appelant (assistant, dashboard, MCP). */
 export interface ToolRunContext {
   guildId: string | null;
+  /** Canal d'où provient la demande — requis par les tools qui créent des plans/proposals. */
+  channelId?: string | null;
   userId: string;
   locale: string;
   /** Canal de réponse humain du frontend appelant (chat, vocal→TTS, dashboard). */

@@ -170,3 +170,33 @@ model Tag {
   @@unique([guildId, name])
   @@map("tags")
 }
+
+// ── Agent Admin (P2) ─────────────────────────────────────────
+
+model AdminWhitelist {
+  id        String   @id @default(cuid())
+  guildId   String
+  userId    String
+  addedBy   String
+  createdAt DateTime @default(now())
+
+  @@unique([guildId, userId])
+  @@map("admin_whitelist")
+}
+
+model AgentPlan {
+  id          String   @id @default(cuid())
+  guildId     String
+  channelId   String
+  requesterId String
+  title       String
+  ops         String
+  status      String   @default("pending")
+  results     String?
+  approvedBy  String?
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+
+  @@index([guildId, status])
+  @@map("agent_plans")
+}
