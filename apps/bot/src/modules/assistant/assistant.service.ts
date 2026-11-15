@@ -290,6 +290,14 @@ export class AssistantService {
                       .setCustomId(ANSWER_VIEW_ID)
                       .setLabel('Afficher (éphémère)')
                       .setStyle(ButtonStyle.Primary),
+                    ...(introData.staff
+                      ? [
+                          new ButtonBuilder()
+                            .setCustomId('setup:panel-button')
+                            .setLabel('Panneau de configuration')
+                            .setStyle(ButtonStyle.Secondary),
+                        ]
+                      : []),
                   ),
                 ),
             ],

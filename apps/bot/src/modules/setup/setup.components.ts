@@ -121,3 +121,6 @@ export class SetupConfigValueModal {
   @ModalInput({ label: 'Valeur', style: 'paragraph', placeholder: 'true/false, nombre, <#salon>, texte', required: true })
   value!: string;
 }
+
+@Button({ customId: 'setup:panel-button', label: 'Panneau de configuration', style: 'primary' })
+export class SetupPanelButton {}

@@ -1,9 +1,15 @@
 import { eslintConfig } from '@bluzzi/eslint-config';
 
-export default eslintConfig({
-  stylistic: {
-    indent: 2,
-    quotes: 'single',
-    semi: true,
+export default [
+  // Repos d'étude locaux : jamais lintés
+  {
+    ignores: ['references/**'],
   },
-});
+  ...eslintConfig({
+    stylistic: {
+      indent: 2,
+      quotes: 'single',
+      semi: true,
+    },
+  }),
+];

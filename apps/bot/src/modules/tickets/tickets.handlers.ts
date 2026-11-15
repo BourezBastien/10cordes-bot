@@ -25,7 +25,6 @@ function claimCloseRows(): ActionRowBuilder<ButtonBuilder> {
   );
 }
 
-@SlashCommandHandler(SetupCommand, { group: 'tickets', sub: 'category' })
 @UseGuards(ADMIN)
 export class TicketCategoryHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -42,7 +41,6 @@ export class TicketCategoryHandler {
   }
 }
 
-@SlashCommandHandler(SetupCommand, { group: 'tickets', sub: 'staff' })
 @UseGuards(ADMIN)
 export class TicketStaffHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -59,7 +57,6 @@ export class TicketStaffHandler {
   }
 }
 
-@SlashCommandHandler(SetupCommand, { group: 'tickets', sub: 'panel' })
 @UseGuards(ADMIN)
 export class TicketPanelChannelHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -82,7 +79,6 @@ export class TicketPanelChannelHandler {
   }
 }
 
-@SlashCommandHandler(SetupCommand, { group: 'tickets', sub: 'logs' })
 @UseGuards(ADMIN)
 export class TicketLogsHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -99,7 +95,6 @@ export class TicketLogsHandler {
   }
 }
 
-@SlashCommandHandler(SetupCommand, { group: 'tickets', sub: 'setup' })
 @UseGuards(ADMIN)
 export class TicketSetupHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -296,5 +291,3 @@ export class TicketCloseHandler {
     }, 5_000);
   }
 }
-
-import { SetupCommand } from '../setup/setup.schema';

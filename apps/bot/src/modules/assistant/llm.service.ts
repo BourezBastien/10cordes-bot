@@ -6,6 +6,7 @@ import { AppEnv } from '../../app.env';
 import { PrismaService } from '../database/prisma.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { ImagelabService } from '../imagelab/imagelab.service';
+import { GuildConfigService } from '../guild-config/guild-config.service';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -83,6 +84,7 @@ export class LlmService implements SpraxiumOnBoot {
     private readonly prisma: PrismaService,
     private readonly registry: ToolRegistryService,
     private readonly imagelab: ImagelabService,
+    private readonly config: GuildConfigService,
   ) {}
 
   async onBoot(): Promise<void> {
@@ -95,6 +97,29 @@ export class LlmService implements SpraxiumOnBoot {
       // Table pas encore migrée au tout premier boot : l'env prend le relais.
     }
     this.registry.register(this.statusTool());
+    this.registry.register(this.dedicatedChannelTool());
+  }
+
+  /** Tool setDedicatedChannel : désigne le salon où l'agent engage sans mention. */
+  private dedicatedChannelTool(): BotTool {
+    return {
+      name: 'setDedicatedChannel',
+      description: "Désigne le salon dédié de l'agent IA : tous les messages y sont traités sans mention. Salon actuel si channelId omis.",
+      category: 'assistant',
+      paramsSchema: z.object({ channelId: z.string().min(1).optional() }),
+      requiredModules: [],
+      permissions: ['ManageGuild'],
+      destructive: false,
+      systemPrompt: "Configure le salon dédié de l'agent quand l'utilisateur le demande, en résolvant le nom via getChannels.",
+      handler: async (input, ctx) => {
+        if (ctx.guildId === null) return { ok: false, summary: 'Contexte de serveur requis.' };
+        const { channelId } = input as { channelId?: string };
+        const target = channelId ?? ctx.channelId;
+        if (!target) return { ok: false, summary: 'Aucun salon identifiable.' };
+        await this.config.patch(ctx.guildId, { assistant: { channelId: target } });
+        return { ok: true, summary: `Salon dédié IA : <#${target}>. Tous les messages y sont traités sans mention.` };
+      },
+    };
   }
 
   /** Tool getAIStatus : l'agent vérifie lui-même l'état des connexions IA. */
@@ -106,9 +131,10 @@ export class LlmService implements SpraxiumOnBoot {
       paramsSchema: z.object({}).loose(),
       requiredModules: [],
       permissions: ['ManageGuild'],
+      scope: 'user',
       destructive: false,
       systemPrompt:
-        'Read-only. Call FIRST when the user asks whether the IA/DeepSeek/provider is configured, connected or working.',
+        'Read-only. Contient des infos sensibles : la réponse est éphémère. Call FIRST when the user asks whether the IA/DeepSeek/provider is configured, connected or working.',
       handler: async () => {
         const status = this.status();
         const lines =

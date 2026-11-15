@@ -1,7 +1,5 @@
 import {
   Ctx,
-  SlashCommand,
-  SlashCommandHandler,
   SlashOption,
   SlashRoleOption,
   SlashSubcommand,
@@ -22,7 +20,6 @@ import {
   type StringSelectMenuInteraction,
 } from 'discord.js';
 import { GuildConfigService } from '../guild-config/guild-config.service';
-import { SetupCommand } from '../setup/setup.schema';
 import { panel } from '../../shared/ui';
 
 const ADMIN = withOptions(PermissionGuard, { permissions: ['ManageGuild'] });
@@ -67,7 +64,6 @@ function panelTitleOnly(title: string): ContainerBuilder {
   return panel({ title: `## ${title}`, lines: ['Sélectionne tes rôles dans le menu.'] });
 }
 
-@SlashCommandHandler(SetupCommand, { group: 'roles', sub: 'add' })
 @UseGuards(ADMIN)
 export class RolesAddHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -98,7 +94,6 @@ export class RolesAddHandler {
   }
 }
 
-@SlashCommandHandler(SetupCommand, { group: 'roles', sub: 'remove' })
 @UseGuards(ADMIN)
 export class RolesRemoveHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -125,7 +120,6 @@ export class RolesRemoveHandler {
   }
 }
 
-@SlashCommandHandler(SetupCommand, { group: 'roles', sub: 'post' })
 @UseGuards(ADMIN)
 export class RolesPostHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -168,7 +162,6 @@ export class RolesPostHandler {
   }
 }
 
-@SlashCommandHandler(SetupCommand, { group: 'roles', sub: 'refresh' })
 @UseGuards(ADMIN)
 export class RolesRefreshHandler {
   constructor(private readonly config: GuildConfigService) {}
@@ -204,7 +197,6 @@ export class RolesRefreshHandler {
   }
 }
 
-@SlashCommandHandler(SetupCommand, { group: 'roles', sub: 'view' })
 @UseGuards(ADMIN)
 export class RolesViewHandler {
   constructor(private readonly config: GuildConfigService) {}

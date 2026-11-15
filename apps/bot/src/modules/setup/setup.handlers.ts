@@ -1,4 +1,4 @@
-import { Ctx, SlashCommandHandler, UseGuards, withOptions } from '@spraxium/common';
+import { Ctx, UseGuards, withOptions } from '@spraxium/common';
 import { PermissionGuard } from '@spraxium/core';
 import { ButtonHandler, ChannelSelectHandler, ModalHandler, ModalService, ModalTextField, RoleSelectHandler, StringSelectHandler } from '@spraxium/components';
 import { MessageFlags } from 'discord.js';
@@ -21,9 +21,10 @@ import { ImagelabService } from '../imagelab/imagelab.service';
 import { LlmService } from '../assistant/llm.service';
 import { ModuleManagerService } from '../module-manager/module-manager.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
-import { SetupCommand } from './setup.schema';
 import { buildCategorySelect, renderCategoryPanel, renderMainPanel, type CategoryId } from './setup.panel';
-import { panel } from '../../shared/ui';
+import { panel, text } from '../../shared/ui';
+import { SetupPanelButton } from './setup.components';
+import { RR_SELECT_ID } from '../roles/roles.command';
 import {
   SetupAssistantClear,
   SetupBackButton,
@@ -54,7 +55,6 @@ import {
   SetupWelcomeDeleteLeave,
   SetupWelcomeToggle,
 } from './setup.components';
-import { RR_SELECT_ID } from '../roles/roles.command';
 
 const STAFF = withOptions(PermissionGuard, { permissions: ['ManageGuild'] });
 
@@ -112,27 +112,25 @@ function buildCategoryRow(): ActionRowBuilder<StringSelectMenuBuilder> {
   return buildCategorySelect();
 }
 
-/** /setup : ouvre le dashboard principal. */
-@SlashCommandHandler(SetupCommand)
+/** Bouton du portail : ouvre le dashboard principal en ÉPHÉMÈRE (staff). */
+@ButtonHandler(SetupPanelButton)
 @UseGuards(STAFF)
-export class SetupHandler {
+export class SetupPanelButtonHandler {
   constructor(
     private readonly config: GuildConfigService,
     private readonly llm: LlmService,
     private readonly imagelab: ImagelabService,
-    private readonly registry: ToolRegistryService,
   ) {}
 
-  async handle(@Ctx() interaction: import('discord.js').ChatInputCommandInteraction): Promise<void> {
+  async handle(@Ctx() interaction: import('discord.js').ButtonInteraction): Promise<void> {
     const guildId = interaction.guildId;
     if (!guildId) return;
     const guildConfig = await this.config.get(guildId);
     const container = renderMainPanel(guildConfig, this.llm.status(), this.imagelab.configured);
     await interaction.reply({
-      components: [container, buildCategoryRow()],
+      components: [container, buildCategorySelect()],
       flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral],
     });
-    void this.registry;
   }
 }
 

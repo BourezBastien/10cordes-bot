@@ -5,9 +5,7 @@ import { GuildConfigModule } from '../guild-config/guild-config.module';
 import { ImagelabModule } from '../imagelab/imagelab.module';
 import { ModuleManagerModule } from '../module-manager/module-manager.module';
 import { ToolRegistryModule } from '../tool-registry/tool-registry.module';
-import { SetupHandler } from './setup.handlers';
-import { HelpCommand, HelpHandler } from './setup.help';
-import { SetupCommand } from './setup.schema';
+import { SetupPanelButtonHandler } from './setup.handlers';
 import {
   SetupAssistantClearHandler,
   SetupBackHandler,
@@ -48,10 +46,8 @@ import {
     ModuleManagerModule,
     ToolRegistryModule,
   ],
-  commands: [SetupCommand, HelpCommand],
   handlers: [
-    SetupHandler,
-    HelpHandler,
+    SetupPanelButtonHandler,
     SetupCategoryHandler,
     SetupBackHandler,
     SetupModulesPickHandler,
