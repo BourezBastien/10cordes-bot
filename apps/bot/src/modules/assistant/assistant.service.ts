@@ -1,13 +1,14 @@
 import { Injectable } from '@spraxium/common';
 import { Logger } from '@spraxium/logger';
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, MessageFlags, PermissionFlagsBits, type Message } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, ContainerBuilder, MessageFlags, PermissionFlagsBits, type Message } from 'discord.js';
+import { ANSWER_VIEW_ID, deleteAnswer, storeAnswer } from './handlers/answer-view.handler';
 import { z } from 'zod';
 import type { BotTool, ToolRunContext } from '@10cordes/shared';
 import { LlmService, toApiToolName, type ChatMessage, type OpenAiTool } from './llm.service';
 import { IA_CONFIG_BUTTON_ID } from './components/ia-config.components';
-import { panel } from '../../shared/ui';
 import { LocaleService } from '../locale/locale.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
+import type { GuildConfig } from '@10cordes/shared';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { V2Service } from '@spraxium/components';
 import { AuditService } from '../audit/audit.service';
@@ -15,6 +16,7 @@ import { MemoryService } from '../memory/memory.service';
 import { AssistantQueue } from './assistant.queue';
 import { IntroContainer, type IntroData, ToolsListContainer, type ToolsData, TOOLS_PER_PAGE } from './v2.containers';
 import { storeToolsPanel } from './tools.panel';
+import { panel, text } from '../../shared/ui';
 
 const log = new Logger('Assistant');
 
@@ -264,12 +266,44 @@ export class AssistantService {
           'Mémoire persistante · permissions vérifiées · confirmation humaine sur le destructeur',
       };
       const introPayload = await this.v2.buildReply(IntroContainer, introData);
-      await message
-        .reply({
-          components: introPayload.components as never,
-          flags: introPayload.flags as never,
-        })
-        .catch(() => {});
+      const dedicatedHere = guildConfig.assistant.channelId === message.channelId;
+      if (dedicatedHere) {
+        await message
+          .reply({
+            components: introPayload.components as never,
+            flags: introPayload.flags as never,
+          })
+          .catch(() => {});
+      } else {
+        // Portail éphémère : le panneau complet n'est visible QUE par la personne.
+        const portal = await message
+          .reply({
+            components: [
+              new ContainerBuilder()
+                .setAccentColor(0xd9_59_26)
+                .addTextDisplayComponents(
+                  text(`**Panneau prêt pour ${displayName}** — visible uniquement par toi.`),
+                )
+                .addActionRowComponents(
+                  new ActionRowBuilder<ButtonBuilder>().addComponents(
+                    new ButtonBuilder()
+                      .setCustomId(ANSWER_VIEW_ID)
+                      .setLabel('Afficher (éphémère)')
+                      .setStyle(ButtonStyle.Primary),
+                  ),
+                ),
+            ],
+            flags: [MessageFlags.IsComponentsV2],
+          })
+          .catch(() => null);
+        if (portal) {
+          storeAnswer(portal.id, { components: introPayload.components as unknown[] });
+          setTimeout(() => {
+            deleteAnswer(portal.id);
+            void portal.delete().catch(() => {});
+          }, 60_000).unref?.();
+        }
+      }
       this.audit.record({
         guildId: message.guildId,
         source: 'agent',
@@ -281,7 +315,7 @@ export class AssistantService {
     }
 
     try {
-      await withTypingIndicator(message, () => this.converse(message, guildConfig.defaultLocale));
+      await withTypingIndicator(message, () => this.converse(message, guildConfig));
     } catch (error) {
       log.error(`Assistant failure for ${message.author.id}: ${error instanceof Error ? error.message : String(error)}`);
       this.audit.record({
@@ -297,11 +331,11 @@ export class AssistantService {
     }
   }
 
-  private async converse(message: Message, defaultLocale: 'fr' | 'en'): Promise<void> {
+  private async converse(message: Message, guildConfig: GuildConfig): Promise<void> {
     const guild = message.guild;
     if (!guild || !message.guildId) return;
 
-    const locale = await this.locales.resolve(message.author.id, defaultLocale);
+    const locale = await this.locales.resolve(message.author.id, guildConfig.defaultLocale);
     // Mémoire persistante injectée : contexte serveur + utilisateur à chaque échange.
     const [guildMemories, memberMemories] = await Promise.all([
       this.memory.listGuild(message.guildId, 20).catch(() => [] as string[]),
