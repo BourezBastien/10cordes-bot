@@ -9,13 +9,19 @@ import {
   StringSelectMenuInteraction,
 } from 'discord.js';
 import { setPath } from '../../shared/utils/object';
-import { SetupLanguageSelect, SetupWelcomeChannelSelect, SetupWelcomeToggle } from './setup.components';
+import {
+  SetupAssistantChannelSelect,
+  SetupAssistantClear,
+  SetupLanguageSelect,
+  SetupWelcomeChannelSelect,
+  SetupWelcomeToggle,
+} from './setup.components';
 import { buildSetupReply } from './setup.panel';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 
 const MANAGE_GUILD = withOptions(PermissionGuard, { permissions: ['ManageGuild'] });
 
-/** Helpers communs aux trois composants du /setup (mise à jour + re-rendu du panneau). */
+/** Helpers communs aux composants du /setup (mise à jour + re-rendu du panneau). */
 abstract class SetupComponentHandlerBase {
   constructor(
     protected readonly config: GuildConfigService,
@@ -69,5 +75,27 @@ export class SetupWelcomeToggleHandler extends SetupComponentHandlerBase {
     if (!guildId) return;
     const current = await this.config.get(guildId);
     await this.renderUpdated(interaction, { welcome: { enabled: !current.welcome.enabled } });
+  }
+}
+
+@ChannelSelectHandler(SetupAssistantChannelSelect)
+@UseGuards(MANAGE_GUILD)
+export class SetupAssistantChannelSelectHandler extends SetupComponentHandlerBase {
+  async handle(@Ctx() interaction: ChannelSelectMenuInteraction): Promise<void> {
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+    const channelId = interaction.values[0];
+    if (!channelId) return;
+    await this.renderUpdated(interaction, { assistant: { channelId } });
+  }
+}
+
+@ButtonHandler(SetupAssistantClear)
+@UseGuards(MANAGE_GUILD)
+export class SetupAssistantClearHandler extends SetupComponentHandlerBase {
+  async handle(@Ctx() interaction: ButtonInteraction): Promise<void> {
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+    await this.renderUpdated(interaction, { assistant: { channelId: '' } });
   }
 }

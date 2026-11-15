@@ -84,6 +84,17 @@ export class AssistantService {
   async handleMention(message: Message): Promise<void> {
     if (!message.guild || !message.guildId || !message.channelId) return;
 
+    const guildConfig = await this.config.get(message.guildId);
+
+    // Salon dédié configuré → l'assistant ne répond que là-haut (vide = partout).
+    const assistantChannel = guildConfig.assistant.channelId;
+    if (assistantChannel && message.channelId !== assistantChannel) {
+      await message
+        .reply({ content: `🤖 Je ne réponds que dans <#${assistantChannel}> (ou configure un autre salon via /setup).` })
+        .catch(() => {});
+      return;
+    }
+
     const cooldownKey = `${message.guildId}:${message.author.id}`;
     const last = this.cooldowns.get(cooldownKey);
     if (last !== undefined && Date.now() - last < USER_COOLDOWN_MS) {
@@ -105,7 +116,6 @@ export class AssistantService {
       await message.channel.sendTyping().catch(() => {});
     }
 
-    const guildConfig = await this.config.get(message.guildId);
     const locale = await this.locales.resolve(message.author.id, guildConfig.defaultLocale);
     const member = message.member;
     const canManage =

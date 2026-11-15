@@ -80,6 +80,18 @@ export const ModerationConfigSchema = z.object({
 });
 export type ModerationConfig = z.infer<typeof ModerationConfigSchema>;
 
+export const AssistantConfigSchema = z.object({
+  /**
+   * Salon dédié à l'assistant IA (agentic). Vide/null = le bot répond à sa
+   * mention dans tous les salons ; défini = il ne répond que dans ce salon.
+   */
+  channelId: z
+    .string()
+    .refine((v) => v === '' || /^\d{15,21}$/.test(v), 'Must be a channel ID or empty')
+    .default(''),
+});
+export type AssistantConfig = z.infer<typeof AssistantConfigSchema>;
+
 /**
  * Configuration d'un serveur — un seul document JSON typé (pattern single-document).
  * Tout champ manquant est comblé par les defaults Zod : l'évolution du schéma
@@ -95,6 +107,7 @@ export const GuildConfigSchema = z.object({
   roles: ReactionRolesConfigSchema.prefault({}),
   levels: LevelsConfigSchema.prefault({}),
   moderation: ModerationConfigSchema.prefault({}),
+  assistant: AssistantConfigSchema.prefault({}),
   /** Messages d'erreur personnalisés par code — template avec placeholders de l'exception. */
   errorMessages: z.record(z.string(), z.string()).default({}),
 });
@@ -129,4 +142,5 @@ export const CONFIG_KEYS: ConfigKeyDescriptor[] = [
   { path: 'levels.xpPerMessage', type: 'number', description: 'XP par message' },
   { path: 'levels.cooldownMinutes', type: 'number', description: 'Cooldown XP (minutes)' },
   { path: 'levels.announceChannelId', type: 'channel', description: 'Salon des level-ups' },
+  { path: 'assistant.channelId', type: 'channel', description: "Salon dédié de l'IA (vide = mention dans tous les salons)" },
 ];
