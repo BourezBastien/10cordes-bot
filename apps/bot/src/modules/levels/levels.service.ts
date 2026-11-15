@@ -35,7 +35,7 @@ export class LevelsService implements SpraxiumOnBoot {
 
   async onBoot(): Promise<void> {
     this.registry.register({
-      name: 'levels.rank',
+      name: 'getMyRank',
       description: "Ton propre rang : niveau, XP et progression vers le niveau suivant (réponse en message privé).",
       category: 'levels',
       paramsSchema: z.object({}).loose(),
@@ -43,7 +43,7 @@ export class LevelsService implements SpraxiumOnBoot {
       permissions: [],
       destructive: false,
       scope: 'user',
-      systemPrompt: "Personnel : l'appelant reçoit son rang en privé. Utilise levels.leaderboard pour voir les autres.",
+      systemPrompt: "Personnel : l'appelant reçoit son rang en privé. Utilise getLeaderboard pour voir les autres.",
       handler: async (_input, ctx) => {
         if (ctx.guildId === null) return { ok: false, summary: 'Contexte de serveur requis.' };
         const row = await this.get(ctx.guildId, ctx.userId);
@@ -58,7 +58,7 @@ export class LevelsService implements SpraxiumOnBoot {
       },
     });
     this.registry.register({
-      name: 'levels.leaderboard',
+      name: 'getLeaderboard',
       description: 'Classement des membres par XP et niveau (top 10).',
       category: 'levels',
       paramsSchema: z.object({ limit: z.number().int().min(3).max(25).default(10) }),
@@ -77,7 +77,7 @@ export class LevelsService implements SpraxiumOnBoot {
     });
     this.registry.register(
       makeStatusTool({
-        name: 'levels.status',
+        name: 'getLevelsSetup',
         category: 'levels',
         description: 'Levels system setup on this server: enabled state, XP rate, rewards.',
         summary: async (guildId) => {

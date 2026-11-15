@@ -1,18 +1,16 @@
-import { Button, ButtonHandler, V2Service } from '@spraxium/components';
+import { ButtonHandler, V2Service } from '@spraxium/components';
 import { MessageFlags, type ButtonInteraction } from 'discord.js';
+import { notice } from '../../../shared/ui';
 import { TOOLS_PER_PAGE, getToolsPage } from '../tools.panel';
+import { ToolsNextButton, ToolsPrevButton } from '../tools-nav-buttons';
 import { ToolsListContainer } from '../v2.containers';
-
-@Button({ customId: 'tools:nav-prev', label: '<', style: 'secondary' })
-export class ToolsPrevButton {}
-
-@Button({ customId: 'tools:nav-next', label: '>', style: 'secondary' })
-export class ToolsNextButton {}
 
 async function paginate(interaction: ButtonInteraction, delta: number, v2: V2Service): Promise<void> {
   const state = getToolsPage(interaction.message.id);
   if (!state) {
-    void interaction.reply({ content: 'Panneau expiré : relance ta demande.', flags: MessageFlags.Ephemeral }).catch(() => {});
+    void interaction
+      .reply(notice('Panneau expiré : relance ta demande.', true))
+      .catch(() => {});
     return;
   }
   const pages = Math.max(1, Math.ceil(state.tools.length / TOOLS_PER_PAGE));

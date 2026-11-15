@@ -14,7 +14,7 @@ export class WelcomeStatusService implements SpraxiumOnBoot {
   async onBoot(): Promise<void> {
     this.registry.register(
       makeStatusTool({
-        name: 'welcome.status',
+        name: 'getWelcomeSetup',
         category: 'welcome',
         description: 'Welcome and farewell setup on this server: channels, autorole, templates.',
         summary: async (guildId) => {

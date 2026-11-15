@@ -97,10 +97,10 @@ export class LlmService implements SpraxiumOnBoot {
     this.registry.register(this.statusTool());
   }
 
-  /** Tool ia.status : l'agent vérifie lui-même l'état des connexions IA. */
+  /** Tool getAIStatus : l'agent vérifie lui-même l'état des connexions IA. */
   private statusTool(): BotTool {
     return {
-      name: 'ia.status',
+      name: 'getAIStatus',
       description: 'Connexion IA de cette instance : fournisseur, modèle, clé (masquée), PixelLab.',
       category: 'assistant',
       paramsSchema: z.object({}).loose(),

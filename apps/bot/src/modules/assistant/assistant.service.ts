@@ -105,8 +105,8 @@ function buildSystemPrompt(
     memories.memberMemories.length > 0
       ? `Mémoire sur CET utilisateur : ${memories.memberMemories.join(' | ')}`
       : 'Mémoire sur cet utilisateur : vide.',
-    "Ta mémoire est ta force : respecte les règles mémorisées, reprends les habitudes, adapte ton ton aux membres via memory.member.get (par ID).",
-    "Enregistre spontanément via memory.guild.add / memory.member.add : infos structurantes d'abord (règles, hiérarchie, préférences), puis faits durables.",
+    "Ta mémoire est ta force : respecte les règles mémorisées, reprends les habitudes, adapte ton ton aux membres via getMemberMemory (par ID).",
+    "Enregistre spontanément via saveServerMemory / saveMemberMemory : infos structurantes d'abord (règles, hiérarchie, préférences), puis faits durables.",
     "Append-only : une correction = un NOUVEL ajout, jamais une suppression.",
     "</MEMORY>",
     "<TOOL_USE_GUIDANCE>",
@@ -475,7 +475,7 @@ export class AssistantService {
           }
           const result = await this.registry.run(call.name, input, ctx);
           executed.push(call.name);
-          if (result.ok && call.name === 'tools.list' && result.data && Array.isArray((result.data as { tools?: unknown }).tools)) {
+          if (result.ok && call.name === 'getAvailableTools' && result.data && Array.isArray((result.data as { tools?: unknown }).tools)) {
             toolsCards = (result.data as { tools: ToolCard[] }).tools;
           }
           if (result.ok && this.registry.get(call.name)?.scope === "user") {

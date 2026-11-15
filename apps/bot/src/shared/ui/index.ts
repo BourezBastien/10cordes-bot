@@ -1,6 +1,7 @@
 import {
   ContainerBuilder,
   FileBuilder,
+  MessageFlags,
   SeparatorBuilder,
   SeparatorSpacingSize,
   TextDisplayBuilder,
@@ -48,4 +49,18 @@ export function panel(options: PanelOptions): ContainerBuilder {
     container.addTextDisplayComponents(text(`-# ${options.footer}`));
   }
   return container;
+}
+
+/**
+ * Notification courte en Components V2 (texte seul). Utilisée pour les
+ * confirmations, avertissements et erreurs — jamais de `content` brut.
+ */
+export function notice(
+  content: string,
+  ephemeral = false,
+): { flags: number; components: TextDisplayBuilder[] } {
+  return {
+    flags: ephemeral ? MessageFlags.Ephemeral | MessageFlags.IsComponentsV2 : MessageFlags.IsComponentsV2,
+    components: [new TextDisplayBuilder().setContent(content)],
+  };
 }

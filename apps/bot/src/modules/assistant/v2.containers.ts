@@ -1,4 +1,5 @@
-import { V2Container, V2Dynamic, V2Section, V2Separator, V2Text, V2When, desc, v2sep, v2text } from '@spraxium/components';
+import { V2Container, V2Dynamic, V2Row, V2Section, V2Separator, V2Text, V2When, desc, v2sep, v2text } from '@spraxium/components';
+import { ToolsNextButton, ToolsPrevButton } from './tools-nav-buttons';
 
 // ── Panneau d'identité (mention nue / salutation) ────────────
 
@@ -103,11 +104,14 @@ export class ToolsListContainer {
   @V2Dynamic((data: ToolsData) => groupedEntries(data))
   list!: never;
 
-  @V2Separator({ divider: false })
-  spacer!: never;
+  @V2Separator()
+  sepNav!: never;
+
+  @V2Row({ components: [ToolsPrevButton, ToolsNextButton] })
+  nav!: never;
 
   @V2Text((data: ToolsData) =>
-    desc().subtext(`${data.tools.length} tools filtrés selon tes permissions · navigue avec les boutons`),
+    desc().subtext(`${data.tools.length} tools filtrés selon tes permissions`),
   )
   footer!: never;
 }

@@ -14,7 +14,7 @@ export class RolesStatusService implements SpraxiumOnBoot {
   async onBoot(): Promise<void> {
     this.registry.register(
       makeStatusTool({
-        name: 'roles.status',
+        name: 'getRolesMenuSetup',
         category: 'roles',
         description: 'Reaction roles menu setup on this server: offered roles and panel location.',
         summary: async (guildId) => {

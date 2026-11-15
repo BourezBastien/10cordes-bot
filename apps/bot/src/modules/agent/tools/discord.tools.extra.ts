@@ -26,7 +26,7 @@ export function discordExtraTools(
   return [
     // ── Salons : réglages fins ────────────────────────────────────
     {
-      name: 'discord.channel.setTopic',
+      name: 'setChannelTopic',
       description: "Change le sujet (topic) d'un salon texte.",
       category: 'agent',
       paramsSchema: z.object({ channelId: z.string().min(1), topic: z.string().max(1024) }),
@@ -48,7 +48,7 @@ export function discordExtraTools(
       },
     },
     {
-      name: 'discord.channel.setSlowmode',
+      name: 'setChannelSlowmode',
       description: "Définit le mode lent d'un salon (0 = off, max 6h).",
       category: 'agent',
       paramsSchema: z.object({ channelId: z.string().min(1), seconds: z.number().int().min(0).max(21600) }),
@@ -70,7 +70,7 @@ export function discordExtraTools(
       },
     },
     {
-      name: 'discord.channel.createCategory',
+      name: 'createCategory',
       description: 'Crée une catégorie (conteneur de salons).',
       category: 'agent',
       paramsSchema: z.object({ name: z.string().min(1).max(100) }),
@@ -90,7 +90,7 @@ export function discordExtraTools(
       },
     },
     {
-      name: 'discord.channel.move',
+      name: 'moveChannel',
       description: 'Déplace un salon dans une catégorie.',
       category: 'agent',
       paramsSchema: z.object({ channelId: z.string().min(1), categoryId: z.string().min(1) }),
@@ -112,7 +112,7 @@ export function discordExtraTools(
 
     // ── Rôles : réglages fins ─────────────────────────────────────
     {
-      name: 'discord.role.rename',
+      name: 'renameRole',
       description: 'Renomme un rôle.',
       category: 'agent',
       paramsSchema: z.object({ roleId: z.string().min(1), name: z.string().min(1).max(100) }),
@@ -131,7 +131,7 @@ export function discordExtraTools(
       },
     },
     {
-      name: 'discord.role.setColor',
+      name: 'setRoleColor',
       description: "Change la couleur d'un rôle (entier hex : rouge=16711680, vert=65280, bleu=255).",
       category: 'agent',
       paramsSchema: z.object({ roleId: z.string().min(1), color: z.number().int().min(0).max(0xffffff) }),
@@ -150,7 +150,7 @@ export function discordExtraTools(
       },
     },
     {
-      name: 'discord.role.add',
+      name: 'addRoleToMember',
       description: 'Attribue un rôle à un membre.',
       category: 'agent',
       paramsSchema: z.object({ userId: z.string().min(1), roleId: z.string().min(1) }),
@@ -170,7 +170,7 @@ export function discordExtraTools(
       },
     },
     {
-      name: 'discord.role.remove',
+      name: 'removeRoleFromMember',
       description: 'Retire un rôle à un membre.',
       category: 'agent',
       paramsSchema: z.object({ userId: z.string().min(1), roleId: z.string().min(1) }),
@@ -190,7 +190,7 @@ export function discordExtraTools(
       },
     },
     {
-      name: 'discord.role.members',
+      name: 'getRoleMembers',
       description: 'Liste les membres qui portent un rôle (max 25 mentions).',
       category: 'agent',
       paramsSchema: z.object({ roleId: z.string().min(1) }),
@@ -211,7 +211,7 @@ export function discordExtraTools(
 
     // ── Membres ───────────────────────────────────────────────────
     {
-      name: 'discord.member.unban',
+      name: 'unbanMember',
       description: 'Déban un utilisateur par ID.',
       category: 'agent',
       paramsSchema: z.object({ userId: z.string().min(1) }),
@@ -231,7 +231,7 @@ export function discordExtraTools(
       },
     },
     {
-      name: 'discord.member.nickname',
+      name: 'setNickname',
       description: 'Change le pseudo d\u2019un membre (ou réinitialise si vide).',
       category: 'agent',
       paramsSchema: z.object({ userId: z.string().min(1), nickname: z.string().max(32).optional() }),
@@ -250,7 +250,7 @@ export function discordExtraTools(
       },
     },
     {
-      name: 'discord.member.info',
+      name: 'getMemberInfo',
       description: 'Infos d\u2019un membre : pseudo, rôles, admin ou non.',
       category: 'agent',
       paramsSchema: z.object({ userId: z.string().min(1) }),
@@ -273,7 +273,7 @@ export function discordExtraTools(
       },
     },
     {
-      name: 'discord.member.list',
+      name: 'getMembers',
       description: 'Échantillon des membres du serveur (max 25).',
       category: 'agent',
       paramsSchema: z.object({}),
@@ -289,7 +289,7 @@ export function discordExtraTools(
       },
     },
     {
-      name: 'discord.member.dm',
+      name: 'sendDirectMessage',
       description: 'Envoie un message privé à un membre (max 1200 caractères).',
       category: 'agent',
       paramsSchema: z.object({ userId: z.string().min(1), content: z.string().min(1).max(1200) }),
@@ -310,7 +310,7 @@ export function discordExtraTools(
 
     // ── Messages ──────────────────────────────────────────────────
     {
-      name: 'discord.message.send',
+      name: 'sendMessage',
       description: 'Envoie un message dans un salon (max 1500 caractères).',
       category: 'agent',
       paramsSchema: z.object({ channelId: z.string().min(1), content: z.string().min(1).max(1500) }),
@@ -329,7 +329,7 @@ export function discordExtraTools(
       },
     },
     {
-      name: 'discord.message.delete',
+      name: 'deleteMessage',
       description: 'Supprime UN message précis (salon + id).',
       category: 'agent',
       paramsSchema: z.object({ channelId: z.string().min(1), messageId: z.string().min(1) }),
@@ -348,7 +348,7 @@ export function discordExtraTools(
       },
     },
     {
-      name: 'discord.message.read',
+      name: 'readMessages',
       description: 'Lit les derniers messages d\u2019un salon (max 10).',
       category: 'agent',
       paramsSchema: z.object({ channelId: z.string().min(1), limit: z.number().int().min(1).max(10).default(5) }),
@@ -372,7 +372,7 @@ export function discordExtraTools(
 
     // ── Webhooks ──────────────────────────────────────────────────
     {
-      name: 'discord.webhook.list',
+      name: 'getWebhooks',
       description: 'Liste les webhooks du serveur (nom + salon).',
       category: 'agent',
       paramsSchema: z.object({}),
@@ -389,7 +389,7 @@ export function discordExtraTools(
       },
     },
     {
-      name: 'discord.webhook.create',
+      name: 'createWebhook',
       description: 'Crée un webhook dans un salon.',
       category: 'agent',
       paramsSchema: z.object({ channelId: z.string().min(1), name: z.string().min(1).max(80) }),
@@ -410,7 +410,7 @@ export function discordExtraTools(
 
     // ── Serveur : émojis, bans, audit ─────────────────────────────
     {
-      name: 'discord.emoji.list',
+      name: 'getEmojis',
       description: 'Liste les émojis du serveur.',
       category: 'agent',
       paramsSchema: z.object({}),
@@ -426,7 +426,7 @@ export function discordExtraTools(
       },
     },
     {
-      name: 'discord.guild.bans',
+      name: 'getBans',
       description: 'Liste les bans actifs du serveur.',
       category: 'agent',
       paramsSchema: z.object({}),
@@ -448,7 +448,7 @@ export function discordExtraTools(
       },
     },
     {
-      name: 'discord.guild.audit',
+      name: 'getAuditLogs',
       description: 'Lit les dernières entrées du journal d\u2019audit.',
       category: 'agent',
       paramsSchema: z.object({ limit: z.number().int().min(1).max(10).default(5) }),

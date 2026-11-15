@@ -20,7 +20,7 @@ export class TagsService implements SpraxiumOnBoot {
     const guildOnly = (ctx: { guildId: string | null }): ctx is { guildId: string } & typeof ctx =>
       ctx.guildId !== null;
     this.registry.register({
-      name: 'tags.show',
+      name: 'getTag',
       description: "Affiche le contenu d'un tag par nom.",
       category: 'tags',
       paramsSchema: z.object({ name: z.string().min(1) }),
@@ -38,7 +38,7 @@ export class TagsService implements SpraxiumOnBoot {
       },
     });
     this.registry.register({
-      name: 'tags.list',
+      name: 'getTags',
       description: "Liste les tags du serveur avec leur nombre d'utilisations.",
       category: 'tags',
       paramsSchema: z.object({}).loose(),
@@ -54,7 +54,7 @@ export class TagsService implements SpraxiumOnBoot {
       },
     });
     this.registry.register({
-      name: 'tags.add',
+      name: 'createTag',
       description: 'Crée un tag (nom + contenu).',
       category: 'tags',
       paramsSchema: z.object({
@@ -73,7 +73,7 @@ export class TagsService implements SpraxiumOnBoot {
       },
     });
     this.registry.register({
-      name: 'tags.delete',
+      name: 'deleteTag',
       description: 'Supprime un tag par nom.',
       category: 'tags',
       paramsSchema: z.object({ name: z.string().min(1) }),

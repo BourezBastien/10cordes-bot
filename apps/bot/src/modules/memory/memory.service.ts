@@ -74,7 +74,7 @@ export class MemoryService implements SpraxiumOnBoot {
 
     return [
       {
-        name: 'memory.guild.add',
+        name: 'saveServerMemory',
         description: 'Ajoute un fait durable sur le serveur (règle, présentation, préférence). Append-only.',
         category: 'memory',
         paramsSchema: z.object({
@@ -94,7 +94,7 @@ export class MemoryService implements SpraxiumOnBoot {
         },
       },
       {
-        name: 'memory.guild.get',
+        name: 'getServerMemory',
         description: 'Lit les derniers souvenirs du serveur (faits, règles, présentation).',
         category: 'memory',
         paramsSchema: z.object({ limit: z.number().int().min(1).max(50).default(20) }),
@@ -115,7 +115,7 @@ export class MemoryService implements SpraxiumOnBoot {
         },
       },
       {
-        name: 'memory.member.add',
+        name: 'saveMemberMemory',
         description: 'Ajoute un souvenir durable sur un membre (préférence, note, anecdote). Append-only.',
         category: 'memory',
         paramsSchema: z.object({
@@ -136,7 +136,7 @@ export class MemoryService implements SpraxiumOnBoot {
         },
       },
       {
-        name: 'memory.member.get',
+        name: 'getMemberMemory',
         description: 'Lit les derniers souvenirs d\'un membre précis (par ID).',
         category: 'memory',
         paramsSchema: z.object({

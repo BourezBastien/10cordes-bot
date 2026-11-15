@@ -22,7 +22,7 @@ export class TicketsService implements SpraxiumOnBoot {
   async onBoot(): Promise<void> {
     this.registry.register(
       makeStatusTool({
-        name: 'tickets.status',
+        name: 'getTicketSetup',
         category: 'tickets',
         description: 'Ticket system setup on this server: category, staff role, panel and logs channels.',
         summary: async (guildId) => {

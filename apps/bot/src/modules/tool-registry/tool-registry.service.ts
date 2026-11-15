@@ -126,7 +126,7 @@ function builtinTools(
 
   return [
     {
-      name: 'tools.list',
+      name: 'getAvailableTools',
       description: 'List the tools the CALLER can use right now, filtered by their Discord permissions and active modules.',
       category: 'tool-registry',
       paramsSchema: z.object({}).loose(),
@@ -164,7 +164,7 @@ function builtinTools(
       },
     },
     {
-      name: 'modules.list',
+      name: 'getModules',
       description: 'List modules and their enabled state (global + per-server).',
       category: 'module-manager',
       paramsSchema: z.object({}).loose(),
@@ -180,7 +180,7 @@ function builtinTools(
       },
     },
     {
-      name: 'modules.enable',
+      name: 'enableModule',
       description: 'Enable a module (dependencies auto-enabled).',
       category: 'module-manager',
       paramsSchema: z.object({ moduleId: z.string().min(1) }),
@@ -196,7 +196,7 @@ function builtinTools(
       },
     },
     {
-      name: 'modules.disable',
+      name: 'disableModule',
       description: 'Disable a module — returns the dependency cascade to confirm.',
       category: 'module-manager',
       paramsSchema: z.object({ moduleId: z.string().min(1), confirm: z.boolean().default(false) }),
@@ -220,7 +220,7 @@ function builtinTools(
       },
     },
     {
-      name: 'config.get',
+      name: 'getConfig',
       description: 'Read the full guild configuration document.',
       category: 'guild-config',
       paramsSchema: z.object({}).loose(),
@@ -235,7 +235,7 @@ function builtinTools(
       },
     },
     {
-      name: 'config.set',
+      name: 'setConfigValue',
       description: 'Set a config value by dotted path (see CONFIG_KEYS registry).',
       category: 'guild-config',
       paramsSchema: z.object({ path: z.string().min(1), value: z.unknown() }),

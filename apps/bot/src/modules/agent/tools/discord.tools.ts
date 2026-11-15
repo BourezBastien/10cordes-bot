@@ -51,7 +51,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
 
   const baseTools: BotTool[] = [
     {
-      name: 'discord.guild.info',
+      name: 'getServerInfo',
       description: 'Infos du serveur : nom, membres, owner, nombre de salons et rôles.',
       category: 'agent',
       paramsSchema: z.record(z.string(), z.unknown()),
@@ -69,7 +69,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       },
     },
     {
-      name: 'discord.channel.list',
+      name: 'getChannels',
       description: 'Liste les salons (id, nom, type).',
       category: 'agent',
       paramsSchema: z.record(z.string(), z.unknown()),
@@ -88,7 +88,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       },
     },
     {
-      name: 'discord.role.list',
+      name: 'getRoles',
       description: 'Liste les rôles (id, nom, couleur, position).',
       category: 'agent',
       paramsSchema: z.record(z.string(), z.unknown()),
@@ -105,7 +105,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       },
     },
     {
-      name: 'discord.channel.create',
+      name: 'createChannel',
       description: 'Crée un salon texte, vocal ou une catégorie.',
       category: 'agent',
       paramsSchema: z.object({
@@ -135,7 +135,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       },
     },
     {
-      name: 'discord.channel.rename',
+      name: 'renameChannel',
       description: 'Renomme un salon.',
       category: 'agent',
       paramsSchema: z.object({ channelId: z.string().min(1), name: z.string().min(1).max(100) }),
@@ -157,7 +157,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       },
     },
     {
-      name: 'discord.channel.archive',
+      name: 'archiveChannel',
       description: 'Archive un salon : renommé `archive-…`, contenu conservé (aucune suppression).',
       category: 'agent',
       paramsSchema: z.object({ channelId: z.string().min(1) }),
@@ -180,7 +180,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       },
     },
     {
-      name: 'discord.role.create',
+      name: 'createRole',
       description: 'Crée un rôle (nom + couleur optionnelle en entier hex).',
       category: 'agent',
       paramsSchema: z.object({
@@ -203,7 +203,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       },
     },
     {
-      name: 'discord.member.timeout',
+      name: 'muteMember',
       description: 'Met un membre en timeout temporaire (max 28 jours).',
       category: 'agent',
       paramsSchema: z.object({
@@ -276,7 +276,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       },
     },
     {
-      name: 'discord.channel.delete',
+      name: 'deleteChannel',
       description: 'Supprime un salon — passe obligatoirement par un plan confirmé (snapshot archivé avant suppression).',
       category: 'agent',
       paramsSchema: z.object({ channelId: z.string().min(1) }),
@@ -284,11 +284,11 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       permissions: ['ManageChannels'],
       destructive: true,
       systemPrompt:
-        'Tier 3 / DESTRUCTIVE — never executes directly: it creates a PLAN requiring owner-or-whitelist approval within 5 minutes. The default alternative is discord.channel.archive — prefer it unless the user explicitly wants deletion.',
+        'Tier 3 / DESTRUCTIVE — never executes directly: it creates a PLAN requiring owner-or-whitelist approval within 5 minutes. The default alternative is archiveChannel — prefer it unless the user explicitly wants deletion.',
       handler: async (input, ctx) => proposePlan(ctx, 'Suppression de salon', [input as Record<string, unknown>]),
     },
     {
-      name: 'discord.role.delete',
+      name: 'deleteRole',
       description: 'Supprime un rôle — passe obligatoirement par un plan confirmé (snapshot stocké).',
       category: 'agent',
       paramsSchema: z.object({ roleId: z.string().min(1) }),
@@ -299,7 +299,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       handler: async (input, ctx) => proposePlan(ctx, 'Suppression de rôle', [input as Record<string, unknown>]),
     },
     {
-      name: 'discord.member.kick',
+      name: 'kickMember',
       description: 'Expulse un membre — passe obligatoirement par un plan confirmé (whitelist).',
       category: 'agent',
       paramsSchema: z.object({
@@ -310,11 +310,11 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       permissions: ['KickMembers'],
       destructive: true,
       systemPrompt:
-        'Tier 3 / DESTRUCTIVE and WHITELIST-GATED (owner + whitelisted IDs only). Creates a plan for approval. Temporary alternative: discord.member.timeout.',
+        'Tier 3 / DESTRUCTIVE and WHITELIST-GATED (owner + whitelisted IDs only). Creates a plan for approval. Temporary alternative: muteMember.',
       handler: async (input, ctx) => proposePlan(ctx, 'Expulsion de membre', [input as Record<string, unknown>]),
     },
     {
-      name: 'discord.member.ban',
+      name: 'banMember',
       description: 'Bannit un utilisateur — passe obligatoirement par un plan confirmé (whitelist).',
       category: 'agent',
       paramsSchema: z.object({

@@ -24,7 +24,7 @@ export class LoggingService implements SpraxiumOnBoot {
   async onBoot(): Promise<void> {
     this.registry.register(
       makeStatusTool({
-        name: 'logs.status',
+        name: 'getLogSetup',
         category: 'logging',
         description: 'Log routing on this server: channel per category and excluded roles.',
         summary: async (guildId) => {
