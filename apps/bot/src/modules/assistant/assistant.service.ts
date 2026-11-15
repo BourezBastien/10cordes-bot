@@ -1,6 +1,6 @@
 import { Injectable } from '@spraxium/common';
 import { Logger } from '@spraxium/logger';
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, MessageFlags, type Message } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, MessageFlags, PermissionFlagsBits, type Message } from 'discord.js';
 import { z } from 'zod';
 import type { BotTool, ToolRunContext } from '@10cordes/shared';
 import { LlmService, toApiToolName, type ChatMessage, type OpenAiTool } from './llm.service';
@@ -13,11 +13,12 @@ import { AuditService } from '../audit/audit.service';
 import { MemoryService } from '../memory/memory.service';
 import { AssistantQueue } from './assistant.queue';
 import { buildIntroPanel } from './intro.panel';
+import { renderToolsNavRow, renderToolsPanel, storeToolsPanel } from './tools.panel';
 
 const log = new Logger('Assistant');
 
 const MAX_ITERATIONS = 8;
-const USER_COOLDOWN_MS = 15_000;
+const USER_COOLDOWN_MS = 8_000;
 const TRANSCRIPT_SIZE = 12;
 const TYPING_REFRESH_MS = 8_000;
 const ACK_TTL_MS = 15_000;
@@ -81,7 +82,7 @@ function buildSystemPrompt(
     "</IDENTITY_RULES>",
     "<TONE_AND_MESSAGING>",
     `Réponds toujours dans la langue : ${locale}. Ton professionnel, bref, chaleureux quand le contexte s'y prête.`,
-    "Format : Discord markdown léger. Concis par défaut (1 à 3 phrases), développe uniquement pour une vraie question technique ou une action complexe.",
+    "Format : Discord markdown léger. CONCIS (2 à 6 phrases maximum, jamais de tableaux ni de listes exhaustives reformatées : les panneaux paginés s'en chargent).",
     "Pas de tournures d'assistant générique : va droit au but.",
     "</TONE_AND_MESSAGING>",
     "<SCOPE_AND_PERMISSIONS>",
@@ -225,7 +226,14 @@ export class AssistantService {
     if (bareGreeting) {
       await message
         .reply({
-          components: [buildIntroPanel(guildConfig.defaultLocale)],
+          components: [
+            buildIntroPanel(
+              guildConfig.defaultLocale,
+              message.member?.displayName ?? message.author.globalName ?? message.author.username,
+              message.guild.ownerId === message.author.id ||
+                (message.member?.permissions.has(PermissionFlagsBits.ManageGuild) ?? false),
+            ),
+          ],
           flags: [MessageFlags.IsComponentsV2],
         })
         .catch(() => {});
@@ -344,18 +352,39 @@ export class AssistantService {
     let userScoped = false;
     // Progression : un seul message édité à chaque étape, supprimé à la réponse finale.
     // (L'éphémère natif n'existe que pour les interactions slash, pas pour les messages.)
-    const progress = await message.reply({ content: '🧠 Analyse de ta demande...' }).catch(() => null);
+    // Progression discrète : message seulement si le traitement dépasse 3s,
+    // supprimé dès que la réponse est prête.
+    const progressState: { message: Message | null } = { message: null };
+    const progressTimer = setTimeout(() => {
+      void message
+        .reply({ content: '⏳ Génération en cours...' })
+        .then((sent) => {
+          progressState.message = sent;
+        })
+        .catch(() => {});
+    }, 3_000);
+    progressTimer.unref?.();
     const executed: string[] = [];
+    interface ToolCard {
+      name: string;
+      description: string;
+      category: string;
+    }
+    let toolsCards: ToolCard[] | null = null;
     const loopState: { error: Error | null } = { error: null };
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+      const chatStart = Date.now();
+      log.info(`[FLOW] chat #${iteration + 1} — ${messages.length} messages en entrée`);
       const completion = await this.llm.chat(messages, openAiTools, {
         userId: message.author.id,
         guildId: message.guildId,
       }).catch((error: unknown) => {
+        log.info(`[FLOW] chat #${iteration + 1} ERREUR après ${Date.now() - chatStart}ms : ${error instanceof Error ? error.message : String(error)}`);
         loopState.error = error instanceof Error ? error : new Error(String(error));
         return null;
       });
       if (!completion) break;
+      log.info(`[FLOW] chat #${iteration + 1} OK en ${Date.now() - chatStart}ms — toolCalls: ${completion.toolCalls.length}`);
 
       if (completion.toolCalls.length > 0) {
         // L'API exige que le message assistant porte SES tool_calls : les tool
@@ -379,10 +408,8 @@ export class AssistantService {
           }
           const result = await this.registry.run(call.name, input, ctx);
           executed.push(call.name);
-          if (progress) {
-            await progress
-              .edit({ content: `🧠 ${executed.map((name) => `\`${name}\``).join(' · ')}${result.ok ? ' ✓' : ' ✗'}...` })
-              .catch(() => {});
+          if (result.ok && call.name === 'tools.list' && result.data && Array.isArray((result.data as { tools?: unknown }).tools)) {
+            toolsCards = (result.data as { tools: ToolCard[] }).tools;
           }
           if (result.ok && this.registry.get(call.name)?.scope === "user") {
             userScoped = true;
@@ -411,8 +438,8 @@ export class AssistantService {
 
     if (finalText === null) {
       if (loopState.error) {
-        if (progress) {
-          await progress
+        if (progressState.message) {
+          await progressState.message
             .edit({ content: `❌ Erreur IA : ${loopState.error.message.slice(0, 180)}` })
             .catch(() => {});
         }
@@ -421,22 +448,34 @@ export class AssistantService {
       finalText = "J'ai traité ta demande via les tools - vérifie les résultats ci-dessus.";
     }
 
-    if (progress) {
-      await progress.delete().catch(() => {});
+    clearTimeout(progressTimer);
+    if (progressState.message) {
+      await progressState.message.delete().catch(() => {});
     }
+    log.info('[FLOW] réponse prête');
 
-    // Réponse riche : panneau Components V2 (rendu embed) tant que la taille le permet.
+    // Réponse riche : panneau Components V2, découpé si la réponse dépasse la
+    // limite Discord. Tout échec d'envoi est loggé (jamais avalé en silence).
     const sendAnswer = async (toAuthor: boolean): Promise<void> => {
       const post = async (lines: string[]): Promise<void> => {
         const payload = {
           components: [panel({ title: '🤖 10cordes', lines, accentColor: 0xd9_59_26 })],
           flags: MessageFlags.IsComponentsV2,
         };
-        if (toAuthor) await message.author.send(payload as never).catch(() => {});
-        else await message.reply(payload as never).catch(() => {});
+        try {
+          if (toAuthor) await message.author.send(payload as never);
+          else await message.reply(payload as never);
+        } catch (error) {
+          // MP impossible (fermés, webhook...) ou panne Discord : fallback salon,
+          // en texte brut si le panneau lui-même est refusé.
+          log.error(`Réponse panneau échouée : ${error instanceof Error ? error.message : String(error)}`);
+          const fallback = { content: lines.join(' | ').slice(0, 1900) };
+          if (toAuthor) await message.author.send(fallback).catch(() => message.reply(fallback).catch(() => {}));
+          else await message.reply(fallback).catch(() => {});
+        }
       };
       if (!finalText) return;
-      if (finalText.length <= 1500) {
+      if (finalText.length <= 1200) {
         await post([finalText]);
         return;
       }
@@ -444,6 +483,23 @@ export class AssistantService {
         await post([chunk]);
       }
     };
+
+    // Réponse dédiée tools.list : panneau V2 paginé, DÉTERMINISTE (le LLM ne
+    // reformate pas la liste — il ne produit qu'une phrase d'intro courte).
+    if (toolsCards && !userScoped) {
+      finalText = `Voici les ${toolsCards.length} tools auxquels tu as accès — navigue avec ⬅ ➡ ci-dessus.`;
+      const panelMessage = await message
+        .reply({
+          components: [
+            renderToolsPanel({ tools: toolsCards, page: 0 }) as unknown as never,
+            renderToolsNavRow(toolsCards.length <= 12, toolsCards.length > 12) as unknown as never,
+          ],
+          flags: [MessageFlags.IsComponentsV2],
+        })
+        .catch(() => null);
+      if (panelMessage) storeToolsPanel(panelMessage.id, { tools: toolsCards, page: 0 });
+      toolsCards = null;
+    }
 
     // Info personnelle (scope "user") → réponse en MP, le canal ne garde qu'un accusé éphémère.
     if (userScoped) {

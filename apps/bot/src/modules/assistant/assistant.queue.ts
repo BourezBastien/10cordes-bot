@@ -5,7 +5,6 @@ import type { Message } from 'discord.js';
 interface QueueJob {
   message: Message;
   enqueuedAt: number;
-  positionMessage?: Message;
 }
 
 const MAX_QUEUE_TOTAL = 50;
@@ -55,16 +54,9 @@ export class AssistantQueue {
       return;
     }
 
+    // File silencieuse : aucune annonce de position, le traitement démarre dans l'ordre.
     const job: QueueJob = { message, enqueuedAt: Date.now() };
     queue.push(job);
-    const position = this.totalPending();
-    void message
-      .reply({ content: `🧠 En file d'attente (position ${position})...` })
-      .then((sent) => {
-        job.positionMessage = sent;
-      })
-      .catch(() => {});
-
     this.pump();
   }
 
@@ -89,12 +81,7 @@ export class AssistantQueue {
       if (this.runningKeys.has(key)) continue;
       while (queue.length > 0) {
         const job = queue.shift()!;
-        if (Date.now() - job.enqueuedAt > JOB_TTL_MS) {
-          void job.positionMessage
-            ?.edit({ content: '⌛ Demande abandonnée (trop ancienne en file) : relance-la.' })
-            .catch(() => {});
-          continue;
-        }
+        if (Date.now() - job.enqueuedAt > JOB_TTL_MS) continue;
         return { key, job };
       }
     }
@@ -103,9 +90,6 @@ export class AssistantQueue {
 
   private async run(key: string, job: QueueJob): Promise<void> {
     this.runningKeys.add(key);
-    if (job.positionMessage) {
-      await job.positionMessage.delete().catch(() => {});
-    }
     try {
       await this.processor?.(job.message);
     } catch (error) {

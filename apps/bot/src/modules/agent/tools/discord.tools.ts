@@ -7,6 +7,7 @@ import {
   type ToolRunContext,
 } from '@10cordes/shared';
 import { AgentService } from '../agent.service';
+import { discordExtraTools } from './discord.tools.extra';
 
 /**
  * Tools Discord de l'Agent Admin — chaque tool embarque son propre systemPrompt
@@ -15,12 +16,18 @@ import { AgentService } from '../agent.service';
  * - tier 2 (créer / renommer / archiver / timeout) : exécution directe, permission vérifiée en code ;
  * - tier 3 (supprimer / kick / ban) : création d'un PLAN soumis à confirmation humaine (whitelist).
  */
+export interface ToolHelpers {
+  guildOf: (ctx: ToolRunContext) => Guild | null;
+  noGuild: () => ToolResult;
+  proposePlan: (ctx: ToolRunContext, title: string, ops: Array<Record<string, unknown>>) => Promise<ToolResult>;
+}
+
 export function agentTools(agent: AgentService, client: Client): BotTool[] {
   const guildOf = (ctx: ToolRunContext): Guild | null =>
     ctx.guildId ? (client.guilds.cache.get(ctx.guildId) ?? null) : null;
   const noGuild = (): ToolResult => ({ ok: false, summary: 'Contexte de serveur requis.' });
 
-  const proposePlan = async (
+  const proposePlan: ToolHelpers['proposePlan'] = async (
     ctx: ToolRunContext,
     title: string,
     ops: Array<Record<string, unknown>>,
@@ -42,7 +49,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
     };
   };
 
-  return [
+  const baseTools: BotTool[] = [
     {
       name: 'discord.guild.info',
       description: 'Infos du serveur : nom, membres, owner, nombre de salons et rôles.',
@@ -322,4 +329,6 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       handler: async (input, ctx) => proposePlan(ctx, 'Bannissement', [input as Record<string, unknown>]),
     },
   ];
+
+  return [...baseTools, ...discordExtraTools(agent, client, { guildOf, noGuild, proposePlan })];
 }

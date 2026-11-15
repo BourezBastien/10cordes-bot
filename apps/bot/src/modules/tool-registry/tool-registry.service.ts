@@ -151,10 +151,15 @@ function builtinTools(
           byCategory.set(tool.category, names);
         }
         const lines = [...byCategory.entries()].map(([category, names]) => `**${category}** : ${names.join(' ')}`);
+        const cards = usable.map((tool) => ({
+          name: tool.name,
+          description: tool.description.slice(0, 90),
+          category: tool.category,
+        }));
         return {
           ok: true,
           summary: `${usable.length} tools accessibles à cet utilisateur. ${lines.join(' · ')}`,
-          data: { count: usable.length, byCategory: Object.fromEntries(byCategory) },
+          data: { count: usable.length, byCategory: Object.fromEntries(byCategory), tools: cards },
         };
       },
     },

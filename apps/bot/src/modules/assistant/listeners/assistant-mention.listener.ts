@@ -15,7 +15,9 @@ export class AssistantMentionListener {
 
   @On()
   async onMessageCreate(message: Message): Promise<void> {
-    if (message.author.bot || !message.guild) return;
+    // Les webhooks passent (déclencheur d'intégrations) — pas les autres bots.
+    if (message.author.bot && !message.webhookId) return;
+    if (!message.guild) return;
     const me = message.client.user;
     if (!me) return;
 
