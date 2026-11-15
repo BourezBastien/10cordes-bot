@@ -1,4 +1,5 @@
 import { Module } from '@spraxium/common';
+import { AuditModule } from '../audit/audit.module';
 import { ConfigCommand } from './commands/config.command';
 import { ConfigExportHandler } from './handlers/config-export.handler';
 import { ConfigImportHandler } from './handlers/config-import.handler';
@@ -8,6 +9,7 @@ import { ConfigViewHandler } from './handlers/config-view.handler';
 import { GuildConfigService } from './guild-config.service';
 
 @Module({
+  imports: [AuditModule],
   commands: [ConfigCommand],
   handlers: [ConfigViewHandler, ConfigSetHandler, ConfigExportHandler, ConfigImportHandler, ConfigKeyAutocomplete],
   providers: [GuildConfigService],

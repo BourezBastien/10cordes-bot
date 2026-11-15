@@ -1,0 +1,32 @@
+import { Module } from '@spraxium/common';
+import { AuditModule } from '../audit/audit.module';
+import { GuildConfigModule } from '../guild-config/guild-config.module';
+import { ModCommand } from './commands/mod.command';
+import { ModBanHandler, ModKickHandler, ModPurgeHandler, ModUnbanHandler } from './handlers/mod-sanctions.handler';
+import { ModCaseHandler, ModCasesHandler, ModBanInfoHandler, ModMuteInfoHandler, ModWarningsHandler } from './handlers/mod-info.handler';
+import { ModTimeoutHandler, ModUntimeoutHandler, ModWarnHandler } from './handlers/mod-warn.handler';
+import { ModDerankHandler, ModRestoreRolesHandler } from './handlers/mod-roles.handler';
+import { ModerationService } from './moderation.service';
+
+@Module({
+  imports: [AuditModule, GuildConfigModule],
+  commands: [ModCommand],
+  handlers: [
+    ModWarnHandler,
+    ModWarningsHandler,
+    ModTimeoutHandler,
+    ModUntimeoutHandler,
+    ModKickHandler,
+    ModBanHandler,
+    ModUnbanHandler,
+    ModPurgeHandler,
+    ModCaseHandler,
+    ModCasesHandler,
+    ModBanInfoHandler,
+    ModMuteInfoHandler,
+    ModDerankHandler,
+    ModRestoreRolesHandler,
+  ],
+  providers: [ModerationService],
+})
+export class ModerationModule {}

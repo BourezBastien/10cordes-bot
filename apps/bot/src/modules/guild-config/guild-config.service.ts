@@ -1,7 +1,17 @@
 import { Injectable } from '@spraxium/common';
 import { GuildConfigSchema, type GuildConfig } from '@10cordes/shared';
 import { PrismaService } from '../database/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { deepMerge } from '../../shared/utils/object';
+
+// Les exception layouts sont instanciés par le framework sans DI — le service
+// s'enregistre ici pour rendre la config accessible au GuildErrorLayout.
+let layoutInstance: GuildConfigService | undefined;
+
+export function getConfigServiceForLayout(): GuildConfigService {
+  if (!layoutInstance) throw new Error('GuildConfigService is not initialized yet.');
+  return layoutInstance;
+}
 
 /**
  * Configuration par serveur — un seul document JSON typé (Zod), cache mémoire
@@ -11,7 +21,12 @@ import { deepMerge } from '../../shared/utils/object';
 export class GuildConfigService {
   private readonly cache = new Map<string, GuildConfig>();
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {
+    layoutInstance = this;
+  }
 
   async get(guildId: string): Promise<GuildConfig> {
     const cached = this.cache.get(guildId);
@@ -36,6 +51,12 @@ export class GuildConfigService {
       data: { settings: JSON.stringify(merged) },
     });
     this.cache.set(guildId, merged);
+    this.audit.record({
+      guildId,
+      source: 'discord',
+      action: 'config.patch',
+      metadata: { keys: Object.keys(patch) },
+    });
     return merged;
   }
 
@@ -54,6 +75,12 @@ export class GuildConfigService {
       create: { id: guildId, settings: JSON.stringify(parsed) },
     });
     this.cache.set(guildId, parsed);
+    this.audit.record({
+      guildId,
+      source: 'discord',
+      action: 'config.import',
+      metadata: { keys: Object.keys(parsed) },
+    });
     return parsed;
   }
 

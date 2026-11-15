@@ -1,0 +1,167 @@
+import { Injectable } from '@spraxium/common';
+import type { BotTool, ToolResult, ToolRunContext } from '@10cordes/shared';
+import { z } from 'zod';
+import { setPath } from '../../shared/utils/object';
+import { GuildConfigService } from '../guild-config/guild-config.service';
+import { ModuleManagerService } from '../module-manager/module-manager.service';
+import { AuditService } from '../audit/audit.service';
+
+/**
+ * Registry central des tools (0.10) — contrat `BotTool` dans @10cordes/shared.
+ * Chaque module enregistre ses tools ici (`register()`) ; les frontends
+ * (assistant chat, vocal, dashboard, MCP over HTTP) consomment ce même registry.
+ */
+@Injectable()
+export class ToolRegistryService {
+  private readonly tools = new Map<string, BotTool>();
+
+  constructor(
+    private readonly modules: ModuleManagerService,
+    private readonly configService: GuildConfigService,
+    private readonly audit: AuditService,
+  ) {
+    for (const tool of builtinTools(modules, configService, audit)) this.register(tool);
+  }
+
+  register(tool: BotTool): void {
+    this.tools.set(tool.name, tool);
+  }
+
+  list(): BotTool[] {
+    return [...this.tools.values()];
+  }
+
+  /** Tools exécutables sur ce serveur : uniquement ceux dont les modules sont actifs. */
+  async listForGuild(guildId: string | null): Promise<BotTool[]> {
+    const active = await this.modules.activeModules(guildId);
+    return this.list().filter((tool) => tool.requiredModules.every((id) => active.has(id)));
+  }
+
+  /** Exécution : gates de modules → validation Zod → handler → audit. */
+  async run(name: string, input: unknown, ctx: ToolRunContext): Promise<ToolResult> {
+    const tool = this.tools.get(name);
+    if (!tool) return { ok: false, summary: `Unknown tool \`${name}\`.` };
+
+    const active = await this.modules.activeModules(ctx.guildId);
+    const inactive = tool.requiredModules.filter((id) => !active.has(id));
+    if (inactive.length > 0) {
+      return { ok: false, summary: `Modules requis inactifs : ${inactive.join(', ')}.` };
+    }
+
+    const parsed = tool.paramsSchema.safeParse(input);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      const path = issue?.path.join('.') || 'input';
+      return { ok: false, summary: `Paramètres invalides (${path}) : ${issue?.message ?? 'validation failed'}` };
+    }
+
+    const result = await tool.handler(parsed.data, ctx);
+    if (tool.destructive || tool.name.startsWith('config.')) {
+      this.audit.record({
+        guildId: ctx.guildId,
+        source: 'agent',
+        action: `tool.${name}`,
+        actorId: ctx.userId,
+        metadata: { ok: result.ok, input: parsed.data },
+      });
+    }
+    return result;
+  }
+}
+
+/** Tools système builtin — les modules en ajoutent d'autres via `register()`. */
+function builtinTools(
+  modules: ModuleManagerService,
+  configService: GuildConfigService,
+  audit: AuditService,
+): BotTool[] {
+  void audit;
+  const guildOnly = (ctx: ToolRunContext): ctx is ToolRunContext & { guildId: string } =>
+    ctx.guildId !== null;
+
+  return [
+    {
+      name: 'modules.list',
+      description: 'List modules and their enabled state (global + per-server).',
+      category: 'module-manager',
+      paramsSchema: z.object({}).loose(),
+      requiredModules: [],
+      destructive: false,
+      systemPrompt: 'Read-only. Call before any module toggle to know current states.',
+      handler: async (_input, ctx) => {
+        const list = await modules.listModules(ctx.guildId);
+        const summary =
+          list.map((m) => `${m.id}=${m.guildEnabled === false || !m.globalEnabled ? 'off' : 'on'}`).join(', ') || 'none';
+        return { ok: true, summary, data: { modules: list } };
+      },
+    },
+    {
+      name: 'modules.enable',
+      description: 'Enable a module (dependencies auto-enabled).',
+      category: 'module-manager',
+      paramsSchema: z.object({ moduleId: z.string().min(1) }),
+      requiredModules: [],
+      destructive: false,
+      systemPrompt: 'Mutating but reversible. Check modules.list first; dependencies are enabled automatically.',
+      handler: async (input, ctx) => {
+        if (!guildOnly(ctx)) return { ok: false, summary: 'Guild context required.' };
+        const { moduleId } = input as { moduleId: string };
+        const enabled = await modules.enableModule('guild', ctx.guildId, moduleId);
+        return { ok: true, summary: `Enabled: ${enabled.join(', ')}.` };
+      },
+    },
+    {
+      name: 'modules.disable',
+      description: 'Disable a module — returns the dependency cascade to confirm.',
+      category: 'module-manager',
+      paramsSchema: z.object({ moduleId: z.string().min(1), confirm: z.boolean().default(false) }),
+      requiredModules: [],
+      destructive: true,
+      systemPrompt:
+        'Destructive. First call with confirm=false returns the cascade; show it to the user, then re-run with confirm=true only after explicit approval.',
+      handler: async (input, ctx) => {
+        if (!guildOnly(ctx)) return { ok: false, summary: 'Guild context required.' };
+        const { moduleId, confirm } = input as { moduleId: string; confirm: boolean };
+        const result = await modules.disableModule('guild', ctx.guildId, moduleId, confirm);
+        if (!result.applied && result.cascade) {
+          return {
+            ok: false,
+            summary: `Cascade required — would also disable: ${result.cascade.toDisable.join(', ') || 'none'}${result.cascade.kept.length > 0 ? `; kept: ${result.cascade.kept.join(', ')}` : ''}. Ask the user to confirm.`,
+            data: { cascade: result.cascade },
+          };
+        }
+        return { ok: result.applied, summary: result.applied ? `Disabled: ${result.disabled.join(', ')}.` : 'Already disabled.' };
+      },
+    },
+    {
+      name: 'config.get',
+      description: 'Read the full guild configuration document.',
+      category: 'guild-config',
+      paramsSchema: z.object({}).loose(),
+      requiredModules: [],
+      destructive: false,
+      systemPrompt: 'Read-only. Use before any config mutation.',
+      handler: async (_input, ctx) => {
+        if (!guildOnly(ctx)) return { ok: false, summary: 'Guild context required.' };
+        const config = await configService.get(ctx.guildId);
+        return { ok: true, summary: 'Configuration retrieved.', data: { config } };
+      },
+    },
+    {
+      name: 'config.set',
+      description: 'Set a config value by dotted path (see CONFIG_KEYS registry).',
+      category: 'guild-config',
+      paramsSchema: z.object({ path: z.string().min(1), value: z.unknown() }),
+      requiredModules: [],
+      destructive: false,
+      systemPrompt:
+        'Mutating but reversible. Only dotted paths from the CONFIG_KEYS registry are valid; booleans are true/false, numbers plain digits.',
+      handler: async (input, ctx) => {
+        if (!guildOnly(ctx)) return { ok: false, summary: 'Guild context required.' };
+        const { path, value } = input as { path: string; value: unknown };
+        const config = await configService.patch(ctx.guildId, setPath(path, value));
+        return { ok: true, summary: `Config \`${path}\` updated.`, data: { config } };
+      },
+    },
+  ];
+}

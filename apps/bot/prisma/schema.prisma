@@ -101,3 +101,72 @@ model Verification {
 
   @@map("verification")
 }
+
+// ── Audit (0.11) ─────────────────────────────────────────────
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  guildId   String?
+  source    String   @default("system")
+  action    String
+  actorId   String?
+  targetId  String?
+  metadata  String   @default("{}")
+  createdAt DateTime @default(now())
+
+  @@index([guildId, createdAt])
+  @@map("audit_logs")
+}
+
+// ── Modération (1.3) ─────────────────────────────────────────
+
+model ModCounter {
+  guildId String @id
+  value   Int    @default(0)
+
+  @@map("mod_counters")
+}
+
+model ModCase {
+  id          String   @id @default(cuid())
+  guildId     String
+  caseId      Int
+  userId      String
+  moderatorId String
+  action      String
+  reason      String?
+  durationMs  Int?
+  createdAt   DateTime @default(now())
+
+  @@unique([guildId, caseId])
+  @@index([guildId, userId])
+  @@map("mod_cases")
+}
+
+model RoleBackup {
+  id        String   @id @default(cuid())
+  guildId   String
+  userId    String
+  roleIds   String
+  createdBy String
+  createdAt DateTime @default(now())
+
+  @@index([guildId, userId])
+  @@map("role_backups")
+}
+
+// ── Tags (1.4) ───────────────────────────────────────────────
+
+model Tag {
+  id        String   @id @default(cuid())
+  guildId   String
+  name      String
+  content   String
+  createdBy String
+  uses      Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([guildId, name])
+  @@map("tags")
+}

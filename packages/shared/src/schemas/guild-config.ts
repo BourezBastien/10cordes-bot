@@ -22,6 +22,17 @@ export const FarewellConfigSchema = z.object({
 });
 export type FarewellConfig = z.infer<typeof FarewellConfigSchema>;
 
+export const LOG_CATEGORIES = ['messages', 'members', 'voice', 'moderation', 'server'] as const;
+export type LogCategory = (typeof LOG_CATEGORIES)[number];
+
+export const LogsConfigSchema = z.object({
+  /** Salon par catégorie de log (absent = catégorie désactivée). */
+  channels: z.record(z.string(), z.string()).default({}),
+  /** Rôles exclus des logs de rôles (ex: rôles soutien auto-attribués). */
+  ignoredRoles: z.array(z.string()).default([]),
+});
+export type LogsConfig = z.infer<typeof LogsConfigSchema>;
+
 export const ModerationConfigSchema = z.object({
   /** Salon réservé aux sanctions — null = partout. */
   sanctionChannelId: z.string().nullable().default(null),
@@ -40,6 +51,7 @@ export const GuildConfigSchema = z.object({
   defaultLocale: SupportedLocale.default('fr'),
   welcome: WelcomeConfigSchema.prefault({}),
   farewell: FarewellConfigSchema.prefault({}),
+  logs: LogsConfigSchema.prefault({}),
   moderation: ModerationConfigSchema.prefault({}),
   /** Messages d'erreur personnalisés par code — template avec placeholders de l'exception. */
   errorMessages: z.record(z.string(), z.string()).default({}),

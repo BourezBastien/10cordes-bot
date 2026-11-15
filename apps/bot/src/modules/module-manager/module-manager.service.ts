@@ -13,6 +13,7 @@ import { findModuleByCommand, MODULE_CATALOG } from './module.catalog';
 import { moduleStateStore } from './module-state.store';
 import { CooldownService } from './cooldown.service';
 import { GuildModuleStateService } from './guild-module-state.service';
+import { AuditService } from '../audit/audit.service';
 import { ModuleChannelException } from './module-channel.exception';
 import { ModuleDependencyException } from './module-dependency.exception';
 import { ModuleDisabledException } from './module-disabled.exception';
@@ -50,12 +51,18 @@ export class ModuleManagerService {
   constructor(
     private readonly guildStates: GuildModuleStateService,
     private readonly cooldowns: CooldownService,
+    private readonly audit: AuditService,
   ) {
     runtime = this;
   }
 
   find(moduleId: string): ModuleDescriptor | undefined {
     return findModule(MODULE_CATALOG, moduleId);
+  }
+
+  /** Ensemble des modules actifs (global ∩ guild) — consommé par le ToolRegistry. */
+  async activeModules(guildId: string | null): Promise<Set<string>> {
+    return guildId ? this.guildActiveSet(guildId) : this.globalActiveSet();
   }
 
   /** État global + état du serveur fusionnés pour chaque module du catalogue. */
@@ -92,6 +99,13 @@ export class ModuleManagerService {
 
     const toEnable = [moduleId, ...dependenciesToEnable(MODULE_CATALOG, active, moduleId)];
     for (const id of toEnable) await persist(id);
+    this.audit.record({
+      guildId,
+      source: 'discord',
+      action: 'module.enable',
+      targetId: moduleId,
+      metadata: { scope, enabled: toEnable },
+    });
     return toEnable;
   }
 
@@ -130,6 +144,13 @@ export class ModuleManagerService {
 
     const all = [moduleId, ...cascade.toDisable];
     for (const id of all) await persist(id);
+    this.audit.record({
+      guildId,
+      source: 'discord',
+      action: 'module.disable',
+      targetId: moduleId,
+      metadata: { scope, disabled: all, confirmed: confirm },
+    });
     return { applied: true, disabled: all };
   }
 

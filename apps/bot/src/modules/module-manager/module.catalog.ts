@@ -13,6 +13,27 @@ export const MODULE_CATALOG: ModuleDescriptor[] = [
     commands: ['ping'],
     dependsOn: [],
   },
+  {
+    id: 'logging',
+    label: 'Logging',
+    description: 'Message, member, voice and ban logs routed per category.',
+    commands: ['logs'],
+    dependsOn: [],
+  },
+  {
+    id: 'moderation',
+    label: 'Moderation',
+    description: 'Warns, cases, timeouts, kicks, bans, purge, derank with role backup.',
+    commands: ['mod'],
+    dependsOn: [],
+  },
+  {
+    id: 'tags',
+    label: 'Tags',
+    description: 'Custom tag commands stored per server.',
+    commands: ['tag'],
+    dependsOn: [],
+  },
 ];
 
 export function findModuleById(moduleId: string): ModuleDescriptor | undefined {

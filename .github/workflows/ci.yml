@@ -8,7 +8,7 @@ on:
 
 jobs:
   quality:
-    name: Lint · Typecheck · Test
+    name: Lint · Modules · Typecheck · Test
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: file:../data/bot.db
@@ -29,6 +29,9 @@ jobs:
 
       - name: Generate Prisma client
         run: pnpm --filter 10cordes-bot exec prisma generate
+
+      - name: Module consistency
+        run: node scripts/check-modules.mjs
 
       - name: Lint
         run: pnpm lint

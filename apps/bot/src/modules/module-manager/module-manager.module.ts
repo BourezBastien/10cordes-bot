@@ -7,11 +7,14 @@ import { ModulesDisableHandler } from './handlers/modules-disable.handler';
 import { ModulesEnableHandler } from './handlers/modules-enable.handler';
 import { ModulesListHandler } from './handlers/modules-list.handler';
 import { ModulesModuleAutocomplete } from './handlers/modules-module.autocomplete';
+import { AuditModule } from '../audit/audit.module';
+import { AuditService } from '../audit/audit.service';
 import { CooldownService } from './cooldown.service';
 import { GuildModuleStateService } from './guild-module-state.service';
 import { ModuleManagerService } from './module-manager.service';
 
 @Module({
+  imports: [AuditModule],
   commands: [ModulesCommand],
   handlers: [
     ModulesListHandler,

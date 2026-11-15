@@ -4,3 +4,4 @@ export * from './schemas/guild-config.js';
 export * from './schemas/errors.js';
 export * from './module-dependencies.js';
 export * from './template-engine.js';
+export * from './tools/types.js';
