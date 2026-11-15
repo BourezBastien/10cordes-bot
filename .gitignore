@@ -46,3 +46,7 @@ coverage/
 !.vscode/settings.json
 Thumbs.db
 .DS_Store
+
+# study repos (local)
+references/
+apps/bot/prod-run.log
