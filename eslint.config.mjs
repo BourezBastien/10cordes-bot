@@ -1,15 +1,13 @@
 import { eslintConfig } from '@bluzzi/eslint-config';
 
-export default [
-  // Repos d'étude locaux : jamais lintés
+export default await eslintConfig(
   {
-    ignores: ['references/**'],
-  },
-  ...eslintConfig({
     stylistic: {
       indent: 2,
       quotes: 'single',
       semi: true,
     },
-  }),
-];
+  },
+  // Repos d'étude locaux : jamais lintés
+  { ignores: ['references/**'] },
+);
