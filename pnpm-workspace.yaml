@@ -4,3 +4,8 @@ packages:
 
 allowBuilds:
   '@swc/core': true
+  '@prisma/client': true
+  '@prisma/engines': true
+  'prisma': true
+  'esbuild': true
+  'tsdown': true
