@@ -1,4 +1,4 @@
-import { Module } from '@spraxium/common';
+import { Global, Module } from '@spraxium/common';
 import { ConfigureGroup, ModulesCommand } from './commands/modules.command';
 import { ConfigureChannelAddHandler, ConfigureChannelRemoveHandler, ConfigureViewHandler } from './handlers/configure-channels.handler';
 import { ConfigureBypassToggleHandler, ConfigureCooldownSetHandler, ConfigureQuotaRemoveHandler, ConfigureQuotaSetHandler } from './handlers/configure-limits.handler';
@@ -13,6 +13,10 @@ import { CooldownService } from './cooldown.service';
 import { GuildModuleStateService } from './guild-module-state.service';
 import { ModuleManagerService } from './module-manager.service';
 
+// @Global : ModuleManagerService/GuildModuleStateService/CooldownService sont de
+// l'infra partagée (guard pipeline, agent, controllers) — sans Global, un chargement
+// transitif (ex. via ToolRegistry) confinerait leurs exports au container du chargeur.
+@Global()
 @Module({
   imports: [AuditModule],
   commands: [ModulesCommand],

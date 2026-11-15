@@ -1,4 +1,4 @@
-import { Module } from '@spraxium/common';
+import { Global, Module } from '@spraxium/common';
 import { AuditModule } from '../audit/audit.module';
 import { GuildConfigModule } from '../guild-config/guild-config.module';
 import { ModCommand } from './commands/mod.command';
@@ -8,6 +8,8 @@ import { ModTimeoutHandler, ModUntimeoutHandler, ModWarnHandler } from './handle
 import { ModDerankHandler, ModRestoreRolesHandler } from './handlers/mod-roles.handler';
 import { ModerationService } from './moderation.service';
 
+// @Global : ModerationService est utilisé par l'agent admin et le tool-registry.
+@Global()
 @Module({
   imports: [AuditModule, GuildConfigModule],
   commands: [ModCommand],

@@ -76,7 +76,11 @@ export class GuildModuleStateService {
         constraints: JSON.stringify(merged),
       },
     });
-    (await this.load(guildId)).set(moduleId, { moduleId, enabled: existing?.enabled ?? true, constraints: merged });
+    (await this.load(guildId)).set(moduleId, {
+      moduleId,
+      enabled: existing?.enabled ?? true,
+      constraints: merged,
+    });
     return merged;
   }
 

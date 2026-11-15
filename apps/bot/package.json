@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "pnpm --filter @10cordes/shared build && spraxium dev",
-    "build": "pnpm --filter @10cordes/shared build && spraxium build",
+    "build": "pnpm --filter @10cordes/shared build && spraxium build && node ../../scripts/copy-config.mjs",
     "start": "spraxium start",
     "typecheck": "pnpm --filter @10cordes/shared build && tsc --noEmit",
     "test": "vitest run --passWithNoTests"

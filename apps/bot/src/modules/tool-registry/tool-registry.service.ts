@@ -6,6 +6,14 @@ import { GuildConfigService } from '../guild-config/guild-config.service';
 import { ModuleManagerService } from '../module-manager/module-manager.service';
 import { AuditService } from '../audit/audit.service';
 
+let registryInstance: ToolRegistryService | undefined;
+
+/** Accès runtime au registry pour les contextes sans DI (guards, layouts, calls externes). */
+export function getToolRegistry(): ToolRegistryService {
+  if (!registryInstance) throw new Error('ToolRegistryService is not initialized yet.');
+  return registryInstance;
+}
+
 /**
  * Registry central des tools (0.10) — contrat `BotTool` dans @10cordes/shared.
  * Chaque module enregistre ses tools ici (`register()`) ; les frontends
@@ -20,6 +28,7 @@ export class ToolRegistryService {
     private readonly configService: GuildConfigService,
     private readonly audit: AuditService,
   ) {
+    registryInstance = this;
     for (const tool of builtinTools(modules, configService, audit)) this.register(tool);
   }
 
