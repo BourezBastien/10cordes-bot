@@ -1,6 +1,6 @@
 import { Injectable } from '@spraxium/common';
 import { MessageFlags } from 'discord.js';
-import type { Client } from 'discord.js';
+import { Client } from 'discord.js';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import { panel } from '../../shared/ui';
 import type { LogCategory } from '@10cordes/shared';

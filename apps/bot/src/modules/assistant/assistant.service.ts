@@ -1,5 +1,5 @@
 import { Injectable } from '@spraxium/common';
-import { PermissionFlagsBits, type Client, type Message } from 'discord.js';
+import { PermissionFlagsBits, Client, type Message } from 'discord.js';
 import { z } from 'zod';
 import type { BotTool, ToolResult, ToolRunContext } from '@10cordes/shared';
 import { LlmService, type ChatMessage, type OpenAiTool } from './llm.service';

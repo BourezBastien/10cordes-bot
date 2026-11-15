@@ -8,7 +8,7 @@ import {
   HttpPatch,
   ValidationError,
 } from '@spraxium/http';
-import { PermissionFlagsBits, type Client } from 'discord.js';
+import { PermissionFlagsBits, Client } from 'discord.js';
 import { ZodError } from 'zod';
 import type { Context } from 'hono';
 import { GuildConfigService } from '../guild-config/guild-config.service';

@@ -1,5 +1,5 @@
 import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
-import { PermissionFlagsBits, type Client, type Guild, type GuildMember, type User } from 'discord.js';
+import { PermissionFlagsBits, Client, type Guild, type GuildMember, type User } from 'discord.js';
 import { AdminOpSchema, DESTRUCTIVE_OP_TYPES, opLabel, type AgentPlanInput, type AdminOp } from '@10cordes/shared';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';

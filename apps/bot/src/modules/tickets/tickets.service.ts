@@ -1,5 +1,5 @@
 import { Injectable } from '@spraxium/common';
-import { PermissionFlagsBits, type Client, type Guild, type GuildMember, type User } from 'discord.js';
+import { PermissionFlagsBits, Client, type Guild, type GuildMember, type User } from 'discord.js';
 import { PrismaService } from '../database/prisma.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 
