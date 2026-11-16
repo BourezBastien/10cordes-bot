@@ -6,6 +6,7 @@ import {
   HttpGuards,
   HttpParam,
   HttpPatch,
+  HttpPost,
   HttpQuery,
   ValidationError,
 } from '@spraxium/http';
@@ -16,12 +17,17 @@ import { PrismaService } from '../database/prisma.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import { GuildModuleStateService } from '../module-manager/guild-module-state.service';
 import { ModuleManagerService } from '../module-manager/module-manager.service';
+import { WebAgentService } from '../assistant/web-agent.service';
 import { SessionGuard } from '../../auth/guards/session.guard';
 import { GuildAccessGuard } from '../../auth/guards/guild-access.guard';
 
 interface ModuleToggleBody {
   enabled: boolean;
   confirm?: boolean;
+}
+
+interface AgentChatBody {
+  message: string;
 }
 
 function toValidationDetails(error: ZodError): Array<{ property: string; constraints: Record<string, string> }> {
@@ -38,6 +44,7 @@ export class GuildsController {
     private readonly config: GuildConfigService,
     private readonly states: GuildModuleStateService,
     private readonly prisma: PrismaService,
+    private readonly webAgent: WebAgentService,
     private readonly client: Client,
   ) {}
 
@@ -232,5 +239,35 @@ export class GuildsController {
       topXp,
       moderation: { cases14d: cases, byAction: casesByAction.map((row) => ({ action: row.action, count: row._count.action })) },
     };
+  }
+
+  /**
+   * Chat avec l'agent depuis le dashboard : mêmes tools et gates que Discord,
+   * permissions = celles du membre Discord lié au compte connecté.
+   */
+  @HttpPost('/:guildId/agent/chat')
+  @HttpGuards(SessionGuard, GuildAccessGuard)
+  async agentChat(
+    @HttpParam('guildId') guildId: string,
+    @HttpCtx() ctx: Context,
+    @HttpBody() body: AgentChatBody,
+  ): Promise<unknown> {
+    const session = ctx.get('session');
+    const account = await this.prisma.account.findFirst({
+      where: { userId: session.user.id, providerId: 'discord' },
+      select: { accountId: true },
+    });
+    const discordUserId = account?.accountId;
+    if (!discordUserId) {
+      throw new ValidationError([{ property: 'message', constraints: { message: "Compte Discord lié introuvable pour cette session." } }]);
+    }
+    try {
+      return await this.webAgent.chat(guildId, discordUserId, String(body?.message ?? ''));
+    } catch (error) {
+      if (error instanceof Error && error.message.length < 200) {
+        throw new ValidationError([{ property: 'message', constraints: { message: error.message } }]);
+      }
+      throw error;
+    }
   }
 }

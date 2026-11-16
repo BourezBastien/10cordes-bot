@@ -11,15 +11,17 @@ import { AssistantQueue } from './assistant.queue';
 import { AssistantService } from './assistant.service';
 import { LlmService } from './llm.service';
 
-// @Global : LlmService + AssistantQueue consommés par la santé (HealthController,
-// HealthMonitor) fournie au niveau AppModule — sans ça, les exports restent
-// confinés au container du premier chargeur transitif.
+import { WebAgentService } from './web-agent.service';
+
+// @Global : LlmService + AssistantQueue + WebAgentService consommés par la
+// santé et l'API dashboard fournie au niveau AppModule — sans ça, les exports
+// restent confinés au container du premier chargeur transitif.
 @Global()
 @Module({
   imports: [AuditModule, GuildConfigModule, ImagelabModule, LocaleModule, ToolRegistryModule],
   listeners: [AssistantMentionListener],
   handlers: [IaConfigureButtonHandler, IaConfigureModalSubmitHandler, ToolsPrevHandler, ToolsNextHandler],
-  providers: [AssistantQueue, AssistantService, LlmService],
-  exports: [LlmService, AssistantQueue],
+  providers: [AssistantQueue, AssistantService, LlmService, WebAgentService],
+  exports: [LlmService, AssistantQueue, WebAgentService],
 })
 export class AssistantModule {}

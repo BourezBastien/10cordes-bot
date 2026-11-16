@@ -66,6 +66,13 @@ const fr = {
     count: 'Total',
     empty: 'Pas encore de données.',
   },
+  agent: {
+    empty: 'Pose ta question : je pilote le serveur avec les mêmes outils que sur Discord.',
+    thinking: 'Je réfléchis…',
+    placeholder: 'Ta demande pour l\u2019agent…',
+    silent: 'Action exécutée, sans réponse.',
+    note: 'Mêmes permissions que sur Discord. Les actions destructives demandent une confirmation via le panneau du salon dédié IA.',
+  },
 };
 
 const en = {
@@ -132,6 +139,13 @@ const en = {
     level: 'Level',
     count: 'Total',
     empty: 'No data yet.',
+  },
+  agent: {
+    empty: 'Ask anything: I manage the server with the same tools as on Discord.',
+    thinking: 'Thinking…',
+    placeholder: 'Your request for the agent…',
+    silent: 'Action executed, no reply.',
+    note: 'Same permissions as on Discord. Destructive actions require confirmation through the dedicated AI channel panel.',
   },
 };
 

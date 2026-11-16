@@ -46,7 +46,7 @@ function splitReplyChunks(content: string): string[] {
   return chunks;
 }
 
-function buildSystemPrompt(
+export function buildSystemPrompt(
   locale: string,
   guildName: string,
   channelName: string,
@@ -128,6 +128,20 @@ function buildSystemPrompt(
     'Après exécution, rapporte ce qui a changé avec noms et IDs.',
     '</AUDIT_AND_REPORTING>',
   ].join('\n');
+}
+
+/** Tool -> définition OpenAI (schéma Zod -> JSON Schema, fallback vide si irréductible). */
+export function toolToOpenAiTool(tool: BotTool): OpenAiTool {
+  let parameters: Record<string, unknown> = { type: 'object', properties: {} };
+  try {
+    parameters = z.toJSONSchema(tool.paramsSchema) as Record<string, unknown>;
+  } catch {
+    // Schéma non sérialisable : le modèle recevra une fonction sans paramètres.
+  }
+  return {
+    type: 'function',
+    function: { name: tool.name, description: tool.description, parameters },
+  };
 }
 
 /**
@@ -333,14 +347,7 @@ export class AssistantService {
     }
 
     const tools = await this.registry.listForGuild(guild.id);
-    const openAiTools: OpenAiTool[] = tools.map((tool) => ({
-      type: 'function',
-      function: {
-        name: tool.name,
-        description: tool.description,
-        parameters: this.schemaFor(tool),
-      },
-    }));
+    const openAiTools: OpenAiTool[] = tools.map(toolToOpenAiTool);
     // Tool réservé au silence demandé — géré par la boucle, pas dans le registry.
     openAiTools.push({
       type: 'function',
@@ -600,13 +607,5 @@ export class AssistantService {
         flags: [MessageFlags.IsComponentsV2],
       })
       .catch(() => null);
-  }
-
-  private schemaFor(tool: BotTool): Record<string, unknown> {
-    try {
-      return z.toJSONSchema(tool.paramsSchema) as Record<string, unknown>;
-    } catch {
-      return { type: 'object', properties: {} };
-    }
   }
 }
