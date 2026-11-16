@@ -9,3 +9,8 @@ allowBuilds:
   'prisma': true
   'esbuild': true
   'tsdown': true
+  'msgpackr-extract': true
+
+minimumReleaseAgeExclude:
+  - i18next@27.1.3
+  - react-i18next@18.0.2
