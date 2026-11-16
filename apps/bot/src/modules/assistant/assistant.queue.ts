@@ -4,7 +4,7 @@ import type { Message } from 'discord.js';
 import { BullMqDriver } from './queue/bullmq.driver';
 import { MemoryDriver } from './queue/memory.driver';
 import type { QueueDriver } from './queue/queue-driver';
-import { AGENT_CONCURRENCY, snapshotFromMessage, type AgentRequest, type QueueCounts } from './queue/types';
+import { AGENT_CONCURRENCY, snapshotFromMessage, type AgentJobData, type AgentRequest, type QueueCounts } from './queue/types';
 import { AppEnv } from '../../app.env';
 import { notice } from '../../shared/ui';
 
@@ -21,25 +21,39 @@ const MAX_QUEUE_TOTAL = 200;
 @Injectable()
 export class AssistantQueue {
   private readonly log = new Logger('AssistantQueue');
-  private readonly driver: QueueDriver;
+  private driver: QueueDriver;
   private processor: ((request: AgentRequest) => Promise<void>) | null = null;
+  private currentHandler: ((job: AgentJobData) => Promise<void>) | null = null;
   private readonly perUserPending = new Map<string, number>();
 
-  constructor(env: AppEnv) {
+  constructor(private readonly env: AppEnv) {
     // BullMQ si REDIS_URL fourni ; sinon fallback mémoire (dev sans Docker).
-    this.driver = env.REDIS_URL
-      ? new BullMqDriver(env.REDIS_URL, (job, error) => {
+    this.driver = this.env.REDIS_URL
+      ? new BullMqDriver(this.env.REDIS_URL, (job, error) => {
           this.log.warn(`Job échoué (définitif) pour ${job.request.userId} : ${error.slice(0, 120)}`);
         })
       : new MemoryDriver((job, error) => {
           this.log.warn(`Job échoué (définitif) pour ${job.request.userId} : ${error.slice(0, 120)}`);
         });
+    // Sonde de connexion : Redis injoignable sous 5s -> bascule mémoire
+    // (le bot reste fonctionnel même sans Docker).
+    void Promise.race([
+      this.driver.counts(),
+      new Promise((resolve) => setTimeout(resolve, 5_000).unref?.()),
+    ]).then((ok) => {
+      if (!ok) {
+        this.log.warn('Redis injoignable : bascule de la queue en mémoire.');
+        this.driver = new MemoryDriver((job, error) => {
+          this.log.warn(`Job échoué (définitif) pour ${job.request.userId} : ${error.slice(0, 120)}`);
+        });
+      }
+    });
   }
 
   /** Enregistre le processeur d'une demande (AssistantService) — évite un cycle de DI. */
   setProcessor(processor: (request: AgentRequest) => Promise<void>): void {
     this.processor = processor;
-    this.driver.process(async (job) => {
+    this.currentHandler = async (job: AgentJobData) => {
       try {
         await this.processor!(job.request);
       } finally {
@@ -48,7 +62,8 @@ export class AssistantQueue {
         if (remaining <= 0) this.perUserPending.delete(key);
         else this.perUserPending.set(key, remaining);
       }
-    });
+    };
+    this.driver.process(this.currentHandler);
   }
 
   /** Point d'entrée du listener : met la demande en file (FIFO par utilisateur). */

@@ -42,8 +42,7 @@ export class LevelsService implements SpraxiumOnBoot {
       requiredModules: ['levels'],
       permissions: [],
       destructive: false,
-      scope: 'user',
-      systemPrompt: "Personnel : l'appelant reçoit son rang en privé. Utilise getLeaderboard pour voir les autres.",
+      systemPrompt: "Présente le rang sous forme de carte lisible : niveau, XP, progression vers le niveau suivant. Utilise getLeaderboard pour voir les autres.",
       handler: async (_input, ctx) => {
         if (ctx.guildId === null) return { ok: false, summary: 'Contexte de serveur requis.' };
         const row = await this.get(ctx.guildId, ctx.userId);

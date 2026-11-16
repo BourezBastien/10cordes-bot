@@ -364,12 +364,6 @@ export class AssistantService {
     let finalText: string | null = null;
     let userScoped = false;
     const executed: string[] = [];
-    interface ToolCard {
-      name: string;
-      description: string;
-      category: string;
-    }
-    let toolsCards: ToolCard[] | null = null;
     const loopState: { error: Error | null } = { error: null };
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
@@ -406,9 +400,6 @@ export class AssistantService {
           }
           const result = await this.registry.run(call.name, input, ctx);
           executed.push(call.name);
-          if (result.ok && call.name === 'getAvailableTools' && result.data && Array.isArray((result.data as { tools?: unknown }).tools)) {
-            toolsCards = (result.data as { tools: ToolCard[] }).tools;
-          }
           if (result.ok && this.registry.get(call.name)?.scope === 'user') {
             userScoped = true;
           }
@@ -440,32 +431,6 @@ export class AssistantService {
         throw loopState.error;
       }
       finalText = "J'ai traité ta demande via les tools — vérifie les résultats ci-dessus.";
-    }
-
-    // tools.list : container V2 paginé, DÉTERMINISTE (le LLM ne reformate pas la liste).
-    if (toolsCards && !userScoped) {
-      const toolsData: ToolsData = {
-        intro: finalText ?? '',
-        tools: toolsCards,
-        page: 0,
-      };
-      const toolsPayload = await this.v2.buildReply(ToolsListContainer, toolsData);
-      const panelMessage = await channel
-        .send({
-          components: toolsPayload.components as never,
-          flags: toolsPayload.flags as never,
-        })
-        .catch(() => null);
-      if (panelMessage) storeToolsPanel(panelMessage.id, { tools: toolsCards, page: 0, intro: toolsData.intro });
-      toolsCards = null;
-      this.audit.record({
-        guildId: guild.id,
-        source: 'agent',
-        action: 'assistant.reply',
-        actorId: request.userId,
-        metadata: { locale, permissions: permissions.length, tools: tools.length, userScoped, toolsList: true },
-      });
-      return;
     }
 
     // Info personnelle (scope user) → portail éphémère : clic -> panneau visible
