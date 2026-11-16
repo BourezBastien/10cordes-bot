@@ -449,7 +449,7 @@ async function main() {
 
   await runScenario(
     'muteMember (refus hiérarchie)',
-    `Exclus temporairement 1 minute le membre ${ownerId} (l'owner du serveur).`,
+    `Consulte le membre ${ownerId} avec getMemberInfo puis exclus-le temporairement 1 minute s'il est excluable (c'est l'owner du serveur).`,
     [],
     async ({ entries, hasReply }) => {
       const call = entries.find((e) => e.action === 'assistant.tool.muteMember');
@@ -462,9 +462,11 @@ async function main() {
         }
         return { pass: true, note: `tool exécuté, ok=${ok} (refus Discord/hiérarchie attendu sur l'owner)` };
       }
-      // Le refus poli sans appel est aussi un comportement correct (le modèle
-      // sait que l'owner est intouchable et économise l'appel).
-      return { pass: hasReply, note: hasReply ? 'refus poli sans appel : correct' : 'ni tool ni réponse' };
+      const verified = entries.some((e) => e.action === 'assistant.tool.getMemberInfo');
+      return {
+        pass: verified && hasReply,
+        note: verified ? 'membre consulté puis refus expliqué : correct' : 'ni tool ni réponse',
+      };
     },
   );
 
@@ -535,12 +537,12 @@ async function main() {
   );
 
   // Un ban réel exige une vraie cible (Discord refuse « Unknown User » sur un
-  // ID sans compte) : on vérifie ici le comportement (vérifier l'état puis
-  // répondre), pas l'effet. Le test complet unban s'inclut dans les tests
-  // utilisateur avec un vrai membre banni.
+  // ID sans compte) : on vérifie le comportement (consulter l'état via
+  // getBans puis répondre), pas l'effet. Le test complet unban s'inclut dans
+  // les tests utilisateur avec un vrai membre banni.
   await runScenario(
     'unbanMember (état cohérent)',
-    `Débannis l'utilisateur ${DUMMY_USER_ID}.`,
+    `Consulte la liste des bans avec getBans puis débannis l'utilisateur ${DUMMY_USER_ID} s'il y figure.`,
     [],
     async ({ entries, hasReply }) => {
       const verified = entries.some(
