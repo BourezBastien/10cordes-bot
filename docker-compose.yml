@@ -10,5 +10,13 @@ services:
     volumes:
       - bot-data:/app/apps/bot/data
 
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
 volumes:
   bot-data:
+  redis-data:

@@ -50,6 +50,9 @@ export class AppEnv extends SpraxiumBaseEnv {
   @IsString()
   DEEPSEEK_API_KEY?: string;
 
+  @Env('REDIS_URL', { default: 'redis://127.0.0.1:6379', secret: false })
+  REDIS_URL!: string;
+
   @Env('DEEPSEEK_MODEL', { default: 'deepseek-flash', secret: false })
   @IsString()
   DEEPSEEK_MODEL!: string;

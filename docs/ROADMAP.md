@@ -2,11 +2,20 @@
 
 > Roadmap consolidée : périmètre produit + **analyse dédupliquée des 200+ suggestions validées de la communauté Crow Bots** (avril 2024 → novembre 2026). Chaque feature retenue cite sa demande communautaire (✅ = réactions de validation).
 >
-> **Fil rouge** : tout-en-un, 100 % slash commands, modules/sous-modules activables en live **avec dépendances**, **langue par utilisateur**, **registry d'outils (MCP interne)** consommé en chat, en vocal et via l'API.
+> **Fil rouge** : tout-en-un, **zéro slash command** (agent IA + panneau /setup), modules/sous-modules activables en live **avec dépendances**, **langue par utilisateur**, **registry d'outils (MCP interne)** consommé en chat, en vocal et via l'API.
 
 ---
 
 ## Principes
+
+## Etat au 16/11/2026
+
+Realisé et validé en production interne :
+- Zéro slash command : surface Discord = panneau de contrôle /setup (bouton, éphémère staff) uniquement.
+- Agent IA conversationnel : 60+ tools permission-gated (noms verbe-first camelCase), mémoire persistante serveur + membres, réponses éphémères hors salon dédié, queue workers (FIFO par utilisateur, 3 parallèles).
+- Dashboard : bouton "Panneau de configuration" sur le portail de l'agent (staff) -> panneau V2 éphémère par catégories.
+
+Prochaine phase : dashboard React (bot.10codes.io), feeds, jeux temps réel.
 
 1. **Slash commands uniquement** - le pipeline prefix du framework n'est pas utilisé.
 2. **Tout est module** - activable/désactivable en live (global + par serveur), avec **dépendances obligatoires** : désactiver `economy` désactive `shop` **sauf si `shop` est requis par un autre module actif** ; l'activation tire ses dépendances.

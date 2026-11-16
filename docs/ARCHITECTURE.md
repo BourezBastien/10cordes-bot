@@ -1,7 +1,7 @@
 # 🏗️ Architecture - 10cordes-bot
 
 > Plan d'architecture détaillé pour validation. Complète [ROADMAP.md](./ROADMAP.md) (périmètre fonctionnel enrichi de l'analyse des 200+ suggestions communautaires Crow Bots).
-> Décisions validées : **Prisma**, **config guild JSON typé**, **dashboard React (plus tard)**, **better-auth + Discord (Lucia déprécié - confirmé)**, **Zod**, **OpenRouter inclus**, **slash commands uniquement**, **langue par utilisateur**, **modules avec dépendances**, **ToolRegistry façon MCP (chat + vocal + HTTP)**, **partage d'écran bot : impossible/ToS → rejeté**.
+> Décisions validées : **Prisma**, **config guild JSON typé**, **dashboard React (plus tard)**, **better-auth + Discord (Lucia déprécié - confirmé)**, **Zod**, **OpenRouter inclus**, **zéro slash command (tout par l'agent IA + portail éphémère)**, **langue par utilisateur**, **modules avec dépendances**, **ToolRegistry façon MCP (chat + vocal + HTTP)**, **partage d'écran bot : impossible/ToS → rejeté**.
 
 ---
 
@@ -206,7 +206,7 @@ model UserLocale {
 ## 6. Extension du module-manager (per-guild + whitelists + cooldowns)
 
 ```
-Discord: /modules configure <module>
+Discord/Agent: config d'un module via /setup (catégorie Modules) ou langage naturel (enableModule/disableModule)
   ├─ salon whitelist      → multi-select salons (autocomplète)
   ├─ rôle requis          → autocomplète rôles
   ├─ cooldown <durée>     → "1h30m" parsé (dayjs)

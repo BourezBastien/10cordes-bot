@@ -1,6 +1,9 @@
 import { Listener, On } from '@spraxium/common';
+import { Logger } from '@spraxium/logger';
 import { Events, type Message } from 'discord.js';
 import { AssistantService } from '../assistant.service';
+
+const log = new Logger('AssistantListener');
 
 /**
  * L'agent engage la conversation quand :
@@ -17,19 +20,25 @@ export class AssistantMentionListener {
   async onMessageCreate(message: Message): Promise<void> {
     // Les webhooks passent (déclencheur d'intégrations) — pas les autres bots.
     if (message.author.bot && !message.webhookId) return;
-    if (!message.guild) return;
+    const guildId = message.guildId;
+    if (!guildId) return;
     const me = message.client.user;
     if (!me) return;
 
     const mentioned = message.mentions.users.has(me.id);
-    const inDedicatedChannel = (await this.assistant.dedicatedChannelId()) === message.channelId;
+    const inDedicatedChannel =
+      (await this.assistant.dedicatedChannelId(guildId)) === message.channelId;
     const referencedAuthor = message.reference?.messageId
       ? message.channel.messages.cache.get(message.reference.messageId)?.author.id
       : undefined;
     const repliesToBot = referencedAuthor === me.id;
 
+    log.info(
+      `[GATE] salon=${message.channelId} mention=${mentioned} dédié=${inDedicatedChannel} réponse-bot=${repliesToBot}`,
+    );
+
     if (!mentioned && !inDedicatedChannel && !repliesToBot) return;
 
-    this.assistant.enqueue(message);
+    await this.assistant.enqueueMessage(message, repliesToBot);
   }
 }
