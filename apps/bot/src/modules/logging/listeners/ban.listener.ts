@@ -14,7 +14,7 @@ export class BanAddListener {
       title: '## ⛔ Membre banni',
       lines: [
         `**${ban.user.username}** (\`${ban.user.id}\`)`,
-        ban.reason ? `Raison : ${ban.reason}` : 'Raison : —',
+        ban.reason ? `Raison : ${ban.reason}` : 'Raison : (aucune)',
       ],
       accentColor: 0xe8_8b_94,
     });

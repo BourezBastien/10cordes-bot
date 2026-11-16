@@ -106,6 +106,11 @@ export class AssistantQueue {
     return this.driver.counts();
   }
 
+  /** 'bullmq' ou 'memory' — exposé par /healthz pour le diagnostic à distance. */
+  get driverName(): string {
+    return this.driver.name;
+  }
+
   async recentFailures(limit: number): Promise<Array<{ userId: string; content: string; error: string; at: string }>> {
     return this.driver.recentFailures(limit);
   }

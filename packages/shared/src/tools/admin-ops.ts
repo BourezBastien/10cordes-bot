@@ -76,12 +76,12 @@ export function opLabel(op: AdminOp): string {
     case 'channel.create': return `Créer le salon **${op.name}** (${op.kind})`;
     case 'channel.rename': return `Renommer <#${op.channelId}> en **${op.name}**`;
     case 'channel.archive': return `Archiver <#${op.channelId}>`;
-    case 'channel.delete': return `🔴 Supprimer <#${op.channelId}> (archivé avant suppression)`;
+    case 'channel.delete': return `Supprimer <#${op.channelId}> (archivé avant suppression)`;
     case 'role.create': return `Créer le rôle **${op.name}**${op.color !== undefined ? ` (#${op.color.toString(16)})` : ''}`;
     case 'role.rename': return `Renommer le rôle <@&${op.roleId}> en **${op.name}**`;
-    case 'role.delete': return `🔴 Supprimer le rôle <@&${op.roleId}>`;
-    case 'member.timeout': return `⏳ Timeout <@${op.userId}> ${Math.round(op.durationMs / 60_000)} min`;
-    case 'member.kick': return `🔴 Expulser <@${op.userId}>`;
-    case 'member.ban': return `🔴 Bannir <@${op.userId}>`;
+    case 'role.delete': return `Supprimer le rôle <@&${op.roleId}>`;
+    case 'member.timeout': return `Exclure temporairement <@${op.userId}> ${Math.round(op.durationMs / 60_000)} min`;
+    case 'member.kick': return `Expulser <@${op.userId}>`;
+    case 'member.ban': return `Bannir <@${op.userId}>`;
   }
 }

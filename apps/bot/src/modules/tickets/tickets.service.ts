@@ -150,7 +150,7 @@ export class TicketsService implements SpraxiumOnBoot {
     });
 
     const header = [
-      `Transcript — ticket #${ticket.number} (serveur ${guildId})`,
+      `Transcript : ticket #${ticket.number} (serveur ${guildId})`,
       `Ouvert par : ${ticket.userId} · Fermé par : ${closedBy}`,
       ''.padEnd(60, '='),
     ];

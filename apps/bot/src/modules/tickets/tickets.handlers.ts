@@ -71,7 +71,7 @@ export class TicketPanelChannelHandler {
       components: [
         panel({
           title: '## ✅ Salon du panneau',
-          lines: [`Panneau postable dans <#${channelId}> — lance \`/ticket setup\`.`],
+          lines: [`Panneau postable dans <#${channelId}>, lance \`/ticket setup\`.`],
           accentColor: 0x57_f2_87,
         }),
       ],
@@ -173,7 +173,7 @@ export class TicketPanelOpenHandler {
         components: [
           panel({
             title: '## ❌ Échec',
-            lines: ['Impossible de créer le ticket — vérifie la catégorie configurée.'],
+            lines: ['Impossible de créer le ticket, vérifie la catégorie configurée.'],
             accentColor: 0xe8_8b_94,
           }),
         ],
@@ -188,7 +188,7 @@ export class TicketPanelOpenHandler {
         components: [
           panel({
             title: `## 📬 Ticket #${opened.number}`,
-            lines: [`Ouvert par <@${interaction.user.id}>`, 'Décris ta demande — le staff arrive !'],
+            lines: [`Ouvert par <@${interaction.user.id}>`, 'Décris ta demande, le staff arrive !'],
           }),
           claimCloseRows(),
         ],

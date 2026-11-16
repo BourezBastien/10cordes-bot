@@ -19,37 +19,41 @@ export interface PlanPanelInput {
 
 export interface PlanReply {
   flags: number;
-  components: [ContainerBuilder, ActionRowBuilder<ButtonBuilder>];
+  components: [ContainerBuilder];
 }
 
 /**
  * Panneau de proposition d'un plan : liste des ops (via opLabel), cadre rouge
- * si destructif, boutons Approuver / Annuler — sans confirmation, le plan expire.
+ * si destructif, boutons Approuver / Annuler INTÉGRÉS au container V2 (aucune
+ * action row brute en dehors). Sans confirmation dans les 5 minutes, le plan
+ * est annulé.
  */
 export function buildPlanReply(input: PlanPanelInput): PlanReply {
   const container = new ContainerBuilder().setAccentColor(
     input.destructive ? 0xe8_8b_94 : 0x57_f2_87,
   );
-  container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`## 🤖 Plan — ${input.title}`));
+  container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`## Plan : ${input.title}`));
 
   const lines: string[] = [
     `**Demandeur** : <@${input.requesterId}>`,
-    `**Expire** : <t:${Math.floor(input.expiresAt.getTime() / 1000)}:R> (sans confirmation, le plan est annulé)`,
+    `**Expire** : <t:${Math.floor(input.expiresAt.getTime() / 1000)}:R>`,
     '',
     ...input.ops.map((op: AdminOp) => (DESTRUCTIVE_OP_TYPES.has(op.type) ? `🔴 ${opLabel(op)}` : `🟢 ${opLabel(op)}`)),
   ];
   if (input.destructive) {
-    lines.push('', '⛔ **Plan destructif** — approbation réservée au owner et à la whitelist.');
+    lines.push('', '⛔ **Plan destructif** : approbation réservée au owner et à la whitelist.');
   }
   container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')));
 
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(AGENT_APPROVE_ID).setLabel('✅ Approuver').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(AGENT_CANCEL_ID).setLabel('✖ Annuler').setStyle(ButtonStyle.Secondary),
+  container.addActionRowComponents(
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(AGENT_APPROVE_ID).setLabel('✅ Approuver').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(AGENT_CANCEL_ID).setLabel('✖ Annuler').setStyle(ButtonStyle.Secondary),
+    ),
   );
 
   return {
     flags: MessageFlags.IsComponentsV2,
-    components: [container, row],
+    components: [container],
   };
 }

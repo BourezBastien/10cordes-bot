@@ -16,7 +16,7 @@ export interface IntroData {
 
 @V2Container({ accentColor: 0xd95926 })
 export class IntroContainer {
-  @V2Text((data: IntroData) => desc().h2(`10cordes — agent Discord délégué`))
+  @V2Text((data: IntroData) => desc().h2(`10cordes, agent Discord délégué`))
   title!: never;
 
   @V2Section({
@@ -72,7 +72,7 @@ function groupedEntries(data: ToolsData): Array<ReturnType<typeof v2text>> {
   for (const tool of slice) {
     const names = byCategory.get(tool.category) ?? [];
     const desc = tool.description.length > 80 ? `${tool.description.slice(0, 79)}…` : tool.description;
-    names.push(`> **\`${tool.name}\`** — ${desc}`);
+    names.push(`> **\`${tool.name}\`** : ${desc}`);
     byCategory.set(tool.category, names);
   }
 
@@ -89,7 +89,7 @@ function groupedEntries(data: ToolsData): Array<ReturnType<typeof v2text>> {
 export class ToolsListContainer {
   @V2Text((data: ToolsData) => {
     const pages = Math.max(1, Math.ceil(data.tools.length / TOOLS_PER_PAGE));
-    return desc().h2(`Tools accessibles — page ${Math.min(data.page + 1, pages)}/${pages}`);
+    return desc().h2(`Tools accessibles (page ${Math.min(data.page + 1, pages)}/${pages})`);
   })
   title!: never;
 

@@ -3,7 +3,7 @@ import { Events, type VoiceState } from 'discord.js';
 import { LoggingService } from '../logging.service';
 
 function channelLabel(state: VoiceState): string {
-  return state.channelId ? `<#${state.channelId}>` : '—';
+  return state.channelId ? `<#${state.channelId}>` : '(aucun)';
 }
 
 /** Logs vocaux : join/leave/move + détection stream / caméra (17✅). */

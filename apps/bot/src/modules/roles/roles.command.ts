@@ -48,7 +48,7 @@ async function buildMenu(config: GuildConfigService, guild: Guild): Promise<Menu
 
   const container = panel({
     title: `## ${guildConfig.roles.panelTitle}`,
-    lines: ['Sélectionne tes rôles dans le menu — re-sélectionner retire le rôle.'],
+    lines: ['Sélectionne tes rôles dans le menu, re-sélectionner retire le rôle.'],
     footer: "Menu éditable en live : /roles add|remove puis /roles refresh.",
   });
   const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
@@ -86,7 +86,7 @@ export class RolesAddHandler {
       components: [
         panel({
           title: '## ✅ Rôle ajouté au menu',
-          lines: [`<@&${role.id}> ajouté — ${guildConfig.roles.roleIds.length + 1} option(s).`, 'Utilise `/roles post` ou `/roles refresh`.'],
+          lines: [`<@&${role.id}> ajouté : ${guildConfig.roles.roleIds.length + 1} option(s).`, 'Utilise `/roles post` ou `/roles refresh`.'],
           accentColor: 0x57_f2_87,
         }),
       ],
@@ -154,7 +154,7 @@ export class RolesPostHandler {
       components: [
         panel({
           title: '## ✅ Menu posté',
-          lines: [`Voir <#${channel.id}> — édite les options puis \`/roles refresh\`.`],
+          lines: [`Voir <#${channel.id}>, édite les options puis \`/roles refresh\`.`],
           accentColor: 0x57_f2_87,
         }),
       ],
@@ -172,7 +172,7 @@ export class RolesRefreshHandler {
     if (!guild || !guildId) return;
     const guildConfig = await this.config.get(guildId);
     if (!guildConfig.roles.panelChannelId || !guildConfig.roles.panelMessageId) {
-      throw new Error("Aucun menu posté — utilise `/roles post` d'abord.");
+      throw new Error("Aucun menu posté, utilise `/roles post` d'abord.");
     }
 
     const menu = await buildMenu(this.config, guild);

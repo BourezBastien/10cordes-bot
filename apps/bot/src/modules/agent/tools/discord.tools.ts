@@ -1,12 +1,14 @@
 import { PermissionFlagsBits, type Client, type Guild } from 'discord.js';
 import { z } from 'zod';
 import {
+  AdminOpSchema,
   AgentPlanSchema,
   type BotTool,
   type ToolResult,
   type ToolRunContext,
 } from '@10cordes/shared';
 import { AgentService } from '../agent.service';
+import { buildPlanReply } from '../agent.panel';
 import { discordExtraTools } from './discord.tools.extra';
 
 /**
@@ -42,9 +44,22 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
     }
     if (!ctx.guildId || !ctx.channelId) return { ok: false, summary: 'Contexte de serveur et de canal requis.' };
     const plan = await agent.createPlan(ctx.guildId, ctx.channelId, ctx.userId, parsed.data);
+    // Le panneau (liste des ops + boutons Approuver/Annuler) DOIT partir dans
+    // le salon : sans lui, la confirmation humaine n'existe nulle part.
+    const channel = await client.channels.fetch(ctx.channelId).catch(() => null);
+    if (channel?.isTextBased() && 'send' in channel) {
+      const reply = buildPlanReply({
+        title: parsed.data.title,
+        ops: parsed.data.ops,
+        requesterId: ctx.userId,
+        expiresAt: plan.expiresAt,
+        destructive: plan.destructiveOps.length > 0,
+      });
+      await channel.send({ flags: reply.flags, components: reply.components }).catch(() => {});
+    }
     return {
       ok: true,
-      summary: `Plan #${plan.planId} proposé — ${plan.destructiveOps.length} op(s) destructive(s). En attente de confirmation humaine (5 min).`,
+      summary: `Plan #${plan.planId} proposé : ${plan.destructiveOps.length} op(s) destructive(s). Panneau de confirmation posté dans le salon (5 min).`,
       data: { planId: plan.planId },
     };
   };
@@ -63,7 +78,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
         if (!guild) return noGuild();
         return {
           ok: true,
-          summary: `${guild.name} — ${guild.memberCount} membres, ${guild.channels.cache.size} salons, ${guild.roles.cache.size} rôles.`,
+          summary: `${guild.name} : ${guild.memberCount} membres, ${guild.channels.cache.size} salons, ${guild.roles.cache.size} rôles.`,
           data: { id: guild.id, name: guild.name, ownerId: guild.ownerId },
         };
       },
@@ -142,7 +157,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       requiredModules: [],
       permissions: ['ManageChannels'],
       destructive: false,
-      systemPrompt: 'Tier 2 (reversible). Requires bot ManageChannels. Resolve the channel via channel.list first — never guess IDs.',
+      systemPrompt: 'Tier 2 (reversible). Requires bot ManageChannels. Resolve the channel via channel.list first, never guess IDs.',
       handler: async (input, ctx) => {
         const guild = guildOf(ctx);
         if (!guild) return noGuild();
@@ -215,7 +230,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       permissions: ['ModerateMembers'],
       destructive: false,
       systemPrompt:
-        'Temporary sanction (max 28 days) — available to anyone with ModerateMembers, NOT whitelist-gated. Creates a moderation case. Requires bot ModerateMembers and a bot role above the target.',
+        'Temporary sanction (max 28 days), available to anyone with ModerateMembers, NOT whitelist-gated. Creates a moderation case. Requires bot ModerateMembers and a bot role above the target.',
       handler: async (input, ctx) => {
         const guild = guildOf(ctx);
         if (!guild) return noGuild();
@@ -277,14 +292,14 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
     },
     {
       name: 'deleteChannel',
-      description: 'Supprime un salon — passe obligatoirement par un plan confirmé (snapshot archivé avant suppression).',
+      description: 'Supprime un salon, en passant obligatoirement par un plan confirmé (snapshot archivé avant suppression).',
       category: 'agent',
       paramsSchema: z.object({ channelId: z.string().min(1) }),
       requiredModules: [],
       permissions: ['ManageChannels'],
       destructive: true,
       systemPrompt:
-        'Tier 3 / DESTRUCTIVE — never executes directly: it creates a PLAN requiring owner-or-whitelist approval within 5 minutes. The default alternative is archiveChannel — prefer it unless the user explicitly wants deletion.',
+        'Tier 3 / DESTRUCTIVE, never executes directly: it creates a PLAN requiring owner-or-whitelist approval within 5 minutes. The default alternative is archiveChannel, prefer it unless the user explicitly wants deletion. For several deletions, use ONE grouped proposePlan call.',
       handler: async (input, ctx) => {
         const { channelId } = input as { channelId: string };
         return proposePlan(ctx, 'Suppression de salon', [{ type: 'channel.delete', channelId }]);
@@ -292,13 +307,13 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
     },
     {
       name: 'deleteRole',
-      description: 'Supprime un rôle — passe obligatoirement par un plan confirmé (snapshot stocké).',
+      description: 'Supprime un rôle, en passant obligatoirement par un plan confirmé (snapshot stocké).',
       category: 'agent',
       paramsSchema: z.object({ roleId: z.string().min(1) }),
       requiredModules: [],
       permissions: ['ManageRoles'],
       destructive: true,
-      systemPrompt: 'Tier 3 / DESTRUCTIVE — creates a plan for human approval. Never guess the roleId: use role.list.',
+      systemPrompt: 'Tier 3 / DESTRUCTIVE, creates a plan for human approval. Never guess the roleId: use role.list.',
       handler: async (input, ctx) => {
         const { roleId } = input as { roleId: string };
         return proposePlan(ctx, 'Suppression de rôle', [{ type: 'role.delete', roleId }]);
@@ -306,7 +321,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
     },
     {
       name: 'kickMember',
-      description: 'Expulse un membre — passe obligatoirement par un plan confirmé (whitelist).',
+      description: 'Expulse un membre, en passant obligatoirement par un plan confirmé (whitelist).',
       category: 'agent',
       paramsSchema: z.object({
         userId: z.string().min(1),
@@ -324,7 +339,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
     },
     {
       name: 'banMember',
-      description: 'Bannit un utilisateur — passe obligatoirement par un plan confirmé (whitelist).',
+      description: 'Bannit un utilisateur, en passant obligatoirement par un plan confirmé (whitelist).',
       category: 'agent',
       paramsSchema: z.object({
         userId: z.string().min(1),
@@ -338,6 +353,25 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       handler: async (input, ctx) => {
         const { userId, reason } = input as { userId: string; reason?: string };
         return proposePlan(ctx, 'Bannissement', [{ type: 'member.ban', userId, reason }]);
+      },
+    },
+    {
+      name: 'proposePlan',
+      description:
+        'Propose UN plan groupé de plusieurs ops (salons, rôles, membre) soumis à une confirmation par boutons. À préférer aux appels séparés pour toute demande multi-actions.',
+      category: 'agent',
+      paramsSchema: z.object({
+        title: z.string().min(1).max(256),
+        ops: z.array(AdminOpSchema).min(1).max(20),
+      }),
+      requiredModules: [],
+      permissions: ['ManageGuild'],
+      destructive: false,
+      systemPrompt:
+        'USE THIS for multi-action requests (e.g. "delete these 3 channels", "set up a member space"): ONE plan with N ops instead of N separate plans. Op types: channel.create, channel.rename, channel.archive, channel.delete, role.create, role.rename, role.delete, member.timeout, member.kick, member.ban. The confirmation panel with buttons is posted to the channel automatically.',
+      handler: async (input, ctx) => {
+        const { title, ops } = input as { title: string; ops: Array<Record<string, unknown>> };
+        return proposePlan(ctx, title, ops);
       },
     },
   ];

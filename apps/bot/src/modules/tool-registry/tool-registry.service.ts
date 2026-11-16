@@ -197,7 +197,7 @@ function builtinTools(
     },
     {
       name: 'disableModule',
-      description: 'Disable a module — returns the dependency cascade to confirm.',
+      description: 'Disable a module, returns the dependency cascade to confirm.',
       category: 'module-manager',
       paramsSchema: z.object({ moduleId: z.string().min(1), confirm: z.boolean().default(false) }),
       requiredModules: [],
@@ -212,7 +212,7 @@ function builtinTools(
         if (!result.applied && result.cascade) {
           return {
             ok: false,
-            summary: `Cascade required — would also disable: ${result.cascade.toDisable.join(', ') || 'none'}${result.cascade.kept.length > 0 ? `; kept: ${result.cascade.kept.join(', ')}` : ''}. Ask the user to confirm.`,
+            summary: `Cascade required, would also disable: ${result.cascade.toDisable.join(', ') || 'none'}${result.cascade.kept.length > 0 ? `; kept: ${result.cascade.kept.join(', ')}` : ''}. Ask the user to confirm.`,
             data: { cascade: result.cascade },
           };
         }

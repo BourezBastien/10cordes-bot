@@ -45,17 +45,17 @@ export function targetMember(interaction: ChatInputCommandInteraction): GuildMem
 export function caseLine(entry: CaseEntry): string {
   const when = entry.createdAt.toISOString().slice(0, 16).replace('T', ' ');
   const duration = entry.durationMs ? ` · ${Math.round(entry.durationMs / 60_000)}min` : '';
-  return `**#${entry.caseId}** \`${entry.action}\`${duration} — <@${entry.userId}> par <@${entry.moderatorId}> — ${entry.reason ?? 'sans raison'} (\`${when}\`)`;
+  return `**#${entry.caseId}** \`${entry.action}\`${duration} : <@${entry.userId}> par <@${entry.moderatorId}> : ${entry.reason ?? 'sans raison'} (\`${when}\`)`;
 }
 
 export function casePanel(entry: CaseEntry, title: string) {
   return panel({
     title,
     lines: [
-      `**Case #${entry.caseId}** — \`${entry.action}\``,
+      `**Case #${entry.caseId}** : \`${entry.action}\``,
       `**Membre** : <@${entry.userId}> · **Modérateur** : <@${entry.moderatorId}>`,
       entry.durationMs ? `**Durée** : ${Math.round(entry.durationMs / 60_000)} min` : '',
-      `**Raison** : ${entry.reason ?? '—'}`,
+      `**Raison** : ${entry.reason ?? '(aucune)'}`,
       `**Date** : <t:${Math.floor(entry.createdAt.getTime() / 1000)}:f>`,
     ].filter(Boolean),
   });

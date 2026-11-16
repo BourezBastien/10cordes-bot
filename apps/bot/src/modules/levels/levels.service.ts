@@ -70,7 +70,7 @@ export class LevelsService implements SpraxiumOnBoot {
         const { limit } = input as { limit?: number };
         const rows = await this.leaderboard(ctx.guildId, limit ?? 10);
         if (rows.length === 0) return { ok: true, summary: 'Aucun XP attribué pour le moment.' };
-        const lines = rows.map((row, index) => `${index + 1}. <@${row.userId}> — niveau **${row.level}** (${row.xp} XP)`);
+        const lines = rows.map((row, index) => `${index + 1}. <@${row.userId}> : niveau **${row.level}** (${row.xp} XP)`);
         return { ok: true, summary: `Classement : ${lines.join(' | ')}`, data: { rows } };
       },
     });

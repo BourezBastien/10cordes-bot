@@ -43,7 +43,7 @@ export class MessageUpdateListener {
       title: '## ✏️ Message modifié',
       lines: [
         `<#${newMessage.channelId}> · **${newMessage.author.username}** (\`${newMessage.id}\`)`,
-        `**Avant** : ${cut(oldMessage.content ?? '—')}`,
+        `**Avant** : ${cut(oldMessage.content ?? '(vide)')}`,
         `**Après** : ${cut(newMessage.content)}`,
       ],
       accentColor: 0xd9_b3_6b,

@@ -116,7 +116,7 @@ export function discordExtraTools(
         await (channel as import('discord.js').GuildChannel).permissionOverwrites.edit(roleId, overwrite, {
           reason: `agent tool (by <@${ctx.userId}>)`,
         });
-        const target = roleId === guild.id ? '@everyone' : `<@&${roleId}>`;
+        const target = roleId === guild.id ? 'le rôle everyone' : `<@&${roleId}>`;
         return {
           ok: true,
           summary: `Permissions de <#${channel.id}> pour ${target} : +[${allow.join(', ') || '∅'}] -[${deny.join(', ') || '∅'}].`,
@@ -126,22 +126,33 @@ export function discordExtraTools(
     },
     {
       name: 'createCategory',
-      description: 'Crée une catégorie (conteneur de salons).',
+      description: 'Crée une catégorie (conteneur de salons), position optionnelle dans la liste des salons.',
       category: 'agent',
-      paramsSchema: z.object({ name: z.string().min(1).max(100) }),
+      paramsSchema: z.object({
+        name: z.string().min(1).max(100),
+        position: z.number().int().min(1).max(100).optional(),
+      }),
       requiredModules: [],
       permissions: ['ManageChannels'],
       destructive: false,
-      systemPrompt: 'Tier 2 (reversible). channel.list pour éviter les doublons.',
+      systemPrompt:
+        'Tier 2 (reversible). channel.list pour éviter les doublons ET pour imiter les conventions de nommage existantes. position = emplacement voulu dans la liste des catégories (1 = tout en haut) ; par défaut la catégorie va en bas.',
       handler: async (input, ctx) => {
         const guild = guildOf(ctx);
         if (!guild) return noGuild();
-        const { name } = input as { name: string };
+        const { name, position } = input as { name: string; position?: number };
         if (!guild.members.me?.permissions.has(PermissionFlagsBits.ManageChannels)) {
           return { ok: false, summary: "Le bot n'a pas la permission ManageChannels." };
         }
         const created = await guild.channels.create({ name, type: 4, reason: `agent tool (by <@${ctx.userId}>)` });
-        return { ok: true, summary: `Catégorie **${name}** créée.`, data: { categoryId: created.id } };
+        if (position !== undefined) {
+          await created.setPosition(position, { reason: `agent tool (by <@${ctx.userId}>)` }).catch(() => {});
+        }
+        return {
+          ok: true,
+          summary: `Catégorie **${name}** créée${position !== undefined ? ` en position ${position}` : ' (en bas de la liste)'}.`,
+          data: { categoryId: created.id },
+        };
       },
     },
     {
@@ -327,7 +338,7 @@ export function discordExtraTools(
         const roles = member.roles.cache.filter((r) => r.id !== guild.id).map((r) => `<@&${r.id}>`).slice(0, 15);
         return {
           ok: true,
-          summary: `${member.displayName} (<@${member.id}>) — ${member.roles.cache.size - 1} rôle(s) : ${roles.join(' ') || 'aucun'}. Admin : ${member.permissions.has(PermissionFlagsBits.Administrator) ? 'oui' : 'non'}.`,
+          summary: `${member.displayName} (<@${member.id}>) : ${member.roles.cache.size - 1} rôle(s) : ${roles.join(' ') || 'aucun'}. Admin : ${member.permissions.has(PermissionFlagsBits.Administrator) ? 'oui' : 'non'}.`,
           data: { id: member.id, nickname: member.displayName, roleCount: member.roles.cache.size - 1 },
         };
       },
@@ -502,7 +513,7 @@ export function discordExtraTools(
         }
         const bans = await guild.bans.fetch();
         const lines = bans
-          .map((b) => `<@${b.user.id}> (${b.user.username})${b.reason ? ` — ${b.reason.slice(0, 60)}` : ''}`)
+          .map((b) => `<@${b.user.id}> (${b.user.username})${b.reason ? ` : ${b.reason.slice(0, 60)}` : ''}`)
           .slice(0, 15);
         return { ok: true, summary: `${bans.size} ban(s) : ${lines.join(' | ') || 'aucun'}` };
       },

@@ -117,7 +117,7 @@ export class ModerationService {
       action: 'warn',
       reason,
     });
-    await target.send(`⚠️ You were warned in **${guild.name}** — case #${entry.caseId} : ${reason}`).catch(() => {});
+    await target.send(`⚠️ You were warned in **${guild.name}** (case #${entry.caseId}) : ${reason}`).catch(() => {});
     return entry;
   }
 
@@ -174,7 +174,7 @@ export class ModerationService {
       reason,
     });
     await target
-      .send(`👢 You were kicked from **${guild.name}** — case #${entry.caseId}${reason ? ` : ${reason}` : ''}`)
+      .send(`👢 You were kicked from **${guild.name}** (case #${entry.caseId})${reason ? ` : ${reason}` : ''}`)
       .catch(() => {});
     await target.kick(reason ?? undefined);
     return entry;
@@ -194,10 +194,10 @@ export class ModerationService {
       reason,
     });
     await targetUser
-      .send(`⛔ You were banned from **${guild.name}** — case #${entry.caseId}${reason ? ` : ${reason}` : ''}`)
+      .send(`⛔ You were banned from **${guild.name}** (case #${entry.caseId})${reason ? ` : ${reason}` : ''}`)
       .catch(() => {});
     await guild.members.ban(targetUser.id, {
-      reason: `case #${entry.caseId}${reason ? ` — ${reason}` : ''}`,
+      reason: `case #${entry.caseId}${reason ? ` : ${reason}` : ''}`,
       deleteMessageSeconds: purgeMessages ? 24 * 60 * 60 : 0,
     });
     return entry;

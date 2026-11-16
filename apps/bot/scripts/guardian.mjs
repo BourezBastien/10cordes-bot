@@ -1,5 +1,5 @@
 /**
- * Guardian 10cordes : santé du bot + relance + sonde E2E live.
+ * Guardian 10cordes : santé du bot + relance + sonde interne.
  *
  * Usage : `node scripts/guardian.mjs` (depuis n'importe où, les chemins sont
  * résolus depuis ce fichier). Sortie : lignes CHECK/REPAIR/PROBE puis un
@@ -11,8 +11,9 @@
  *  3. Redis : `docker exec <container> redis-cli ping` (avertissement si KO,
  *     la queue bascule déjà en mémoire toute seule).
  *  4. Audit : erreurs assistant sur les 35 dernières minutes + fraîcheur.
- *  5. Sonde E2E : message webhook dans le salon dédié IA (ou mention sinon),
- *     succès si une nouvelle ligne audit `assistant.reply` arrive sous 120s.
+ *  5. Sonde interne GET /healthz (DB, queue, gateway) — aucun message Discord :
+ *     la surveillance est silencieuse, les incidents sont notifiés par
+ *     HealthMonitor (alerte uniquement sur changement d'état).
  */
 import { readFileSync, existsSync, openSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -24,8 +25,6 @@ const BOT_DIR = resolve(SCRIPT_DIR, '..');
 const ROOT_DIR = resolve(BOT_DIR, '..');
 const LOG_FILE = resolve(BOT_DIR, 'prod-run.log');
 const DIST_ENTRY = resolve(BOT_DIR, '.spraxium/dist/src/main.mjs');
-const PROBE_WEBHOOK_NAME = 'agent-e2e-guardian';
-const API = 'https://discord.com/api/v10';
 
 const lines = [];
 const say = (tag, msg) => {
@@ -58,16 +57,6 @@ function tail(file, maxLines) {
   const raw = readFileSync(file, 'utf8');
   const all = raw.split(/\r?\n/);
   return all.slice(-maxLines).join('\n');
-}
-
-async function rest(token, path, init) {
-  const res = await fetch(`${API}${path}`, {
-    ...init,
-    headers: { Authorization: `Bot ${token}`, 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
-  });
-  const body = res.headers.get('content-type')?.includes('json') ? await res.json() : await res.text();
-  if (!res.ok) throw new Error(`${init?.method ?? 'GET'} ${path} -> ${res.status}: ${JSON.stringify(body).slice(0, 200)}`);
-  return body;
 }
 
 async function botAlive() {
@@ -180,81 +169,24 @@ async function main() {
     await prisma.$disconnect();
   }
 
-  // 5. Sonde E2E : webhook -> salon dédié -> nouvelle réponse audité sous 120s.
-  const token = env.DISCORD_TOKEN;
-  if (!token) {
-    say('PROBE', 'DISCORD_TOKEN introuvable dans .env : sonde sautée.');
-  } else {
-    try {
-      const me = await rest(token, '/users/@me');
-      const guilds = await rest(token, `/users/@me/guilds`);
-      if (guilds.length === 0) throw new Error('aucun serveur');
-      const guildId = guilds[0].id;
-
-      const prisma = new PrismaClient();
-      let channelId = null;
-      try {
-        const g = await prisma.guild.findUnique({ where: { id: guildId }, select: { settings: true } });
-        channelId = g?.settings ? JSON.parse(g.settings)?.assistant?.channelId ?? null : null;
-      } finally {
-        await prisma.$disconnect();
-      }
-      if (!channelId) {
-        const channels = await rest(token, `/guilds/${guildId}/channels`);
-        channelId = channels.find((c) => c.type === 0)?.id ?? null;
-      }
-      if (!channelId) throw new Error('aucun salon texte trouvé');
-
-      const hooks = await rest(token, `/channels/${channelId}/webhooks`);
-      let hook = hooks.find((h) => h.name === PROBE_WEBHOOK_NAME && h.user?.id === me.id);
-      if (!hook) {
-        hook = await rest(token, `/channels/${channelId}/webhooks`, {
-          method: 'POST',
-          body: JSON.stringify({ name: PROBE_WEBHOOK_NAME }),
-        });
-        say('PROBE', `webhook de sonde créé dans ${channelId}.`);
-      }
-
-      const probeStart = new Date(Date.now() - 2_000);
-      const content = `Sonde de surveillance automatique (${startedAt.toISOString()}) : réponds en une seule phrase courte.`;
-      await rest(token, `/webhooks/${hook.id}/${hook.token}?wait=true`, {
-        method: 'POST',
-        body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
-      });
-      say('PROBE', `message envoyé dans ${channelId}, attente de la réponse de l'agent...`);
-
-      const prisma2 = new PrismaClient();
-      let answered = false;
-      try {
-        const deadline = Date.now() + 120_000;
-        while (Date.now() < deadline && !answered) {
-          await new Promise((r) => setTimeout(r, 5_000));
-          const hit = await prisma2.auditLog.findFirst({
-            where: { action: { in: ['assistant.reply', 'assistant.error'] }, createdAt: { gte: probeStart } },
-            orderBy: { createdAt: 'desc' },
-            select: { action: true, createdAt: true, metadata: true },
-          });
-          if (hit) {
-            if (hit.action === 'assistant.reply') {
-              answered = true;
-              say('PROBE', `réponse de l'agent audité à ${hit.createdAt.toISOString()}.`);
-            } else {
-              say('FAIL', `l'agent a traité la sonde en erreur : ${hit.metadata.slice(0, 200)}`);
-              process.exitCode = 1;
-            }
-          }
-        }
-      } finally {
-        await prisma2.$disconnect();
-      }
-      if (!answered && process.exitCode !== 1) {
-        say('FAIL', 'aucune réponse auditée sous 120s : la chaîne agent ne répond pas.');
-        process.exitCode = 1;
-      }
-    } catch (error) {
-      say('FAIL', `sonde E2E : ${error.message}`);
+  // 5. Sonde interne : GET /healthz — état DB, queue, gateway. AUCUN message
+  // Discord : la surveillance ne spam pas le salon. Les incidents sont de
+  // toute façon notifiés en continu par HealthMonitor (alerte sur changement).
+  try {
+    const headers = env.HTTP_API_KEY ? { 'X-Api-Key': env.HTTP_API_KEY } : {};
+    const res = await fetch('http://127.0.0.1:3000/healthz', { headers, signal: AbortSignal.timeout(10_000) });
+    const health = await res.json();
+    say(
+      'PROBE',
+      `healthz : ok=${health.ok} db=${health.db} gateway=${health.gatewayReady} driver=${health.driver} queue=${JSON.stringify(health.queue)} uptime=${health.uptimeSec}s.`,
+    );
+    if (!res.ok || !health.ok) {
+      say('FAIL', `/healthz signale un composant en échec (HTTP ${res.status}).`);
       process.exitCode = 1;
     }
+  } catch (error) {
+    say('FAIL', `sonde /healthz : ${error.message}`);
+    process.exitCode = 1;
   }
 
   console.log(`VERDICT: ${process.exitCode === 1 ? 'FAIL' : 'PASS'}`);

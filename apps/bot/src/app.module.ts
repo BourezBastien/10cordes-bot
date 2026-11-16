@@ -20,6 +20,8 @@ import { ModuleManagerModule } from './modules/module-manager/module-manager.mod
 import { GuildsController } from './modules/api/guilds.controller';
 import { LegalController } from './modules/api/legal.controller';
 import { MetaController } from './modules/api/meta.controller';
+import { HealthController } from './modules/health/health.controller';
+import { HealthMonitor } from './modules/health/health.monitor';
 import { RolesModule } from './modules/roles/roles.module';
 import { SetupModule } from './modules/setup/setup.module';
 import { TagsModule } from './modules/tags/tags.module';
@@ -32,7 +34,7 @@ import { WelcomeModule } from './modules/welcome/welcome.module';
 // Guards scoping : SessionGuard + GuildAccessGuard sont posés PAR CONTRÔLEUR
 // (@HttpGuards) — /legal et /api/auth doivent rester publics.
 @HttpClientModule({
-  controllers: [AuthController, MetaController, GuildsController, LegalController],
+  controllers: [AuthController, MetaController, GuildsController, LegalController, HealthController],
   middleware: [new LoggerMiddleware()],
 })
 @Module({
@@ -59,6 +61,6 @@ import { WelcomeModule } from './modules/welcome/welcome.module';
     AssistantModule,
     WelcomeModule,
   ],
-  providers: [AuthController, MetaController, GuildsController, LegalController],
+  providers: [AuthController, MetaController, GuildsController, LegalController, HealthController, HealthMonitor],
 })
 export class AppModule {}

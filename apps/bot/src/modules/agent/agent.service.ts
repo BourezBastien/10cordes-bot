@@ -264,11 +264,18 @@ export class AgentService implements SpraxiumOnBoot {
   }
 
   async latestPending(guildId: string, channelId: string): Promise<{ id: string } | null> {
-    return this.prisma.agentPlan.findFirst({
-      where: { guildId, channelId, status: 'pending' },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true },
+    const plans = await this.listPending(guildId, channelId);
+    return plans[0] ?? null;
+  }
+
+  /** Tous les plans en attente du salon (le plus ancien d'abord, avec titre). */
+  async listPending(guildId: string, channelId: string): Promise<Array<{ id: string; title: string }>> {
+    const plans = await this.prisma.agentPlan.findMany({
+      where: { guildId, channelId, status: 'pending', expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, title: true },
     });
+    return plans;
   }
 
   /**
@@ -283,16 +290,17 @@ export class AgentService implements SpraxiumOnBoot {
     status: 'executed' | 'cancelled' | 'expired' | 'denied' | 'notfound';
     results?: PlanOpResult[];
     denialReason?: string;
+    planTitle?: string;
   }> {
     const plan = await this.prisma.agentPlan.findUnique({ where: { id: planId } });
-    if (!plan || plan.status !== 'pending') return { status: 'notfound' };
+    if (!plan || plan.status !== 'pending') return { status: 'notfound', planTitle: plan?.title };
     if (plan.expiresAt.getTime() < Date.now()) {
       await this.prisma.agentPlan.update({ where: { id: planId }, data: { status: 'expired' } });
-      return { status: 'expired' };
+      return { status: 'expired', planTitle: plan.title };
     }
 
     const guild = this.client.guilds.cache.get(plan.guildId);
-    if (!guild) return { status: 'notfound' };
+    if (!guild) return { status: 'notfound', planTitle: plan.title };
 
     if (action === 'cancel') {
       await this.prisma.agentPlan.update({
@@ -304,9 +312,9 @@ export class AgentService implements SpraxiumOnBoot {
         source: 'agent',
         action: 'agent.plan.cancelled',
         actorId: approverId,
-        metadata: { planId },
+        metadata: { planId, title: plan.title },
       });
-      return { status: 'cancelled' };
+      return { status: 'cancelled', planTitle: plan.title };
     }
 
     const ops = (JSON.parse(plan.ops) as AdminOp[]).map((op) => AdminOpSchema.parse(op));
@@ -325,12 +333,13 @@ export class AgentService implements SpraxiumOnBoot {
       });
       return {
         status: 'denied',
-        denialReason: 'Ce plan contient des ops destructives — réservées au owner et à la whitelist.',
+        denialReason: 'Ce plan contient des ops destructives : réservées au owner et à la whitelist.',
+        planTitle: plan.title,
       };
     }
     const approverMember = await guild.members.fetch(approverId).catch(() => null);
     if (!hasDestructive && approverMember && !approverMember.permissions.has(PermissionFlagsBits.ManageGuild)) {
-      return { status: 'denied', denialReason: 'Permission ManageGuild requise pour approuver ce plan.' };
+      return { status: 'denied', denialReason: 'Permission ManageGuild requise pour approuver ce plan.', planTitle: plan.title };
     }
 
     const requesterMember = await guild.members.fetch(plan.requesterId).catch(() => null);
@@ -351,7 +360,7 @@ export class AgentService implements SpraxiumOnBoot {
       where: { id: planId },
       data: { status: 'executed', approvedBy: approverId, results: JSON.stringify(results) },
     });
-    return { status: 'executed', results };
+    return { status: 'executed', results, planTitle: plan.title };
   }
 
   /** Exécution d'une op — chaque op re-vérifie les permissions du bot en code. */
@@ -401,7 +410,7 @@ export class AgentService implements SpraxiumOnBoot {
             topic: 'topic' in channel ? (channel.topic as string | null) : null,
           };
           await channel.setName(`archive-${channel.name}`, auditReason);
-          return { ok: true, label, detail: `archivé — snapshot : \`${JSON.stringify(snapshot)}\`` };
+          return { ok: true, label, detail: `archivé (snapshot : \`${JSON.stringify(snapshot)}\`)` };
         }
         case 'channel.delete': {
           // Archive-first : snapshot → suppression (l'op destructif n'arrive ici
@@ -417,7 +426,7 @@ export class AgentService implements SpraxiumOnBoot {
             type: deletable.type,
           };
           await deletable.delete(auditReason);
-          return { ok: true, label, detail: `supprimé — snapshot restaurable : \`${JSON.stringify(snapshot)}\`` };
+          return { ok: true, label, detail: `supprimé (snapshot restaurable : \`${JSON.stringify(snapshot)}\`)` };
         }
         case 'role.create': {
           if (!me?.permissions.has(PermissionFlagsBits.ManageRoles)) {
@@ -445,10 +454,10 @@ export class AgentService implements SpraxiumOnBoot {
           }
           const role = await guild.roles.fetch(op.roleId).catch(() => null);
           if (!role) return { ok: false, label, detail: 'Rôle introuvable.' };
-          if (role.managed) return { ok: false, label, detail: 'Rôle géré par une intégration — suppression impossible.' };
+          if (role.managed) return { ok: false, label, detail: 'Rôle géré par une intégration : suppression impossible.' };
           const snapshot = { name: role.name, color: role.color };
           await role.delete(auditReason);
-          return { ok: true, label, detail: `supprimé — snapshot : \`${JSON.stringify(snapshot)}\`` };
+          return { ok: true, label, detail: `supprimé (snapshot : \`${JSON.stringify(snapshot)}\`)` };
         }
         case 'member.timeout': {
           const member = await guild.members.fetch(op.userId).catch(() => null);

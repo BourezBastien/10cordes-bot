@@ -53,7 +53,7 @@ export class MessageXpListener {
         panel({
           title: `## 🎉 Niveau ${result.level} !`,
           lines: [
-            `Bravo <@${message.author.id}> — niveau **${result.level}** atteint.`,
+            `Bravo <@${message.author.id}> : niveau **${result.level}** atteint.`,
             `Prochain niveau à **${remaining}** XP restants.`,
           ],
           accentColor: 0x57_f2_87,

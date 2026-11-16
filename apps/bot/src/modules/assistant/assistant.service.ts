@@ -26,8 +26,6 @@ const MAX_ITERATIONS = 8;
 const USER_COOLDOWN_MS = 4_000;
 const TRANSCRIPT_SIZE = 12;
 const TYPING_REFRESH_MS = 8_000;
-/** Confirmation d'action : s'efface d'elle-même (éphémère-like hors interaction). */
-const ACTION_CONFIRM_TTL_MS = 15_000;
 /**
  * Silence demandé explicitement : filet déterministe en plus du tool skipReply
  * (le modèle peut l'ignorer ; cette détection, jamais).
@@ -74,7 +72,13 @@ function buildSystemPrompt(
     `Réponds toujours dans la langue : ${locale}. Ton professionnel, bref, chaleureux quand le contexte s'y prête.`,
     'Format : Discord markdown léger. Concis par défaut (1 à 3 phrases), développe uniquement pour une vraie question technique ou une action complexe.',
     "Pas de tournures d'assistant générique : va droit au but. AUCUN emoji dans tes réponses.",
+    'JAMAIS de mention @everyone ou @here dans tes réponses : parle du rôle everyone en texte ("le rôle everyone"), sans le ping.',
     '</TONE_AND_MESSAGING>',
+    '<SERVER_STYLE>',
+    "Avant de créer un salon, une catégorie ou un rôle : regarde d'abord l'existant (getChannels, getRoles) et IMITE les conventions du serveur (préfixes, emojis, majuscules spéciales, séparateurs, style des noms).",
+    "Ne répète pas le thème de la catégorie dans les noms des salons : catégorie « Espace Membre » → salons « général », « discussion », « ressources », « vocal 1 », pas « général-membres ».",
+    "Choisis la position des catégories en fonction de leur usage (staff en haut, membres ensuite...) et dis-la explicitement dans ta réponse.",
+    '</SERVER_STYLE>',
     '<FORMAT_AND_SILENCE>',
     'Par défaut : réponds en TEXTE SIMPLE (phrases), sans panneau. Tes réponses partent telles quelles dans le salon.',
     'Préfixe [PANEL] au tout début de ta réponse UNIQUEMENT pour présenter des données structurées demandées explicitement (classement, longue liste, comparatif, carte de rang) : le système le rendra en panneau visuel.',
@@ -90,7 +94,7 @@ function buildSystemPrompt(
     '</SCOPE_AND_PERMISSIONS>',
     '<SERVER_CONTEXT>',
     `Serveur : ${guildName}. Salon actuel où la demande a été écrite : #${channelName}.`,
-    "Contexte advisory : les vraies vérifications se font dans les tools. Pour toute action sur le salon actuel, utilise directement son ID dans le contexte — ne demande jamais à l'utilisateur de repréciser.",
+    "Contexte advisory : les vraies vérifications se font dans les tools. Pour toute action sur le salon actuel, utilise directement son ID dans le contexte, ne demande jamais à l'utilisateur de repréciser.",
     '</SERVER_CONTEXT>',
     '<TOOL_USE_GUIDANCE>',
     `Tools disponibles : ${toolNames.join(', ') || 'aucun'}.`,
@@ -101,7 +105,9 @@ function buildSystemPrompt(
     '</TOOL_USE_GUIDANCE>',
     '<CONFIRMATION_PROTOCOL>',
     "Les tools marqués destructive ne s'exécutent pas : ils créent un PLAN soumis à confirmation humaine.",
-    "Informe l'utilisateur qu'une confirmation est requise via les boutons du panneau.",
+    "Pour une demande multi-actions, un SEUL plan groupé via proposePlan (jamais N plans séparés) ; son panneau avec boutons est posté automatiquement dans le salon.",
+    "NE demande JAMAIS de confirmation écrite (« dis-moi oui ») : le panneau de boutons fait foi, expire dans 5 minutes.",
+    "Quand un plan est proposé, ne rédige AUCUN texte final : le panneau affiché est LA réponse complète (titres, ops, boutons).",
     '</CONFIRMATION_PROTOCOL>',
     '<ERROR_HANDLING>',
     'Sur erreur de tool : lis le message, corrige et réessaie si réparable, sinon rapporte et propose une alternative.',
@@ -359,7 +365,7 @@ export class AssistantService {
 
     const contextBlock = [
       `Historique récent du salon #${channel.name} :\n${transcript || '(salon vide)'}`,
-      `Serveur : ${guild.name} (ID ${guild.id}) — ${guild.memberCount} membres.`,
+      `Serveur : ${guild.name} (ID ${guild.id}), ${guild.memberCount} membres.`,
       `Salon actuel : #${channel.name} (ID ${channel.id}).`,
       `Demandeur : ${request.authorName} (ID ${request.userId}).`,
       `Date : ${new Date().toLocaleString(locale === 'fr' ? 'fr-FR' : 'en-US')}.`,
@@ -398,12 +404,13 @@ export class AssistantService {
     // Filet déterministe : la demande textuelle qui exige le silence force le flag.
     let silent = SILENCE_REQUEST_RE.test(request.content);
     let actionRan = false;
+    let planProposed = false;
     const executed: string[] = [];
     const loopState: { error: Error | null } = { error: null };
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
       const chatStart = Date.now();
-      log.info(`[FLOW] chat #${iteration + 1} — ${messages.length} messages en entrée`);
+      log.info(`[FLOW] chat #${iteration + 1} : ${messages.length} messages en entrée`);
       const completion = await this.llm.chat(messages, openAiTools, {
         userId: request.userId,
         guildId: guild.id,
@@ -413,7 +420,7 @@ export class AssistantService {
         return null;
       });
       if (!completion) break;
-      log.info(`[FLOW] chat #${iteration + 1} OK en ${Date.now() - chatStart}ms — toolCalls: ${completion.toolCalls.length}`);
+      log.info(`[FLOW] chat #${iteration + 1} OK en ${Date.now() - chatStart}ms, toolCalls: ${completion.toolCalls.length}`);
 
       if (completion.toolCalls.length > 0) {
         messages.push({
@@ -446,6 +453,7 @@ export class AssistantService {
           const result = await this.registry.run(call.name, input, ctx);
           executed.push(call.name);
           if (result.ok && (tool?.destructive || (tool?.permissions?.length ?? 0) > 0)) actionRan = true;
+          if (result.ok && (call.name === 'proposePlan' || tool?.destructive)) planProposed = true;
           if (result.ok && tool?.scope === 'user') {
             userScoped = true;
           }
@@ -476,7 +484,7 @@ export class AssistantService {
         await channel.send(notice(`Erreur IA : ${loopState.error.message.slice(0, 180)}`, true)).catch(() => {});
         throw loopState.error;
       }
-      finalText = "J'ai traité ta demande via les tools — vérifie les résultats ci-dessus.";
+      finalText = "J'ai traité ta demande via les tools, vérifie les résultats ci-dessus.";
     }
 
     // Présentation structurée demandée par le modèle ([PANEL]) → panneau V2.
@@ -520,46 +528,50 @@ export class AssistantService {
 
     const chunks = splitReplyChunks(finalText);
 
-    // Panneau V2 : uniquement pour les données structurées demandées.
-    if (panelRequested) {
-      for (const chunk of chunks) {
-        await channel
-          .send({
-            components: [panel({ title: '10cordes', lines: [chunk], accentColor: 0xd9_59_26 })],
-            flags: MessageFlags.IsComponentsV2,
-          })
-          .catch(() => {});
+    // Plan de confirmation : le panneau posté par le tool EST la réponse —
+    // aucun texte supplémentaire (la card fait foi, avec ses boutons V2).
+    if (planProposed) {
+      this.audit.record({
+        guildId: guild.id,
+        source: 'agent',
+        action: 'assistant.reply',
+        actorId: request.userId,
+        metadata: { locale, permissions: permissions.length, tools: tools.length, plan: true, textSuppressed: true },
+      });
+      return;
+    }
+
+    // Action exécutée : portail éphémère — la réponse complète n'est visible
+    // que par le demandeur (un clic), le salon ne se remplit pas.
+    if (actionRan) {
+      const portal = await this.postPortal(channel, request.authorName);
+      if (portal) {
+        const panels: unknown[] = [];
+        for (const chunk of chunks) {
+          panels.push(panel({ title: '10cordes', lines: [chunk], accentColor: 0xd9_59_26 }));
+        }
+        storeAnswer(portal.id, { components: panels });
       }
       this.audit.record({
         guildId: guild.id,
         source: 'agent',
         action: 'assistant.reply',
         actorId: request.userId,
-        metadata: { locale, permissions: permissions.length, tools: tools.length, panel: true },
+        metadata: { locale, permissions: permissions.length, tools: tools.length, portal: true },
       });
       return;
     }
 
-    // Défaut : texte simple. Une confirmation d'action s'efface d'elle-même
-    // (Discord ne propose l'éphémère natif qu'aux interactions).
+    // Défaut : texte simple permanent (conversation).
     for (const chunk of chunks) {
-      const sent = await channel.send({ content: chunk }).catch(() => null);
-      if (sent && actionRan) {
-        setTimeout(() => void sent.delete().catch(() => {}), ACTION_CONFIRM_TTL_MS).unref?.();
-      }
+      await channel.send({ content: chunk }).catch(() => {});
     }
     this.audit.record({
       guildId: guild.id,
       source: 'agent',
       action: 'assistant.reply',
       actorId: request.userId,
-      metadata: {
-        locale,
-        permissions: permissions.length,
-        tools: tools.length,
-        public: true,
-        ephemeralLike: actionRan,
-      },
+      metadata: { locale, permissions: permissions.length, tools: tools.length, public: true },
     });
   }
 
@@ -574,7 +586,7 @@ export class AssistantService {
           new ContainerBuilder()
             .setAccentColor(0xd9_59_26)
             .addTextDisplayComponents(
-              text(`**Réponse prête pour ${displayName}** — visible uniquement par toi.`),
+              text(`**Réponse prête pour ${displayName}** (visible uniquement par toi).`),
             )
             .addActionRowComponents(
               new ActionRowBuilder<ButtonBuilder>().addComponents(

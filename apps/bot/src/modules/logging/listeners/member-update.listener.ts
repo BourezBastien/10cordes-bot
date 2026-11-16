@@ -32,7 +32,7 @@ export class MemberUpdateListener {
     }
 
     if (oldMember.nickname !== newMember.nickname) {
-      lines.push(`📝 Pseudo : \`${oldMember.nickname ?? '—'}\` → \`${newMember.nickname ?? '—'}\``);
+      lines.push(`📝 Pseudo : \`${oldMember.nickname ?? '(aucun)'}\` → \`${newMember.nickname ?? '(aucun)'}\``);
     }
 
     if (lines.length === 0) return;

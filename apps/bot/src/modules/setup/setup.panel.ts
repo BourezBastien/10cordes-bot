@@ -126,7 +126,7 @@ export function renderMainPanel(config: GuildConfig, ia: LlmStatus, pixellab: bo
       `**PixelLab** : ${pixellab ? '✅ connecté' : '❌ clé absente (catégorie Agent IA)'}`,
       `**Langue serveur** : ${config.defaultLocale} · **Bienvenue** : ${config.welcome.enabled ? 'on' : 'off'} · **Levels** : ${config.levels.enabled ? 'on' : 'off'}`,
       '**Modules actifs** : ' + MODULE_CATALOG.map((m) => m.id).join(', '),
-      `*${modulesOn} modules enregistrés — tout est aussi configurable en langage naturel en mentionnant le bot.*`,
+      `*${modulesOn} modules enregistrés, tout est aussi configurable en langage naturel en mentionnant le bot.*`,
     ],
     footer: 'Sélectionne une catégorie ci-dessous pour la configurer.',
   });
@@ -180,7 +180,7 @@ export function renderCategoryPanel(
         new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
           new StringSelectMenuBuilder()
             .setCustomId(SETUP_LOGS_CAT_SELECT_ID)
-            .setPlaceholder(pending ? `Catégorie choisie : ${pending} — prends le salon` : '1. Choisis la catégorie de logs')
+            .setPlaceholder(pending ? `Catégorie choisie : ${pending}, prends le salon` : '1. Choisis la catégorie de logs')
             .addOptions(
               ['messages', 'members', 'voice', 'moderation', 'server'].map((c) => ({ label: c, value: c })),
             ),
@@ -243,8 +243,8 @@ export function renderCategoryPanel(
         title: CATEGORY_LABELS.agent,
         lines: [
           ia.source === 'none'
-            ? '**IA** : ❌ non connectée — clique le bouton ci-dessous (owner).'
-            : `**IA** : ✅ ${ia.provider} / \`${ia.model}\` (clé ${ia.maskedKey}) — ${ia.baseUrl}`,
+            ? '**IA** : ❌ non connectée, clique le bouton ci-dessous (owner).'
+            : `**IA** : ✅ ${ia.provider} / \`${ia.model}\` (clé ${ia.maskedKey}) : ${ia.baseUrl}`,
           `**PixelLab** : ${pixellab ? '✅ connecté' : '❌ clé absente (champ optionnel de la modale)'}`,
           'L\'agent est aussi joignable en langage naturel : mentionne le bot, parle dans le salon dédié IA, ou réponds à ses messages.',
         ],

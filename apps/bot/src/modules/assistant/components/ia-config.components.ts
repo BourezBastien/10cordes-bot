@@ -27,7 +27,7 @@ export class IaConfigureModal {
   model!: string;
 
   @ModalInput({
-    label: 'Clé PixelLab (optionnel — icônes et emojis)',
+    label: 'Clé PixelLab (optionnel : icônes et emojis)',
     placeholder: 'pixl_...',
     required: false,
   })

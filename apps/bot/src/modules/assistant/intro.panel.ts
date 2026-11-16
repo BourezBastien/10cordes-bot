@@ -17,7 +17,7 @@ export function buildIntroPanel(locale: string, displayName: string, isStaff: bo
         ? [
             isStaff
               ? 'Ton **administrateur Discord délégué** : je pilote ton serveur de A à Z, sous tes ordres.'
-              : "L'**assistant IA du serveur** : pose-moi des questions, demande ton rang, regarde les tags — et je note ce que tu aimes pour mieux te répondre.",
+              : "L'**assistant IA du serveur** : pose-moi des questions, demande ton rang, regarde les tags, et je note ce que tu aimes pour mieux te répondre.",
             "Je vérifie toujours tes permissions avant d'agir, et je demande confirmation avant tout acte destructeur.",
           ].join('\n')
         : [
@@ -61,7 +61,7 @@ export function buildIntroPanel(locale: string, displayName: string, isStaff: bo
         : [
             '### 🛠️ Exemples',
             '`mon rang` · `le classement` · `montre-moi le tag règles`',
-            'Pose tes questions sur le serveur — et partage tes préférences : je m\u2019en souviens.',
+            'Pose tes questions sur le serveur, et partage tes préférences : je m\u2019en souviens.',
             '`/setup` reste réservé au staff · `/help` pour tout',
           ].join('\n'),
     ),

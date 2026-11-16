@@ -431,15 +431,47 @@ async function main() {
     },
   );
 
-  // Le ban est destructive : le tool crée un PLAN (confirmation humaine), il
-  // ne doit PAS appliquer le ban. L'unban est testé à part : le rig pose le
-  // ban via REST, l'agent doit le retirer avec unbanMember.
+  // Le ban est destructive : il doit finir en PLAN (proposePlan ou banMember),
+  // jamais appliqué directement. Le panneau avec boutons est posté par le tool.
   await runScenario(
     'banMember (plan confirmatoire)',
     `Bannis l'utilisateur ${DUMMY_USER_ID} pour raison « test e2e ».`,
-    ['banMember'],
+    [],
     async ({ entries }) => {
-      const call = entries.find((e) => e.action === 'assistant.tool.banMember');
+      const planned = entries.find(
+        (e) => e.action === 'assistant.tool.banMember' || e.action === 'assistant.tool.proposePlan',
+      );
+      let ok = '?';
+      if (planned) {
+        try {
+          ok = JSON.parse(planned.metadata).ok;
+        } catch {}
+      }
+      const bans = await api.bans();
+      const applied = bans.some((b) => b.user.id === DUMMY_USER_ID);
+      return {
+        pass: planned !== undefined && ok === true && !applied,
+        note: `via ${planned ? planned.action.replace('assistant.tool.', '') : 'aucun tool'} ok=${ok} ; ${applied ? 'BAN APPLIQUÉ (inattendu !)' : 'aucun ban appliqué avant confirmation'}`,
+      };
+    },
+  );
+
+  // Suppression groupée : UN plan multi-ops plutôt que N plans séparés.
+  for (const name of ['e2e-guardian', 'e2e-guardian-2']) {
+    const ch = await findChannel(name);
+    if (!ch) {
+      await rest(`/guilds/${guildId}/channels`, {
+        method: 'POST',
+        body: JSON.stringify({ name, type: 0 }),
+      }).catch(() => {});
+    }
+  }
+  await runScenario(
+    'proposePlan (suppression groupée)',
+    'Supprime les salons e2e-guardian et e2e-guardian-2 en un seul plan groupé.',
+    ['proposePlan'],
+    async ({ entries }) => {
+      const call = entries.find((e) => e.action === 'assistant.tool.proposePlan');
       let ok = '?';
       let summary = '';
       if (call) {
@@ -449,11 +481,18 @@ async function main() {
           summary = meta.summary ?? '';
         } catch {}
       }
-      const bans = await api.bans();
-      const applied = bans.some((b) => b.user.id === DUMMY_USER_ID);
+      const { PrismaClient } = await import('@prisma/client');
+      const prisma = new PrismaClient();
+      let opsCount = -1;
+      try {
+        const plan = await prisma.agentPlan.findFirst({ orderBy: { createdAt: 'desc' }, select: { ops: true } });
+        opsCount = plan ? (JSON.parse(plan.ops) ?? []).length : -1;
+      } finally {
+        await prisma.$disconnect();
+      }
       return {
-        pass: call !== undefined && ok === true && !applied,
-        note: `ok=${ok} ; ${applied ? 'BAN APPLIQUÉ (inattendu !)' : 'plan proposé, aucun ban appliqué avant confirmation'}`,
+        pass: call !== undefined && ok === true && opsCount >= 2,
+        note: `ok=${ok} ; ${opsCount} op(s) dans le dernier plan ; ${summary.includes('Panneau') ? 'panneau posté' : summary.slice(0, 80)}`,
       };
     },
   );
