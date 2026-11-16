@@ -125,6 +125,10 @@ async function main() {
   const startedAt = new Date();
   say('CHECK', `guardian démarré à ${startedAt.toISOString()}`);
 
+  // Prisma (audit + sonde) lit process.env : depuis .env ou la valeur par défaut du framework.
+  const env = loadEnv();
+  process.env.DATABASE_URL ??= env.DATABASE_URL ?? 'file:../data/bot.db';
+
   // 1-2. Process bot : vivant sinon relance.
   let alive = await botAlive();
   if (!alive) {
@@ -177,7 +181,6 @@ async function main() {
   }
 
   // 5. Sonde E2E : webhook -> salon dédié -> nouvelle réponse audité sous 120s.
-  const env = loadEnv();
   const token = env.DISCORD_TOKEN;
   if (!token) {
     say('PROBE', 'DISCORD_TOKEN introuvable dans .env : sonde sautée.');
