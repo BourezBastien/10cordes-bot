@@ -19,6 +19,7 @@ import { IntroContainer, type IntroData, ToolsListContainer, type ToolsData, TOO
 import { storeToolsPanel } from './tools.panel';
 import { type AgentRequest, type AgentJobData } from './queue/types';
 import { AppEnv } from '../../app.env';
+import { PrismaService } from '../database/prisma.service';
 
 const log = new Logger('Assistant');
 
@@ -53,6 +54,7 @@ export function buildSystemPrompt(
   toolNames: string[],
   permissions: string[],
   memories: { guildMemories: string[]; memberMemories: string[] },
+  recentActions: string[],
 ): string {
   const isAdministrator = permissions.includes('Administrator');
   const permissionLine = isAdministrator
@@ -101,6 +103,7 @@ export function buildSystemPrompt(
     'Read-before-write : toujours lire l\u0027état actuel avant de modifier.',
     'Ne devine jamais un ID : résous les noms via les tools de liste.',
     'Chaîne tes appels : tu peux enchaîner plusieurs tools avant de répondre (jusqu\u0027à 8 étapes).',
+    'DEMANDE EXPLICITE = EXÉCUTION IMMÉDIATE : quand l\u0027utilisateur nomme l\u0027action et la cible (ex: « renomme X en Y », « mets un slowmode de 5s »), appelle le tool tout de suite, sans question préalable, sans proposer d\u0027alternative, sans demander confirmation. Ne pose une question QUE si un paramètre essentiel manque réellement (aucun nom donné, cible inexistante).',
     'APRÈS les tools : réponds TOUJOURS par une ou plusieurs phrases claires et complètes qui répondent directement à la demande, avec le résultat concret (état, chiffres, noms). Ne compte jamais sur l\u0027utilisateur pour lire les données brutes des tools.',
     '</TOOL_USE_GUIDANCE>',
     '<CONFIRMATION_PROTOCOL>',
@@ -124,6 +127,12 @@ export function buildSystemPrompt(
     'Append-only : une correction = un NOUVEL ajout, jamais une suppression.',
     "Notion tags : un tag est un mémo nommé (nom + contenu) stocké sur le serveur, consultable par tous via getTag. Si la notion surprend, explique-le simplement (FAQ, règles, liens réutilisables), ne présume pas que l'utilisateur connaît.",
     '</MEMORY>',
+    '<RECENT_ACTIONS>',
+    recentActions.length > 0
+      ? `Dernières actions que tu as exécutées (horodatées, du plus récent) : ${recentActions.join(' | ')}`
+      : 'Dernières actions : aucune enregistrée.',
+    "Cet historique FAIT FOI : si un salon, rôle ou objet a été créé, renommé ou supprimé par toi récemment, ne dis jamais qu'il « n'a jamais existé ». Les scripts et tests peuvent aussi créer/supprimer des éléments : le serveur change sous tes yeux, re-lis l'état actuel.",
+    '</RECENT_ACTIONS>',
     '<AUDIT_AND_REPORTING>',
     'Après exécution, rapporte ce qui a changé avec noms et IDs.',
     '</AUDIT_AND_REPORTING>',
@@ -142,6 +151,38 @@ export function toolToOpenAiTool(tool: BotTool): OpenAiTool {
     type: 'function',
     function: { name: tool.name, description: tool.description, parameters },
   };
+}
+
+/** Historique horodaté des dernières actions de l'agent sur ce serveur (audit). */
+export async function fetchRecentActions(prisma: PrismaService, guildId: string, take = 12): Promise<string[]> {
+  const rows = await prisma.auditLog
+    .findMany({
+      where: {
+        guildId,
+        OR: [
+          { action: { startsWith: 'assistant.tool.' } },
+          { action: { startsWith: 'agent.op.' } },
+          { action: { startsWith: 'agent.plan.' } },
+          { action: 'config.patch' },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      take,
+      select: { action: true, metadata: true, createdAt: true },
+    })
+    .catch(() => []);
+  return rows.map((row) => {
+    let summary = '';
+    try {
+      const meta = JSON.parse(row.metadata ?? '{}');
+      summary = meta.summary ?? meta.detail ?? (meta.title ? `« ${meta.title} »` : '');
+    } catch {
+      /* metadata vide */
+    }
+    const time = row.createdAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    const short = row.action.replace('assistant.tool.', '').replace('agent.op.', 'op ');
+    return `${time} : ${short}${summary ? ` → ${summary.slice(0, 90)}` : ''}`;
+  });
 }
 
 /**
@@ -164,6 +205,7 @@ export class AssistantService {
     private readonly v2: V2Service,
     private readonly client: Client,
     private readonly env: AppEnv,
+    private readonly prisma: PrismaService,
   ) {
     queue.setProcessor((request) => this.processAgentRequest(request));
   }
@@ -380,6 +422,7 @@ export class AssistantService {
 
     const guildMemories = await this.memory.listGuild(guild.id, 20).catch(() => [] as string[]);
     const memberMemories = await this.memory.listMember(guild.id, request.userId, 10).catch(() => [] as string[]);
+    const recentActions = await fetchRecentActions(this.prisma, guild.id, 12).catch(() => [] as string[]);
 
     const ctx: ToolRunContext = {
       guildId: guild.id,
@@ -398,7 +441,7 @@ export class AssistantService {
         content: buildSystemPrompt(locale, guild.name, channel.name, tools.map((tool) => tool.name), permissions, {
           guildMemories,
           memberMemories,
-        }),
+        }, recentActions),
       },
       {
         role: 'user',

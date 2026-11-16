@@ -185,17 +185,18 @@ model AdminWhitelist {
 }
 
 model AgentPlan {
-  id          String   @id @default(cuid())
-  guildId     String
-  channelId   String
-  requesterId String
-  title       String
-  ops         String
-  status      String   @default("pending")
-  results     String?
-  approvedBy  String?
-  createdAt   DateTime @default(now())
-  expiresAt   DateTime
+  id             String   @id @default(cuid())
+  guildId        String
+  channelId      String
+  requesterId    String
+  title          String
+  ops            String
+  status         String   @default("pending")
+  results        String?
+  approvedBy     String?
+  panelMessageId String?
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime
 
   @@index([guildId, status])
   @@map("agent_plans")

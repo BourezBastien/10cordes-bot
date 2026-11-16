@@ -12,6 +12,8 @@ export interface StoredAnswer {
     page: number;
     intro: string;
   };
+  /** Si défini : seule cette personne peut ouvrir le panneau (plans de l'agent). */
+  ownerId?: string;
 }
 
 interface StoredEntry extends StoredAnswer {
@@ -58,6 +60,15 @@ export class AnswerViewHandler {
     if (!answer) {
       void interaction
         .reply({ content: 'Panneau expiré : mentionne-moi à nouveau.', flags: MessageFlags.Ephemeral })
+        .catch(() => {});
+      return;
+    }
+    if (answer.ownerId && interaction.user.id !== answer.ownerId) {
+      void interaction
+        .reply({
+          content: 'Ce panneau est réservé à la personne qui a fait la demande.',
+          flags: MessageFlags.Ephemeral,
+        })
         .catch(() => {});
       return;
     }

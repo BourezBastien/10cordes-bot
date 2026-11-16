@@ -13,17 +13,40 @@
  * La phase CLEANUP remet la guild au propre (salons/rôles de test supprimés,
  * ban retiré, nick du bot réinitialisé).
  */
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, unlinkSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const BOT_DIR = resolve(SCRIPT_DIR, '..');
 const ENV_FILE = resolve(BOT_DIR, '.env');
+const LOCK_FILE = resolve(BOT_DIR, 'e2e.lock');
 const API = 'https://discord.com/api/v10';
 const WEBHOOK_NAME = 'agent-e2e-guardian';
 const COOLDOWN_MS = 5_000;
 const DUMMY_USER_ID = '123456789012345678';
+
+/** Verrou anti-collision : deux batteries ne doivent jamais tourner en parallèle
+ * (deux passages d'automatisation dans la même fenêtre 3 h). Verrou périmé > 30
+ * min = ignoré (crash précédent sans cleanup). */
+function acquireLock() {
+  if (existsSync(LOCK_FILE)) {
+    const age = Date.now() - statSync(LOCK_FILE).mtimeMs;
+    if (age < 30 * 60 * 1000) {
+      console.error('[FAIL] une batterie est déjà en cours (e2e.lock récent).');
+      process.exit(1);
+    }
+  }
+  writeFileSync(LOCK_FILE, String(Date.now()));
+}
+
+function releaseLock() {
+  try {
+    unlinkSync(LOCK_FILE);
+  } catch {
+    /* rien à nettoyer */
+  }
+}
 
 function loadEnv() {
   const env = {};
@@ -110,6 +133,7 @@ function ensureWhitelist(id) {
 }
 
 async function main() {
+  acquireLock();
   const startedAt = new Date();
   console.log(`[E2E] démarrage ${startedAt.toISOString()}`);
 
@@ -142,6 +166,7 @@ async function main() {
   }
 
   if (ensureWhitelist(hook.id)) {
+    releaseLock();
     console.log(`[SETUP] E2E_STAFF_WEBHOOK_IDS=${hook.id} ajouté à .env`);
     console.log('[SETUP] redémarre le bot puis relance ce script.');
     process.exit(2);
@@ -228,6 +253,18 @@ async function main() {
       return { pass: ok, note: ch ? (ok ? 'dans la catégorie' : 'hors catégorie') : 'salon absent' };
     },
   );
+
+  // Autosuffisance en mode E2E_ONLY : le salon de base est créé via REST
+  // quand les scénarios de création n'ont pas tourné.
+  {
+    const ch = await findChannel('e2e-guardian');
+    if (!ch) {
+      await rest(`/guilds/${guildId}/channels`, {
+        method: 'POST',
+        body: JSON.stringify({ name: 'e2e-guardian', type: 0 }),
+      }).catch(() => {});
+    }
+  }
 
   await runScenario(
     'setChannelTopic',
@@ -571,11 +608,15 @@ async function main() {
   console.log(`[SUMMARY] ${results.length - failed.length}/${results.length} scénarios PASS`);
   if (failed.length > 0) {
     console.log(`[SUMMARY] échecs: ${failed.map((f) => f.name).join(', ')}`);
+    releaseLock();
     process.exitCode = 1;
+    return;
   }
+  releaseLock();
 }
 
 main().catch((error) => {
+  releaseLock();
   console.error(`[FAIL] e2e crash: ${error?.stack ?? error}`);
   process.exit(1);
 });

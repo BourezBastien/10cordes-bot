@@ -237,6 +237,7 @@ export class AgentService implements SpraxiumOnBoot {
     channelId: string,
     requesterId: string,
     input: AgentPlanInput,
+    panelMessageId?: string,
   ): Promise<{ planId: string; expiresAt: Date; destructiveOps: AdminOp[] }> {
     const expiresAt = new Date(Date.now() + PLAN_TTL_MS);
     const plan = await this.prisma.agentPlan.create({
@@ -247,6 +248,7 @@ export class AgentService implements SpraxiumOnBoot {
         title: input.title,
         ops: JSON.stringify(input.ops),
         expiresAt,
+        panelMessageId: panelMessageId ?? null,
       },
     });
     this.audit.record({
@@ -291,16 +293,17 @@ export class AgentService implements SpraxiumOnBoot {
     results?: PlanOpResult[];
     denialReason?: string;
     planTitle?: string;
+    panelMessageId?: string;
   }> {
     const plan = await this.prisma.agentPlan.findUnique({ where: { id: planId } });
     if (!plan || plan.status !== 'pending') return { status: 'notfound', planTitle: plan?.title };
     if (plan.expiresAt.getTime() < Date.now()) {
       await this.prisma.agentPlan.update({ where: { id: planId }, data: { status: 'expired' } });
-      return { status: 'expired', planTitle: plan.title };
+      return { status: 'expired', planTitle: plan.title, panelMessageId: plan.panelMessageId ?? undefined };
     }
 
     const guild = this.client.guilds.cache.get(plan.guildId);
-    if (!guild) return { status: 'notfound', planTitle: plan.title };
+    if (!guild) return { status: 'notfound', planTitle: plan.title, panelMessageId: plan.panelMessageId ?? undefined };
 
     if (action === 'cancel') {
       await this.prisma.agentPlan.update({
@@ -314,7 +317,7 @@ export class AgentService implements SpraxiumOnBoot {
         actorId: approverId,
         metadata: { planId, title: plan.title },
       });
-      return { status: 'cancelled', planTitle: plan.title };
+      return { status: 'cancelled', planTitle: plan.title, panelMessageId: plan.panelMessageId ?? undefined };
     }
 
     const ops = (JSON.parse(plan.ops) as AdminOp[]).map((op) => AdminOpSchema.parse(op));
@@ -335,11 +338,17 @@ export class AgentService implements SpraxiumOnBoot {
         status: 'denied',
         denialReason: 'Ce plan contient des ops destructives : réservées au owner et à la whitelist.',
         planTitle: plan.title,
+        panelMessageId: plan.panelMessageId ?? undefined,
       };
     }
     const approverMember = await guild.members.fetch(approverId).catch(() => null);
     if (!hasDestructive && approverMember && !approverMember.permissions.has(PermissionFlagsBits.ManageGuild)) {
-      return { status: 'denied', denialReason: 'Permission ManageGuild requise pour approuver ce plan.', planTitle: plan.title };
+      return {
+        status: 'denied',
+        denialReason: 'Permission ManageGuild requise pour approuver ce plan.',
+        planTitle: plan.title,
+        panelMessageId: plan.panelMessageId ?? undefined,
+      };
     }
 
     const requesterMember = await guild.members.fetch(plan.requesterId).catch(() => null);
@@ -360,7 +369,7 @@ export class AgentService implements SpraxiumOnBoot {
       where: { id: planId },
       data: { status: 'executed', approvedBy: approverId, results: JSON.stringify(results) },
     });
-    return { status: 'executed', results, planTitle: plan.title };
+    return { status: 'executed', results, planTitle: plan.title, panelMessageId: plan.panelMessageId ?? undefined };
   }
 
   /** Exécution d'une op — chaque op re-vérifie les permissions du bot en code. */

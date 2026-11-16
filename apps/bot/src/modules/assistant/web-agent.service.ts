@@ -6,8 +6,9 @@ import { MemoryService } from '../memory/memory.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import { LlmService, type ChatMessage, type OpenAiTool } from './llm.service';
-import { buildSystemPrompt, toolToOpenAiTool } from './assistant.service';
+import { buildSystemPrompt, fetchRecentActions, toolToOpenAiTool } from './assistant.service';
 import { type ToolRunContext } from '@10cordes/shared';
+import { PrismaService } from '../database/prisma.service';
 
 const MAX_ITERATIONS = 8;
 const RATE_LIMIT_MS = 4_000;
@@ -37,6 +38,7 @@ export class WebAgentService {
     private readonly memory: MemoryService,
     private readonly config: GuildConfigService,
     private readonly audit: AuditService,
+    private readonly prisma: PrismaService,
     private readonly client: Client,
   ) {}
 
@@ -69,9 +71,10 @@ export class WebAgentService {
     const tools = await this.registry.listForGuild(guildId);
     const openAiTools: OpenAiTool[] = tools.map(toolToOpenAiTool);
 
-    const [guildMemories, memberMemories] = await Promise.all([
+    const [guildMemories, memberMemories, recentActions] = await Promise.all([
       this.memory.listGuild(guildId, 20).catch(() => [] as string[]),
       this.memory.listMember(guildId, discordUserId, 10).catch(() => [] as string[]),
+      fetchRecentActions(this.prisma, guildId, 12).catch(() => [] as string[]),
     ]);
 
     const transcript = channel
@@ -102,7 +105,7 @@ export class WebAgentService {
         content: buildSystemPrompt(locale, guild.name, channel?.name ?? 'web', tools.map((tool) => tool.name), permissions, {
           guildMemories,
           memberMemories,
-        }),
+        }, recentActions),
       },
       {
         role: 'user',

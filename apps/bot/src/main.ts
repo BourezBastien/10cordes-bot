@@ -25,8 +25,28 @@ async function main(): Promise<void> {
 
   // Promesses rejetées sans catch (ex: écritures audit void) : visibles en console.
   process.on('unhandledRejection', (reason) => {
-    logger.error(`Unhandled rejection: ${reason instanceof Error ? reason.message : String(reason)}`);
+    logger.error(`Unhandled rejection: ${reason instanceof Error ? `${reason.message}\n${reason.stack}` : String(reason)}`);
   });
+
+  // Exceptions synchrones non capturées : sans ce handler, Node tue le process
+  // sans trace utile dans le log (mort silencieuse observée le 16/11/2026).
+  process.on('uncaughtException', (error) => {
+    logger.error(`Uncaught exception: ${error?.stack ?? String(error)}`);
+  });
+
+  // Qui appelle process.exit ? Les morts silencieuses (exit 1 sans trace) de
+  // 2026-11-16 demandent l'appelant exact.
+  const originalExit = process.exit.bind(process);
+  process.exit = ((code?: number) => {
+    logger.error(`process.exit(${code ?? 0}) appelé\n${new Error('exit caller').stack}`);
+    return originalExit(code);
+  }) as typeof process.exit;
+
+  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGBREAK'] as const) {
+    process.on(signal, () => {
+      logger.error(`Signal ${signal} reçu\n${new Error('signal caller').stack}`);
+    });
+  }
 
   logger.info('Starting application...');
   await app.listen();

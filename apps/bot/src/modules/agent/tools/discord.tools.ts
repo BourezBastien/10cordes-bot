@@ -1,14 +1,17 @@
-import { PermissionFlagsBits, type Client, type Guild } from 'discord.js';
+import { PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, MessageFlags, type Client, type Guild } from 'discord.js';
 import { z } from 'zod';
 import {
   AdminOpSchema,
   AgentPlanSchema,
+  DESTRUCTIVE_OP_TYPES,
   type BotTool,
   type ToolResult,
   type ToolRunContext,
 } from '@10cordes/shared';
 import { AgentService } from '../agent.service';
 import { buildPlanReply } from '../agent.panel';
+import { ANSWER_VIEW_ID, storeAnswer } from '../../assistant/handlers/answer-view.handler';
+import { text } from '../../../shared/ui';
 import { discordExtraTools } from './discord.tools.extra';
 
 /**
@@ -43,23 +46,46 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       };
     }
     if (!ctx.guildId || !ctx.channelId) return { ok: false, summary: 'Contexte de serveur et de canal requis.' };
-    const plan = await agent.createPlan(ctx.guildId, ctx.channelId, ctx.userId, parsed.data);
-    // Le panneau (liste des ops + boutons Approuver/Annuler) DOIT partir dans
-    // le salon : sans lui, la confirmation humaine n'existe nulle part.
+
+    // Portail minuscule (public) : le PANNEAU complet (ops + boutons) part en
+    // ÉPHÉMÈRE, visible uniquement par la personne qui a fait la demande.
     const channel = await client.channels.fetch(ctx.channelId).catch(() => null);
-    if (channel?.isTextBased() && 'send' in channel) {
-      const reply = buildPlanReply({
-        title: parsed.data.title,
-        ops: parsed.data.ops,
-        requesterId: ctx.userId,
-        expiresAt: plan.expiresAt,
-        destructive: plan.destructiveOps.length > 0,
-      });
-      await channel.send({ flags: reply.flags, components: reply.components }).catch(() => {});
+    if (!channel?.isTextBased() || !('send' in channel)) {
+      return { ok: false, summary: 'Salon introuvable pour poster le portail de confirmation.' };
     }
+
+    const destructive = parsed.data.ops.some((op) => DESTRUCTIVE_OP_TYPES.has(op.type));
+    const planReply = buildPlanReply({
+      title: parsed.data.title,
+      ops: parsed.data.ops,
+      requesterId: ctx.userId,
+      expiresAt: new Date(Date.now() + 5 * 60 * 1_000),
+      destructive,
+    });
+    const portalContainer = new ContainerBuilder()
+      .setAccentColor(destructive ? 0xe8_8b_94 : 0x57_f2_87)
+      .addTextDisplayComponents(
+        text(
+          `**Plan « ${parsed.data.title} »** : ${parsed.data.ops.length} op(s) en attente de confirmation (5 min). Clique pour consulter et valider.`,
+        ),
+      )
+      .addActionRowComponents(
+        new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder().setCustomId(ANSWER_VIEW_ID).setLabel('Consulter le plan').setStyle(ButtonStyle.Primary),
+        ),
+      );
+    const portal = await channel
+      .send({ components: [portalContainer], flags: MessageFlags.IsComponentsV2 })
+      .catch(() => null);
+    if (!portal) return { ok: false, summary: 'Impossible de poster le portail de confirmation.' };
+
+    // Réservé au demandeur : le clic d'un autre membre est refusé par le handler.
+    storeAnswer(portal.id, { components: planReply.components, ownerId: ctx.userId });
+
+    const plan = await agent.createPlan(ctx.guildId, ctx.channelId, ctx.userId, parsed.data, portal.id);
     return {
       ok: true,
-      summary: `Plan #${plan.planId} proposé : ${plan.destructiveOps.length} op(s) destructive(s). Panneau de confirmation posté dans le salon (5 min).`,
+      summary: `Plan #${plan.planId} proposé : ${plan.destructiveOps.length} op(s) destructive(s). Panneau de confirmation éphémère envoyé au demandeur (5 min).`,
       data: { planId: plan.planId },
     };
   };
