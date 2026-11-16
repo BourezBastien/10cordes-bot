@@ -261,6 +261,40 @@ async function main() {
     },
   );
 
+  // Restreindre l'accès d'un salon à un rôle : overwrite @everyone deny
+  // ViewChannel + overwrite rôle allow ViewChannel. Autosuffisant en ONLY.
+  {
+    const ch = await findChannel('e2e-guardian-2');
+    if (!ch) {
+      await rest(`/guilds/${guildId}/channels`, {
+        method: 'POST',
+        body: JSON.stringify({ name: 'e2e-guardian-2', type: 0 }),
+      }).catch(() => {});
+    }
+  }
+  const restrictRole = (await api.roles()).find((r) => r.name !== '@everyone' && !r.managed);
+  await runScenario(
+    'setChannelOverwrite',
+    `Restreins le salon e2e-guardian-2 au rôle ${restrictRole ? `${restrictRole.name} (id ${restrictRole.id})` : 'du staff'} : refuse ViewChannel à @everyone puis autorise-le à ce rôle.`,
+    ['setChannelOverwrite'],
+    async () => {
+      const ch = await findChannel('e2e-guardian-2');
+      if (!ch) return { pass: false, note: 'salon absent' };
+      const overwrites = await rest(`/channels/${ch.id}`).then((c) => c.permission_overwrites ?? []);
+      const viewBit = 1024; // ViewChannel = 1 << 10
+      const everyoneDenied = overwrites.some(
+        (o) => o.id === guildId && (BigInt(o.deny) & BigInt(viewBit)) !== 0n,
+      );
+      const roleAllowed = restrictRole
+        ? overwrites.some((o) => o.id === restrictRole.id && (BigInt(o.allow) & BigInt(viewBit)) !== 0n)
+        : false;
+      return {
+        pass: everyoneDenied && roleAllowed,
+        note: `@everyone deny ViewChannel=${everyoneDenied} ; rôle allow ViewChannel=${roleAllowed}`,
+      };
+    },
+  );
+
   await runScenario(
     'moveChannel',
     'Déplace le salon e2e-guardian-2 à la racine du serveur (plus de catégorie parente).',

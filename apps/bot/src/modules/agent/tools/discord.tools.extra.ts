@@ -70,6 +70,61 @@ export function discordExtraTools(
       },
     },
     {
+      name: 'setChannelOverwrite',
+      description:
+        "Définit les permissions d'un rôle sur un salon ou une catégorie (listes allow/deny de flags Discord). roleId = id du serveur pour @everyone.",
+      category: 'agent',
+      paramsSchema: z.object({
+        channelId: z.string().min(1),
+        roleId: z.string().min(1),
+        allow: z.array(z.string()).max(30).default([]),
+        deny: z.array(z.string()).max(30).default([]),
+      }),
+      requiredModules: [],
+      permissions: ['ManageRoles'],
+      destructive: false,
+      systemPrompt:
+        "Tier 2 (reversible). Restricting access pattern: deny ['ViewChannel','Connect'] on @everyone (roleId = the GUILD id), then allow ['ViewChannel','Connect'] on each target role. Resolve role ids via getRoles. Only whitelist flags.",
+      handler: async (input, ctx) => {
+        const guild = guildOf(ctx);
+        if (!guild) return noGuild();
+        const { channelId, roleId, allow = [], deny = [] } = input as {
+          channelId: string;
+          roleId: string;
+          allow?: string[];
+          deny?: string[];
+        };
+        const channel = await guild.channels.fetch(channelId).catch(() => null);
+        if (!channel || !('permissionOverwrites' in channel)) {
+          return { ok: false, summary: 'Salon ou catégorie introuvable.' };
+        }
+        const me = guild.members.me;
+        if (!me?.permissions.has(PermissionFlagsBits.ManageRoles)) {
+          return { ok: false, summary: "Le bot n'a pas la permission ManageRoles." };
+        }
+        const valid = (flags: string[]) => flags.every((f) => f in PermissionFlagsBits && f !== 'Administrator');
+        if (!valid(allow) || !valid(deny)) {
+          return {
+            ok: false,
+            summary:
+              'Flag inconnu (ou Administrator interdit). Valides : ViewChannel, SendMessages, ReadMessageHistory, Connect, Speak, Stream, CreateInstantInvite, AddReactions, EmbedLinks, AttachFiles, MentionEveryone, ManageChannels, ManageMessages, ManageRoles, ManageWebhooks, PrioritySpeaker, MoveMembers, MuteMembers, DeafenMembers.',
+          };
+        }
+        const overwrite: Record<string, boolean> = {};
+        for (const flag of allow) overwrite[flag] = true;
+        for (const flag of deny) overwrite[flag] = false;
+        await (channel as import('discord.js').GuildChannel).permissionOverwrites.edit(roleId, overwrite, {
+          reason: `agent tool (by <@${ctx.userId}>)`,
+        });
+        const target = roleId === guild.id ? '@everyone' : `<@&${roleId}>`;
+        return {
+          ok: true,
+          summary: `Permissions de <#${channel.id}> pour ${target} : +[${allow.join(', ') || '∅'}] -[${deny.join(', ') || '∅'}].`,
+          data: { channelId: channel.id, roleId },
+        };
+      },
+    },
+    {
       name: 'createCategory',
       description: 'Crée une catégorie (conteneur de salons).',
       category: 'agent',
