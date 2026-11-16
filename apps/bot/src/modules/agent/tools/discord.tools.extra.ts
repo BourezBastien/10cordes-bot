@@ -91,20 +91,25 @@ export function discordExtraTools(
     },
     {
       name: 'moveChannel',
-      description: 'Déplace un salon dans une catégorie.',
+      description: "Déplace un salon dans une catégorie, ou à la racine du serveur si categoryId est omis.",
       category: 'agent',
-      paramsSchema: z.object({ channelId: z.string().min(1), categoryId: z.string().min(1) }),
+      paramsSchema: z.object({ channelId: z.string().min(1), categoryId: z.string().min(1).optional() }),
       requiredModules: [],
       permissions: ['ManageChannels'],
       destructive: false,
-      systemPrompt: 'Tier 2 (reversible). Resolve both via channel.list first.',
+      systemPrompt: 'Tier 2 (reversible). Resolve both via channel.list first. Omit categoryId to move the channel to the server root.',
       handler: async (input, ctx) => {
         const guild = guildOf(ctx);
         if (!guild) return noGuild();
-        const { channelId, categoryId } = input as { channelId: string; categoryId: string };
+        const { channelId, categoryId } = input as { channelId: string; categoryId?: string };
         const channel = await guild.channels.fetch(channelId).catch(() => null);
+        if (!channel) return { ok: false, summary: 'Salon introuvable.' };
+        if (categoryId === undefined || categoryId === null) {
+          await (channel as unknown as { setParent: (id: null, opts: object) => Promise<unknown> }).setParent(null, { lockPermissions: false, reason: `agent tool (by <@${ctx.userId}>)` });
+          return { ok: true, summary: `<#${channelId}> déplacé à la racine du serveur.` };
+        }
         const category = await guild.channels.fetch(categoryId).catch(() => null);
-        if (!channel || !category || category.type !== 4) return { ok: false, summary: 'Salon ou catégorie introuvable.' };
+        if (!category || category.type !== 4) return { ok: false, summary: 'Catégorie introuvable.' };
         await (channel as unknown as { setParent: (id: string, opts: object) => Promise<unknown> }).setParent(categoryId, { lockPermissions: false, reason: `agent tool (by <@${ctx.userId}>)` });
         return { ok: true, summary: `<#${channelId}> déplacé dans **${category.name}**.` };
       },

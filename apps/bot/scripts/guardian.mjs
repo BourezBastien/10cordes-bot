@@ -97,14 +97,18 @@ function relaunch() {
       return false;
     }
   }
+  // Démarrage officiel : `spraxium start` (le ConfigLoader lit
+  // .spraxium/dist/spraxium.config.js ; un node direct sur main.mjs casse
+  // la résolution du config TS).
   const fd = openSync(LOG_FILE, 'a');
-  const child = spawn(process.execPath, [DIST_ENTRY], {
+  const child = spawn('pnpm', ['start'], {
     cwd: BOT_DIR,
     detached: true,
     stdio: ['ignore', fd, fd],
+    shell: true,
   });
   child.unref();
-  say('REPAIR', `bot relancé (pid ${child.pid}), attente du login...`);
+  say('REPAIR', `bot relancé via pnpm start (pid ${child.pid}), attente du login...`);
   return true;
 }
 

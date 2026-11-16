@@ -242,7 +242,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       },
     },
     {
-      name: 'discord.message.purge',
+      name: 'purgeMessages',
       description:
         "Supprime en masse les messages récents d'un salon (par lots de 100, max 1000, uniquement les moins de 14 jours).",
       category: 'agent',
@@ -285,7 +285,10 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       destructive: true,
       systemPrompt:
         'Tier 3 / DESTRUCTIVE — never executes directly: it creates a PLAN requiring owner-or-whitelist approval within 5 minutes. The default alternative is archiveChannel — prefer it unless the user explicitly wants deletion.',
-      handler: async (input, ctx) => proposePlan(ctx, 'Suppression de salon', [input as Record<string, unknown>]),
+      handler: async (input, ctx) => {
+        const { channelId } = input as { channelId: string };
+        return proposePlan(ctx, 'Suppression de salon', [{ type: 'channel.delete', channelId }]);
+      },
     },
     {
       name: 'deleteRole',
@@ -296,7 +299,10 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       permissions: ['ManageRoles'],
       destructive: true,
       systemPrompt: 'Tier 3 / DESTRUCTIVE — creates a plan for human approval. Never guess the roleId: use role.list.',
-      handler: async (input, ctx) => proposePlan(ctx, 'Suppression de rôle', [input as Record<string, unknown>]),
+      handler: async (input, ctx) => {
+        const { roleId } = input as { roleId: string };
+        return proposePlan(ctx, 'Suppression de rôle', [{ type: 'role.delete', roleId }]);
+      },
     },
     {
       name: 'kickMember',
@@ -311,7 +317,10 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       destructive: true,
       systemPrompt:
         'Tier 3 / DESTRUCTIVE and WHITELIST-GATED (owner + whitelisted IDs only). Creates a plan for approval. Temporary alternative: muteMember.',
-      handler: async (input, ctx) => proposePlan(ctx, 'Expulsion de membre', [input as Record<string, unknown>]),
+      handler: async (input, ctx) => {
+        const { userId, reason } = input as { userId: string; reason?: string };
+        return proposePlan(ctx, 'Expulsion de membre', [{ type: 'member.kick', userId, reason }]);
+      },
     },
     {
       name: 'banMember',
@@ -326,7 +335,10 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       destructive: true,
       systemPrompt:
         'Tier 3 / DESTRUCTIVE and WHITELIST-GATED. Creates a plan; a moderation case is created at execution time.',
-      handler: async (input, ctx) => proposePlan(ctx, 'Bannissement', [input as Record<string, unknown>]),
+      handler: async (input, ctx) => {
+        const { userId, reason } = input as { userId: string; reason?: string };
+        return proposePlan(ctx, 'Bannissement', [{ type: 'member.ban', userId, reason }]);
+      },
     },
   ];
 

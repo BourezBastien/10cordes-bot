@@ -8,7 +8,7 @@ REST API and Discord OAuth (better-auth) for the future web dashboard.
 ```bash
 pnpm dev      # from the repo root: builds @10cordes/shared then starts spraxium dev
 pnpm build    # production bundle -> .spraxium/dist/src/main.mjs
-NODE_ENV=production node .spraxium/dist/src/main.mjs
+pnpm start    # production: `spraxium start` (the ConfigLoader reads .spraxium/dist/spraxium.config.js)
 ```
 
 Environment lives in `.env` (see `.env.example`). Required: `DISCORD_TOKEN`.
@@ -49,6 +49,31 @@ src/
 - Outside the dedicated channel, answers arrive through an ephemeral portal
   (button -> ephemeral V2 panel) so content never floods public channels.
 - Persistent memory (guild + member) injected into every exchange.
+
+## Reply policy
+
+The agent picks the delivery before sending:
+
+- **Plain text** by default (conversational answers, confirmations).
+- **V2 panel** only for structured data the model prefixes with `[PANEL]`
+  (leaderboard, long list, rank card).
+- **Action confirmations** auto-delete after 15s (Discord ephemeral only exists
+  for interactions, so this is the gateway-message equivalent).
+- **Silence on request**: "purge sans me répondre" triggers the `skipReply` tool
+  AND a deterministic regex on the request text; the action runs, no message is sent.
+- Personal info (scope `user` tools) still goes through the ephemeral portal.
+
+## E2E rig
+
+- `scripts/guardian.mjs` - health check + auto relaunch (`pnpm start`) + live probe
+  (webhook message in the AI channel, success when a fresh `assistant.reply`
+  lands in the audit table). Meant for the 30-minute automation.
+- `scripts/e2e-write.mjs` - full write-tool battery (channels, roles, role
+  assignment, ban/unban, nickname, silence...): sends webhook prompts, waits for
+  audit quiescence, verifies real Discord effects over REST, then cleans up.
+- Both scripts speak through the `agent-e2e-guardian` webhook; its ID is listed
+  in `E2E_STAFF_WEBHOOK_IDS` (see `.env.example`) so the request carries staff
+  permissions. The webhook token is the only entry key; empty env = rig disabled.
 
 ## Module contract
 

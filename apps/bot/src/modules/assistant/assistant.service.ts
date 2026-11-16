@@ -18,6 +18,7 @@ import { ANSWER_VIEW_ID, deleteAnswer, storeAnswer } from './handlers/answer-vie
 import { IntroContainer, type IntroData, ToolsListContainer, type ToolsData, TOOLS_PER_PAGE } from './v2.containers';
 import { storeToolsPanel } from './tools.panel';
 import { type AgentRequest, type AgentJobData } from './queue/types';
+import { AppEnv } from '../../app.env';
 
 const log = new Logger('Assistant');
 
@@ -25,6 +26,13 @@ const MAX_ITERATIONS = 8;
 const USER_COOLDOWN_MS = 4_000;
 const TRANSCRIPT_SIZE = 12;
 const TYPING_REFRESH_MS = 8_000;
+/** Confirmation d'action : s'efface d'elle-même (éphémère-like hors interaction). */
+const ACTION_CONFIRM_TTL_MS = 15_000;
+/**
+ * Silence demandé explicitement : filet déterministe en plus du tool skipReply
+ * (le modèle peut l'ignorer ; cette détection, jamais).
+ */
+const SILENCE_REQUEST_RE = /sans\s+(?:me\s+)?répondre|ne\s+me\s+réponds\s+pas|without\s+(?:any\s+)?repl(?:y|ies)/i;
 
 function sanitizeTranscriptLine(content: string): string {
   return content.replace(/\[/g, '［').replace(/\]/g, '］');
@@ -67,6 +75,12 @@ function buildSystemPrompt(
     'Format : Discord markdown léger. Concis par défaut (1 à 3 phrases), développe uniquement pour une vraie question technique ou une action complexe.',
     "Pas de tournures d'assistant générique : va droit au but. AUCUN emoji dans tes réponses.",
     '</TONE_AND_MESSAGING>',
+    '<FORMAT_AND_SILENCE>',
+    'Par défaut : réponds en TEXTE SIMPLE (phrases), sans panneau. Tes réponses partent telles quelles dans le salon.',
+    'Préfixe [PANEL] au tout début de ta réponse UNIQUEMENT pour présenter des données structurées demandées explicitement (classement, longue liste, comparatif, carte de rang) : le système le rendra en panneau visuel.',
+    "Confirmation d'action (salon créé, rôle attribué, message purgé...) : UNE phrase courte avec le résultat concret, jamais un pavé.",
+    "Silence demandé : si l'utilisateur demande d'agir SANS lui répondre (ex: « purge sans me répondre »), exécute puis appelle le tool skipReply et écris ensuite un texte final VIDE. Aucun message ne partira : c'est le comportement attendu, pas un échec.",
+    '</FORMAT_AND_SILENCE>',
     '<SCOPE_AND_PERMISSIONS>',
     permissionLine,
     'Adapte TA réponse au périmètre réel de l\u0027utilisateur : il obtient les informations et actions que ses permissions autorisent, rien de plus.',
@@ -102,6 +116,7 @@ function buildSystemPrompt(
     'Ta mémoire est ta force : respecte les règles mémorisées, reprends les habitudes, adapte ton ton aux membres via getMemberMemory (par ID).',
     "Enregistre spontanément via saveServerMemory / saveMemberMemory : infos structurantes d'abord (règles, hiérarchie, préférences), puis faits durables.",
     'Append-only : une correction = un NOUVEL ajout, jamais une suppression.',
+    "Notion tags : un tag est un mémo nommé (nom + contenu) stocké sur le serveur, consultable par tous via getTag. Si la notion surprend, explique-le simplement (FAQ, règles, liens réutilisables), ne présume pas que l'utilisateur connaît.",
     '</MEMORY>',
     '<AUDIT_AND_REPORTING>',
     'Après exécution, rapporte ce qui a changé avec noms et IDs.',
@@ -128,6 +143,7 @@ export class AssistantService {
     private readonly queue: AssistantQueue,
     private readonly v2: V2Service,
     private readonly client: Client,
+    private readonly env: AppEnv,
   ) {
     queue.setProcessor((request) => this.processAgentRequest(request));
   }
@@ -302,7 +318,13 @@ export class AssistantService {
   ): Promise<void> {
     const locale = await this.locales.resolve(request.userId, guildConfig.defaultLocale);
     const member = await guild.members.fetch(request.userId).catch(() => null);
-    const permissions: string[] = member ? (member.permissions.toArray() as string[]) : [];
+    let permissions: string[] = member ? (member.permissions.toArray() as string[]) : [];
+    // Rig E2E : un webhook listé dans E2E_STAFF_WEBHOOK_IDS parle avec les
+    // permissions staff (le token du webhook est la seule clé d'entrée).
+    const e2eWebhookIds = this.env.E2E_STAFF_WEBHOOK_IDS.split(',').map((id) => id.trim()).filter(Boolean);
+    if (!member && e2eWebhookIds.includes(request.userId)) {
+      permissions = ['Administrator'];
+    }
 
     const tools = await this.registry.listForGuild(guild.id);
     const openAiTools: OpenAiTool[] = tools.map((tool) => ({
@@ -313,6 +335,16 @@ export class AssistantService {
         parameters: this.schemaFor(tool),
       },
     }));
+    // Tool réservé au silence demandé — géré par la boucle, pas dans le registry.
+    openAiTools.push({
+      type: 'function',
+      function: {
+        name: 'skipReply',
+        description:
+          "Ne rien répondre du tout. À appeler quand l'utilisateur demande explicitement d'agir sans réponse (ex: « purge les messages sans me répondre »).",
+        parameters: { type: 'object', properties: {}, additionalProperties: false },
+      },
+    });
 
     const history = await channel.messages.fetch({ limit: TRANSCRIPT_SIZE, before: request.messageId });
     const transcript = [...history.values()]
@@ -363,6 +395,9 @@ export class AssistantService {
 
     let finalText: string | null = null;
     let userScoped = false;
+    // Filet déterministe : la demande textuelle qui exige le silence force le flag.
+    let silent = SILENCE_REQUEST_RE.test(request.content);
+    let actionRan = false;
     const executed: string[] = [];
     const loopState: { error: Error | null } = { error: null };
 
@@ -398,9 +433,20 @@ export class AssistantService {
           } catch {
             input = {};
           }
+          if (call.name === 'skipReply') {
+            silent = true;
+            messages.push({
+              role: 'tool',
+              tool_call_id: call.id,
+              content: JSON.stringify({ ok: true, summary: 'Compris : aucune réponse ne sera envoyée après les actions.' }),
+            });
+            continue;
+          }
+          const tool = this.registry.get(call.name);
           const result = await this.registry.run(call.name, input, ctx);
           executed.push(call.name);
-          if (result.ok && this.registry.get(call.name)?.scope === 'user') {
+          if (result.ok && (tool?.destructive || (tool?.permissions?.length ?? 0) > 0)) actionRan = true;
+          if (result.ok && tool?.scope === 'user') {
             userScoped = true;
           }
           messages.push({
@@ -433,6 +479,24 @@ export class AssistantService {
       finalText = "J'ai traité ta demande via les tools — vérifie les résultats ci-dessus.";
     }
 
+    // Présentation structurée demandée par le modèle ([PANEL]) → panneau V2.
+    const panelRequested = /^\[PANEL\]\s*/i.test(finalText);
+    if (panelRequested) {
+      finalText = finalText.replace(/^\[PANEL\]\s*/i, '').trim();
+    }
+
+    // Silence demandé : les actions sont exécutées, aucun message n'est envoyé.
+    if (silent) {
+      this.audit.record({
+        guildId: guild.id,
+        source: 'agent',
+        action: 'assistant.reply',
+        actorId: request.userId,
+        metadata: { locale, silent: true, tools: executed.join(',') },
+      });
+      return;
+    }
+
     // Info personnelle (scope user) → portail éphémère : clic -> panneau visible
     // uniquement par la personne (jamais de contenu sensible en salon).
     if (userScoped) {
@@ -454,21 +518,48 @@ export class AssistantService {
       return;
     }
 
-    // Réponse publique par chunks (V2).
-    for (const chunk of splitReplyChunks(finalText)) {
-      await channel
-        .send({
-          components: [panel({ title: '10cordes', lines: [chunk], accentColor: 0xd9_59_26 })],
-          flags: MessageFlags.IsComponentsV2,
-        })
-        .catch(() => {});
+    const chunks = splitReplyChunks(finalText);
+
+    // Panneau V2 : uniquement pour les données structurées demandées.
+    if (panelRequested) {
+      for (const chunk of chunks) {
+        await channel
+          .send({
+            components: [panel({ title: '10cordes', lines: [chunk], accentColor: 0xd9_59_26 })],
+            flags: MessageFlags.IsComponentsV2,
+          })
+          .catch(() => {});
+      }
+      this.audit.record({
+        guildId: guild.id,
+        source: 'agent',
+        action: 'assistant.reply',
+        actorId: request.userId,
+        metadata: { locale, permissions: permissions.length, tools: tools.length, panel: true },
+      });
+      return;
+    }
+
+    // Défaut : texte simple. Une confirmation d'action s'efface d'elle-même
+    // (Discord ne propose l'éphémère natif qu'aux interactions).
+    for (const chunk of chunks) {
+      const sent = await channel.send({ content: chunk }).catch(() => null);
+      if (sent && actionRan) {
+        setTimeout(() => void sent.delete().catch(() => {}), ACTION_CONFIRM_TTL_MS).unref?.();
+      }
     }
     this.audit.record({
       guildId: guild.id,
       source: 'agent',
       action: 'assistant.reply',
       actorId: request.userId,
-      metadata: { locale, permissions: permissions.length, tools: tools.length, userScoped, public: true },
+      metadata: {
+        locale,
+        permissions: permissions.length,
+        tools: tools.length,
+        public: true,
+        ephemeralLike: actionRan,
+      },
     });
   }
 

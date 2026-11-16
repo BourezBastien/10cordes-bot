@@ -60,4 +60,13 @@ export class AppEnv extends SpraxiumBaseEnv {
   /** Effort de raisonnement du modèle thinking : low = réponses rapides. */
   @Env('DEEPSEEK_EFFORT', { default: 'low', secret: false })
   DEEPSEEK_EFFORT!: string;
+
+  /**
+   * Rig de test E2E : IDs de webhooks (séparés par des virgules) dont les
+   * messages portent les permissions staff. La seule clé d'entrée est le
+   * token du webhook : vide par défaut = désactivé.
+   */
+  @Env('E2E_STAFF_WEBHOOK_IDS', { default: '', secret: false })
+  @IsString()
+  E2E_STAFF_WEBHOOK_IDS!: string;
 }
