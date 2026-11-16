@@ -1,8 +1,85 @@
-import { PermissionFlagsBits, type Client, type Guild } from 'discord.js';
+import { PermissionFlagsBits, ChannelType, type Client, type Guild } from 'discord.js';
 import { z } from 'zod';
 import type { BotTool, ToolResult, ToolRunContext } from '@10cordes/shared';
 import type { AgentService } from '../agent.service';
 import type { ToolHelpers } from './discord.tools';
+
+/**
+ * Analyse le style du serveur pour l'imitation : catégories avec salons
+ * enfants (noms, types, topics), permissions par salon, positions.
+ * L'agent l'appelle AVANT toute création pour reproduire les conventions.
+ */
+function buildStyleGuide(guild: Guild): ToolResult {
+  const channels = guild.channels.cache;
+  const roleName = (id: string): string => (id === guild.id ? 'everyone' : (guild.roles.cache.get(id)?.name ?? id));
+
+  const overwriteSummary = (channel: import('discord.js').NonThreadGuildBasedChannel): Array<Record<string, unknown>> =>
+    channel.permissionOverwrites.cache
+      .first(4)
+      ?.map((overwrite) => ({
+        role: roleName(overwrite.id),
+        allow: overwrite.allow.toArray().slice(0, 6),
+        deny: overwrite.deny.toArray().slice(0, 6),
+      })) ?? [];
+
+  const describeChannel = (channel: import('discord.js').NonThreadGuildBasedChannel): Record<string, unknown> => ({
+    name: channel.name,
+    type:
+      channel.type === ChannelType.GuildText
+        ? 'texte'
+        : channel.type === ChannelType.GuildVoice
+          ? 'vocal'
+          : channel.type === ChannelType.GuildAnnouncement
+            ? 'annonces'
+            : channel.type === ChannelType.GuildForum
+              ? 'forum'
+              : 'autre',
+    topic:
+      (channel.type === ChannelType.GuildText || channel.type === ChannelType.GuildAnnouncement) && channel.topic
+        ? channel.topic.slice(0, 100)
+        : undefined,
+    permissions: overwriteSummary(channel),
+  });
+
+  const categories = channels
+    .filter((channel): channel is import('discord.js').CategoryChannel => channel.type === ChannelType.GuildCategory)
+    .sort((a, b) => a.rawPosition - b.rawPosition)
+    .first(15)
+    .map((category) => ({
+      categorie: category.name,
+      position: category.rawPosition,
+      permissions: overwriteSummary(category),
+      salons: channels
+        .filter(
+          (channel): channel is import('discord.js').NonThreadGuildBasedChannel =>
+            channel.parentId === category.id && !channel.isThread(),
+        )
+        .sort((a, b) => a.rawPosition - b.rawPosition)
+        .first(25)
+        .map(describeChannel),
+    }));
+
+  const rootChannels = channels
+    .filter(
+      (channel): channel is import('discord.js').NonThreadGuildBasedChannel =>
+        channel.parentId === null && channel.type !== ChannelType.GuildCategory && !channel.isThread(),
+    )
+    .sort((a, b) => a.rawPosition - b.rawPosition)
+    .first(15)
+    .map(describeChannel);
+
+  const roles = guild.roles.cache
+    .filter((role) => !role.managed && role.id !== guild.id)
+    .sort((a, b) => b.position - a.position)
+    .first(20)
+    .map((role) => role.name);
+
+  return {
+    ok: true,
+    summary: `Style du serveur : ${categories.length} catégories, ${channels.size} salons, ${roles.length} rôles listés. Imite ces conventions.`,
+    data: { categories, sansCategorie: rootChannels, roles },
+  };
+}
 
 /**
  * Tools Discord additionnels — surface complète de gestion :
@@ -67,6 +144,22 @@ export function discordExtraTools(
           `agent tool (by <@${ctx.userId}>)`,
         );
         return { ok: true, summary: `Mode lent de <#${channel.id}> : ${seconds}s.` };
+      },
+    },
+    {
+      name: 'getServerStyle',
+      description:
+        "Analyse la structure et le style du serveur : catégories (noms, positions), salons enfants (types, topics), permissions par salon, rôles. À appeler AVANT toute création ou modification pour imiter les conventions existantes.",
+      category: 'agent',
+      paramsSchema: z.record(z.string(), z.unknown()),
+      requiredModules: [],
+      destructive: false,
+      systemPrompt:
+        'Read-only. THE tool before any creation or edit: reproduce the detected conventions exactly (emoji prefixes, special unicode casing, separators, naming style) and reuse the permission schema of similar categories via setChannelOverwrite. After building something styled, save a one-line style summary with saveServerMemory so you remember it.',
+      handler: async (_input, ctx) => {
+        const guild = guildOf(ctx);
+        if (!guild) return noGuild();
+        return buildStyleGuide(guild);
       },
     },
     {

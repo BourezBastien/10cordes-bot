@@ -147,22 +147,30 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
     },
     {
       name: 'createChannel',
-      description: 'Crée un salon texte, vocal ou une catégorie.',
+      description: 'Crée un salon texte, vocal ou une catégorie, avec placement optionnel (catégorie parente, position).',
       category: 'agent',
       paramsSchema: z.object({
         name: z.string().min(1).max(100),
         kind: z.enum(['text', 'voice', 'category']).default('text'),
         topic: z.string().max(1024).optional(),
+        categoryId: z.string().min(1).optional(),
+        position: z.number().int().min(1).max(100).optional(),
       }),
       requiredModules: [],
       permissions: ['ManageChannels'],
       destructive: false,
       systemPrompt:
-        'Tier 2 (reversible via rename/archive with confirmation). Requires bot ManageChannels. Use channel.list first to avoid duplicates.',
+        'Tier 2 (reversible). Call getServerStyle FIRST and imitate the detected conventions (emoji prefixes, special casing) before naming. Place with categoryId; position = slot in the list (1 = top).',
       handler: async (input, ctx) => {
         const guild = guildOf(ctx);
         if (!guild) return noGuild();
-        const { name, kind, topic } = input as { name: string; kind: 'text' | 'voice' | 'category'; topic?: string };
+        const { name, kind, topic, categoryId, position } = input as {
+          name: string;
+          kind: 'text' | 'voice' | 'category';
+          topic?: string;
+          categoryId?: string;
+          position?: number;
+        };
         if (!guild.members.me?.permissions.has(PermissionFlagsBits.ManageChannels)) {
           return { ok: false, summary: "Le bot n'a pas la permission ManageChannels." };
         }
@@ -170,9 +178,18 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
           name,
           type: kind === 'voice' ? 2 : kind === 'category' ? 4 : 0,
           topic,
+          parent: categoryId,
           reason: `agent tool (by <@${ctx.userId}>)`,
         });
-        return { ok: true, summary: `Salon **${name}** créé → <#${created.id}>`, data: { channelId: created.id } };
+        if (position !== undefined) {
+          await created.setPosition(position, { reason: `agent tool (by <@${ctx.userId}>)` }).catch(() => {});
+        }
+        const placed = categoryId ? ` dans <#${categoryId}>` : '';
+        return {
+          ok: true,
+          summary: `Salon **${name}** créé${placed} → <#${created.id}>`,
+          data: { channelId: created.id },
+        };
       },
     },
     {
