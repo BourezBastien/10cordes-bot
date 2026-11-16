@@ -5,8 +5,8 @@ import { AuditService } from '../audit/audit.service';
 import { MemoryService } from '../memory/memory.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
-import { LlmService, type ChatMessage, type OpenAiTool } from './llm.service';
-import { buildSystemPrompt, fetchRecentActions, toolToOpenAiTool } from './assistant.service';
+import { LlmService, QuotaExhaustedError, toApiToolName, type ChatMessage, type OpenAiTool } from './llm.service';
+import { buildSystemPrompt, fetchRecentActions, sanitizeTranscriptLine, toolToOpenAiTool } from './assistant.service';
 import { type ToolRunContext } from '@10cordes/shared';
 import { PrismaService } from '../database/prisma.service';
 
@@ -83,7 +83,7 @@ export class WebAgentService {
           .then((collection) =>
             [...collection.values()]
               .reverse()
-              .map((msg) => `[${msg.author.username} (${msg.author.id})] : ${(msg.content || '(sans texte)').slice(0, 200)}`)
+              .map((msg) => `[${sanitizeTranscriptLine(msg.author.username)} (${msg.author.id})] : ${sanitizeTranscriptLine((msg.content || '(sans texte)').slice(0, 200))}`)
               .join('\n'),
           )
           .catch(() => '')
@@ -128,7 +128,10 @@ export class WebAgentService {
     let silent = false;
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-      const completion = await this.llm.chat(messages, openAiTools, { userId: discordUserId, guildId }).catch((error: unknown) => {
+      const completion = await this.llm.chat(messages, openAiTools, { userId: discordUserId, guildId, cause: 'web' }).catch((error: unknown) => {
+        if (error instanceof QuotaExhaustedError) {
+          return { content: 'IA désactivée : crédits DeepSeek épuisés. Recharge le compte API.', toolCalls: [], reasoningContent: null, usage: undefined };
+        }
         this.log.warn(`chat web erreur : ${error instanceof Error ? error.message : String(error)}`);
         return null;
       });
@@ -142,7 +145,7 @@ export class WebAgentService {
           tool_calls: completion.toolCalls.map((call) => ({
             id: call.id,
             type: 'function' as const,
-            function: { name: call.name, arguments: call.arguments },
+            function: { name: toApiToolName(call.name), arguments: call.arguments },
           })),
         });
         for (const call of completion.toolCalls) {

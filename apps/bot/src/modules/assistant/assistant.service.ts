@@ -3,7 +3,7 @@ import { Logger } from '@spraxium/logger';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, ContainerBuilder, MessageFlags, PermissionFlagsBits, type Message } from 'discord.js';
 import { z } from 'zod';
 import type { BotTool, ToolRunContext } from '@10cordes/shared';
-import { LlmService, toApiToolName, type ChatMessage, type OpenAiTool } from './llm.service';
+import { LlmService, QuotaExhaustedError, toApiToolName, type ChatMessage, type OpenAiTool } from './llm.service';
 import { IA_CONFIG_BUTTON_ID } from './components/ia-config.components';
 import { notice, panel, text } from '../../shared/ui';
 import { LocaleService } from '../locale/locale.service';
@@ -33,7 +33,7 @@ const TYPING_REFRESH_MS = 8_000;
  */
 const SILENCE_REQUEST_RE = /sans\s+(?:me\s+)?répondre|ne\s+me\s+réponds\s+pas|without\s+(?:any\s+)?repl(?:y|ies)/i;
 
-function sanitizeTranscriptLine(content: string): string {
+export function sanitizeTranscriptLine(content: string): string {
   return content.replace(/\[/g, '［').replace(/\]/g, '］');
 }
 
@@ -408,7 +408,7 @@ export class AssistantService {
         const label = msg.author.bot
           ? `[${this.client.user?.username ?? 'bot'} (${msg.author.id})]`
           : `[${msg.member?.displayName ?? msg.author.globalName ?? msg.author.username} (${msg.author.id})]`;
-        return `${label} : ${sanitizeTranscriptLine(msg.content || '(sans texte)')}`;
+        return `${label} : ${sanitizeTranscriptLine(msg.content || '(sans texte)').slice(0, 200)}`;
       })
       .join('\n');
 
@@ -420,9 +420,15 @@ export class AssistantService {
       `Date : ${new Date().toLocaleString(locale === 'fr' ? 'fr-FR' : 'en-US')}.`,
     ].join('\n');
 
-    const guildMemories = await this.memory.listGuild(guild.id, 20).catch(() => [] as string[]);
-    const memberMemories = await this.memory.listMember(guild.id, request.userId, 10).catch(() => [] as string[]);
-    const recentActions = await fetchRecentActions(this.prisma, guild.id, 12).catch(() => [] as string[]);
+    const [guildProfile, memberProfile, recentActions] = await Promise.all([
+      this.memory.getGuildProfile(guild.id).catch(() => null),
+      this.memory.getMemberProfile(guild.id, request.userId).catch(() => null),
+      fetchRecentActions(this.prisma, guild.id, 12).catch(() => [] as string[]),
+    ]);
+    // Fiches consolidées (compactes) plutôt que les entrées brutes : le
+    // journal complet reste visible dans le dashboard et via get*Memory.
+    const guildMemories = guildProfile ? [`Fiche serveur consolidée : ${guildProfile}`] : [];
+    const memberMemories = memberProfile ? [`Fiche du membre (consolidée) : ${memberProfile}`] : [];
 
     const ctx: ToolRunContext = {
       guildId: guild.id,
@@ -455,6 +461,7 @@ export class AssistantService {
     let silent = SILENCE_REQUEST_RE.test(request.content);
     let actionRan = false;
     let planProposed = false;
+    const usage = { promptTokens: 0, completionTokens: 0 };
     const executed: string[] = [];
     const loopState: { error: Error | null } = { error: null };
 
@@ -464,6 +471,7 @@ export class AssistantService {
       const completion = await this.llm.chat(messages, openAiTools, {
         userId: request.userId,
         guildId: guild.id,
+        cause: 'reply',
       }).catch((error: unknown) => {
         log.info(`[FLOW] chat #${iteration + 1} ERREUR après ${Date.now() - chatStart}ms : ${error instanceof Error ? error.message : String(error)}`);
         loopState.error = error instanceof Error ? error : new Error(String(error));
@@ -471,6 +479,10 @@ export class AssistantService {
       });
       if (!completion) break;
       log.info(`[FLOW] chat #${iteration + 1} OK en ${Date.now() - chatStart}ms, toolCalls: ${completion.toolCalls.length}`);
+      if (completion.usage) {
+        usage.promptTokens += completion.usage.promptTokens;
+        usage.completionTokens += completion.usage.completionTokens;
+      }
 
       if (completion.toolCalls.length > 0) {
         messages.push({
@@ -531,10 +543,34 @@ export class AssistantService {
 
     if (finalText === null) {
       if (loopState.error) {
+        if (loopState.error instanceof QuotaExhaustedError) {
+          this.audit.record({
+            guildId: guild.id,
+            source: 'agent',
+            action: 'assistant.error',
+            actorId: request.userId,
+            metadata: { kind: 'quota' },
+          });
+          await channel
+            .send(notice('IA désactivée : crédits DeepSeek épuisés. Recharge le compte API, je reprends dès que c\u0027est réglé.', true))
+            .catch(() => {});
+          return;
+        }
         await channel.send(notice(`Erreur IA : ${loopState.error.message.slice(0, 180)}`, true)).catch(() => {});
         throw loopState.error;
       }
       finalText = "J'ai traité ta demande via les tools, vérifie les résultats ci-dessus.";
+    }
+
+    // Comptabilité IA : un enregistrement par demande (somme des itérations).
+    if (usage.promptTokens + usage.completionTokens > 0) {
+      this.audit.record({
+        guildId: guild.id,
+        source: 'agent',
+        action: 'llm.usage',
+        actorId: request.userId,
+        metadata: { cause: 'reply', promptTokens: usage.promptTokens, completionTokens: usage.completionTokens },
+      });
     }
 
     // Présentation structurée demandée par le modèle ([PANEL]) → panneau V2.

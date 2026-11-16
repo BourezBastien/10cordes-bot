@@ -3,20 +3,24 @@ import type { BotTool } from '@10cordes/shared';
 import { z } from 'zod';
 import { PrismaService } from '../database/prisma.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
+import { MemoryCuratorService, type ConsolidationResult } from './memory-curator.service';
 
 const MAX_ENTRIES = 200;
 
 /**
- * Mémoire persistante de l'agent (append-only) :
- * - par serveur : faits, règles, présentation, préférences ;
- * - par membre : préférences et notes individuelles.
- * Les corrections se font par un NOUVEL ajout, jamais par suppression.
+ * Mémoire persistante de l'agent :
+ * - JOURNAL brut append-only (GuildMemory / MemberMemory) : traçabilité
+ *   complète, visible dans le dashboard ;
+ * - FICHES consolidées (MemberMemoryProfile / GuildMemoryProfile) : fusion
+ *   LLM avec gardes budget/anti-wipe/attribution (MemoryCuratorService),
+ *   ce sont elles qui sont injectées dans le prompt de l'agent.
  */
 @Injectable()
 export class MemoryService implements SpraxiumOnBoot {
   constructor(
     private readonly prisma: PrismaService,
     private readonly registry: ToolRegistryService,
+    private readonly curator: MemoryCuratorService,
   ) {}
 
   async onBoot(): Promise<void> {
@@ -50,6 +54,16 @@ export class MemoryService implements SpraxiumOnBoot {
     }
   }
 
+  /** Fiche consolidée du serveur (injectée dans le prompt, compacte). */
+  async getGuildProfile(guildId: string): Promise<string | null> {
+    return this.curator.getGuildProfile(guildId);
+  }
+
+  /** Fiche consolidée d'un membre (injectée dans le prompt, compacte). */
+  async getMemberProfile(guildId: string, userId: string): Promise<string | null> {
+    return this.curator.getMemberProfile(guildId, userId);
+  }
+
   async listGuild(guildId: string, limit = 25): Promise<string[]> {
     const rows = await this.prisma.guildMemory.findMany({
       where: { guildId },
@@ -72,6 +86,17 @@ export class MemoryService implements SpraxiumOnBoot {
     const guildOnly = (ctx: { guildId: string | null }): ctx is { guildId: string } & typeof ctx =>
       ctx.guildId !== null;
 
+    const consolidationSummary = (result: ConsolidationResult): { ok: boolean; extra: string } => {
+      switch (result.status) {
+        case 'appended':
+          return { ok: true, extra: 'Fiche consolidée mise à jour.' };
+        case 'rejected':
+          return { ok: false, extra: `Refusé par le conservateur : ${result.reason ?? 'fait non retenu'}` };
+        default:
+          return { ok: true, extra: 'Conservé dans le journal (fusion différée).' };
+      }
+    };
+
     return [
       {
         name: 'saveServerMemory',
@@ -85,17 +110,22 @@ export class MemoryService implements SpraxiumOnBoot {
         permissions: ['ManageGuild'],
         destructive: false,
         systemPrompt:
-          'Sauvegarde spontanément les infos durables apprises sur le serveur (hiérarchie, règles, habitudes, projets). Une correction = un NOUVEL ajout, jamais une suppression.',
+          'Sauvegarde spontanément les infos durables apprises sur le serveur (hiérarchie, règles, habitudes, projets, style). Une correction = un NOUVEL ajout, jamais une suppression.',
         handler: async (input, ctx) => {
           if (!guildOnly(ctx)) return { ok: false, summary: 'Contexte de serveur requis.' };
           const { content, kind } = input as { content: string; kind?: string };
           await this.addGuild(ctx.guildId, content, kind ?? 'fact');
-          return { ok: true, summary: `Mémorisé (serveur, ${kind ?? 'fact'}) : ${content.slice(0, 120)}` };
+          const result = await this.curator.consolidateGuild(ctx.guildId, ctx.userId, content);
+          const { ok, extra } = consolidationSummary(result);
+          return {
+            ok,
+            summary: `Mémorisé (serveur, ${kind ?? 'fact'}) : ${content.slice(0, 120)}. ${extra}`,
+          };
         },
       },
       {
         name: 'getServerMemory',
-        description: 'Lit les derniers souvenirs du serveur (faits, règles, présentation).',
+        description: 'Lit la fiche mémoire consolidée du serveur puis les derniers faits bruts.',
         category: 'memory',
         paramsSchema: z.object({ limit: z.number().int().min(1).max(50).default(20) }),
         requiredModules: [],
@@ -106,11 +136,15 @@ export class MemoryService implements SpraxiumOnBoot {
         handler: async (input, ctx) => {
           if (!guildOnly(ctx)) return { ok: false, summary: 'Contexte de serveur requis.' };
           const { limit } = input as { limit?: number };
+          const profile = await this.getGuildProfile(ctx.guildId);
           const memories = await this.listGuild(ctx.guildId, limit ?? 20);
+          const parts: string[] = [];
+          if (profile) parts.push(`Fiche consolidée : ${profile}`);
+          parts.push(memories.length > 0 ? memories.join(' | ') : 'Aucun souvenir brut.');
           return {
             ok: true,
-            summary: memories.length > 0 ? memories.join(' | ') : 'Aucun souvenir serveur pour le moment.',
-            data: { memories },
+            summary: parts.join('\n'),
+            data: { profile, memories },
           };
         },
       },
@@ -132,12 +166,17 @@ export class MemoryService implements SpraxiumOnBoot {
           if (!guildOnly(ctx)) return { ok: false, summary: 'Contexte de serveur requis.' };
           const { userId, content, kind } = input as { userId: string; content: string; kind?: string };
           await this.addMember(ctx.guildId, userId, content, kind ?? 'fact');
-          return { ok: true, summary: `Mémorisé (<@${userId}>, ${kind ?? 'fact'}) : ${content.slice(0, 120)}` };
+          const result = await this.curator.consolidateMember(ctx.guildId, userId, ctx.userId, content);
+          const { ok, extra } = consolidationSummary(result);
+          return {
+            ok,
+            summary: `Mémorisé (<@${userId}>, ${kind ?? 'fact'}) : ${content.slice(0, 120)}. ${extra}`,
+          };
         },
       },
       {
         name: 'getMemberMemory',
-        description: 'Lit les derniers souvenirs d\'un membre précis (par ID).',
+        description: 'Lit la fiche consolidée d\'un membre précis (par ID) puis ses derniers faits bruts.',
         category: 'memory',
         paramsSchema: z.object({
           userId: z.string().min(1),
@@ -151,11 +190,15 @@ export class MemoryService implements SpraxiumOnBoot {
         handler: async (input, ctx) => {
           if (!guildOnly(ctx)) return { ok: false, summary: 'Contexte de serveur requis.' };
           const { userId, limit } = input as { userId: string; limit?: number };
+          const profile = await this.getMemberProfile(ctx.guildId, userId);
           const memories = await this.listMember(ctx.guildId, userId, limit ?? 10);
+          const parts: string[] = [`<@${userId}> :`];
+          if (profile) parts.push(`Fiche consolidée : ${profile}`);
+          parts.push(memories.length > 0 ? memories.join(' | ') : 'Aucun souvenir brut.');
           return {
             ok: true,
-            summary: memories.length > 0 ? `<@${userId}> : ${memories.join(' | ')}` : `Aucun souvenir sur <@${userId}>.`,
-            data: { memories },
+            summary: parts.join('\n'),
+            data: { profile, memories },
           };
         },
       },

@@ -7,6 +7,7 @@ import { PrismaService } from '../database/prisma.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { ImagelabService } from '../imagelab/imagelab.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
+import { setLlmAccessor } from './llm.accessor';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -33,15 +34,32 @@ export interface ToolCallRequest {
   arguments: string;
 }
 
+export interface ChatUsage {
+  promptTokens: number;
+  completionTokens: number;
+}
+
 export interface ChatCompletionResult {
   content: string | null;
   reasoningContent: string | null;
   toolCalls: ToolCallRequest[];
+  usage?: ChatUsage;
 }
+
+export type ChatCause = 'reply' | 'web' | 'consolidation';
 
 export interface ChatOptions {
   userId: string;
   guildId: string | null;
+  cause: ChatCause;
+}
+
+/** Crédits du fournisseur IA épuisés : l'appel est refusé côté API (402). */
+export class QuotaExhaustedError extends Error {
+  constructor() {
+    super('Crédits IA épuisés : le fournisseur a refusé l\u0027appel (402).');
+    this.name = 'QuotaExhaustedError';
+  }
 }
 
 /** Configuration runtime du LLM (modale owner) — prioritaire sur l'env. */
@@ -88,6 +106,7 @@ export class LlmService implements SpraxiumOnBoot {
   ) {}
 
   async onBoot(): Promise<void> {
+    setLlmAccessor(this);
     try {
       const row = await this.prisma.integrationConfig.findUnique({ where: { id: 'llm' } });
       if (row) {
@@ -260,10 +279,14 @@ export class LlmService implements SpraxiumOnBoot {
 
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
+      if (response.status === 402 || detail.includes('insufficient_balance')) {
+        throw new QuotaExhaustedError();
+      }
       throw new Error(`LLM ${response.status}: ${detail.slice(0, 200)}`);
     }
 
     const data = (await response.json()) as {
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
       choices?: Array<{
         message?: {
           content?: string | null;
@@ -281,6 +304,9 @@ export class LlmService implements SpraxiumOnBoot {
         name: fromApiToolName(call.function.name),
         arguments: call.function.arguments,
       })),
+      usage: data.usage
+        ? { promptTokens: data.usage.prompt_tokens ?? 0, completionTokens: data.usage.completion_tokens ?? 0 }
+        : undefined,
     };
   }
 }

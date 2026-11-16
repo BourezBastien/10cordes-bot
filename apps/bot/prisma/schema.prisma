@@ -277,3 +277,22 @@ model MemberMemory {
   @@index([guildId, userId])
   @@map("member_memories")
 }
+
+// ── Fiches mémoire consolidées (curator LLM, inspiration Discord-AI-Bot) ──
+
+model MemberMemoryProfile {
+  guildId   String
+  userId    String
+  text      String   @default("")
+  updatedAt DateTime @updatedAt
+
+  @@id([guildId, userId])
+  @@map("member_memory_profiles")
+}
+
+model GuildMemoryProfile {
+  guildId   String @id
+  text      String @default("")
+  updatedAt DateTime @updatedAt
+  @@map("guild_memory_profiles")
+}
