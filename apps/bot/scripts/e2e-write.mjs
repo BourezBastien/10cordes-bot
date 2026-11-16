@@ -162,6 +162,7 @@ async function main() {
     messages: (chId) => rest(`/channels/${chId}/messages?limit=10`),
     channelDelete: (id) => rest(`/channels/${id}`, { method: 'DELETE' }),
     memberPatch: (id, body) => rest(`/guilds/${guildId}/members/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    selfNick: (nick) => rest(`/guilds/${guildId}/members/@me`, { method: 'PATCH', body: JSON.stringify({ nick }) }),
     roleDelete: (id) => rest(`/guilds/${guildId}/roles/${id}`, { method: 'DELETE' }),
     unban: (id) => rest(`/guilds/${guildId}/bans/${id}`, { method: 'DELETE' }).catch(() => null),
   };
@@ -285,16 +286,51 @@ async function main() {
     },
   );
 
+  // Suppression ciblée : deleteMessage est l'outil attendu, une purge limitée
+  // à ce seul message est un équivalent accepté (variance de choix du modèle).
+  // Autosuffisant : en mode E2E_ONLY les scénarios de création n'ont pas tourné,
+  // donc salon + message de référence sont créés ici via REST si absents.
+  {
+    const ch = await findChannel('e2e-guardian-2');
+    if (!ch) {
+      await rest(`/guilds/${guildId}/channels`, {
+        method: 'POST',
+        body: JSON.stringify({ name: 'e2e-guardian-2', type: 0 }),
+      }).catch(() => {});
+    }
+    const fresh = await findChannel('e2e-guardian-2');
+    if (fresh) {
+      const msgs = await api.messages(fresh.id);
+      if (!msgs.some((m) => m.content.includes('Sonde e2e guardian'))) {
+        await rest(`/channels/${fresh.id}/messages`, {
+          method: 'POST',
+          body: JSON.stringify({ content: 'Sonde e2e guardian' }),
+        }).catch(() => {});
+      }
+      const updated = await api.messages(fresh.id);
+      sentMessageId = updated.find((m) => m.content.includes('Sonde e2e guardian'))?.id ?? null;
+    }
+  }
   await runScenario(
     'deleteMessage',
     'Supprime le dernier message du salon e2e-guardian-2.',
-    ['deleteMessage'],
-    async () => {
+    [],
+    async ({ entries }) => {
+      const targeted = entries.some((e) => e.action === 'assistant.tool.deleteMessage');
+      const purged = entries.some((e) => {
+        if (e.action !== 'assistant.tool.purgeMessages') return false;
+        try {
+          return /1 message/.test(JSON.parse(e.metadata).summary ?? '');
+        } catch {
+          return false;
+        }
+      });
       const ch = await findChannel('e2e-guardian-2');
       if (!ch) return { pass: false, note: 'salon absent' };
       const msgs = await api.messages(ch.id);
       const gone = sentMessageId !== null && !msgs.some((m) => m.id === sentMessageId);
-      return { pass: gone, note: gone ? 'vérifié absent' : 'message toujours présent' };
+      const via = targeted ? 'deleteMessage' : purged ? 'purgeMessages (1 message)' : 'aucun tool de suppression';
+      return { pass: gone && (targeted || purged), note: `via ${via} ; vérifié absent` };
     },
   );
 
@@ -404,6 +440,9 @@ async function main() {
     },
   );
 
+  // État propre : le nick d'un run précédent pourrait persister (le cleanup
+  // passe par /members/@me, seul endpoint fiable pour son propre nick).
+  await api.selfNick(null).catch(() => {});
   await runScenario(
     'setNickname',
     'Renomme le bot (10cordes) en 10cordes-E2E sur ce serveur.',
@@ -452,7 +491,7 @@ async function main() {
     }
   }
   await api.unban(DUMMY_USER_ID);
-  await api.memberPatch(me.id, { nick: null }).catch(() => {});
+  await api.selfNick(null).catch((e) => cleanupNote.push(`nick: ${e.message.slice(0, 60)}`));
   console.log(`[CLEANUP] ${cleanupNote.join(' ; ') || 'rien à nettoyer'}`);
 
   const failed = results.filter((r) => !r.pass);
