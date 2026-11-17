@@ -46,7 +46,7 @@ export interface ChatCompletionResult {
   usage?: ChatUsage;
 }
 
-export type ChatCause = 'reply' | 'web' | 'consolidation';
+export type ChatCause = 'reply' | 'web' | 'consolidation' | 'triage';
 
 export interface ChatOptions {
   userId: string;

@@ -69,4 +69,14 @@ export class AppEnv extends SpraxiumBaseEnv {
   @Env('E2E_STAFF_WEBHOOK_IDS', { default: '', secret: false })
   @IsString()
   E2E_STAFF_WEBHOOK_IDS!: string;
+
+  /** Nom du bot, reconnu aussi tapé en texte brut (sans vraie mention Discord). */
+  @Env('DISCORD_BOT_NAME', { default: '10cordes', secret: false })
+  @IsString()
+  DISCORD_BOT_NAME!: string;
+
+  /** Surnoms acceptés en texte brut, séparés par des virgules (ex: "coco, dix cordes"). */
+  @Env('DISCORD_BOT_ALIASES', { default: '', secret: false })
+  @IsString()
+  DISCORD_BOT_ALIASES!: string;
 }
