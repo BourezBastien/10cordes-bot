@@ -72,8 +72,16 @@ export class SkillService implements SpraxiumOnBoot {
         for (const skill of SKILL_LIBRARY) {
           const existing = await this.prisma.agentSkill.findFirst({
             where: { guildId: guild.id, trigger: skill.trigger, deletedAt: null },
-            select: { id: true },
+            select: { id: true, createdByUserId: true, rule: true },
           });
+          // Les skills de bibliothèque suivent le code : la règle est mise à
+          // jour à chaque boot si elle évolue (les skills de membres non).
+          if (existing?.createdByUserId === 'library') {
+            if (existing.rule !== skill.rule) {
+              await this.prisma.agentSkill.update({ where: { id: existing.id }, data: { rule: skill.rule } });
+            }
+            continue;
+          }
           if (existing) continue;
           await this.prisma.agentSkill.create({
             data: {

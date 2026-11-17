@@ -21,7 +21,7 @@ export const SKILL_LIBRARY: LibrarySkill[] = [
   {
     category: 'tickets',
     trigger: 'Quand on demande de mettre en place un système de tickets ou un panneau de support',
-    rule: 'WORKFLOW TICKETS. 1) QUESTIONS si info manquante : rôles staff (IDs) ? catégorie où créer les tickets ? nom des salons (ex: ticket-0001) ? salon du panneau ? qui peut fermer ? message de bienvenue du ticket ? boutons voulus (claim / fermer / appeler à l\u0027aide) ? 2) RÉCAP compact en liste. 3) CONSTRUIS : catégorie + salon ticket via createChannel, salon logs, salon panneau, panneau d\u0027annonce dans le salon panneau avec boutons (claim/fermer), permissions via setChannelOverwrite (staff voient tout, @everyone non), puis createAutomation : quand message.created dans un salon de ticket contient rien de staff depuis 24h → sendMessage mentionne le staff (relay humain). 4) Rapporte les IDs créés.',
+    rule: 'WORKFLOW TICKETS. 1) QUESTIONS si info manquante : types de tickets (bug, aide, recrutement...) ? rôles staff (IDs) ? salon du panneau ? message d\u0027accueil par type ? 2) RÉCAP compact en liste. 3) CONSTRUIS : pour CHAQUE type, une catégorie dédiée (createCategory position adaptée) ; patch config tickets.staffRoleId si donné ; puis sendPanel dans le salon du panneau : selectMenu dont CHAQUE option porte label du type + description + categoryId de sa catégorie + welcomeMessage. 4) Rapporte : panel id, catégories, et dis que le choix d\u0027un type ouvre un salon pré-rempli dans la bonne catégorie avec le staff en accès.',
   },
   {
     category: 'sondages',

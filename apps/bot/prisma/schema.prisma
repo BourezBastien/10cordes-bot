@@ -226,6 +226,22 @@ model ChannelWatermark {
   @@map("channel_watermarks")
 }
 
+// ── Panels interactifs construits par l'agent (boutons + sélecteur) ──
+
+model AgentPanel {
+  id        String   @id @default(cuid())
+  guildId   String
+  channelId String
+  messageId String
+  kind      String   @default("custom") // ticket | poll | custom
+  definition String // JSON: { title, description, selectMenu?, buttons? }
+  createdByUserId String
+  createdAt DateTime @default(now())
+
+  @@index([guildId, messageId])
+  @@map("agent_panels")
+}
+
 model AgentPlan {
   id             String   @id @default(cuid())
   guildId        String

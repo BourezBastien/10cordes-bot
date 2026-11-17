@@ -5,6 +5,8 @@ import { ModerationModule } from '../moderation/moderation.module';
 import { ModuleManagerModule } from '../module-manager/module-manager.module';
 import { ToolRegistryModule } from '../tool-registry/tool-registry.module';
 import { AgentService } from './agent.service';
+import { PanelButton0Handler, PanelButton1Handler, PanelButton2Handler, PanelButton3Handler, PanelButton4Handler, PanelSelectHandler } from './panels.handlers';
+import { PanelsService } from './panels.service';
 import { SkillService } from './skill.service';
 import { AdminWhitelistService } from './whitelist.service';
 
@@ -12,7 +14,15 @@ import { AdminWhitelistService } from './whitelist.service';
 // (tools discord.* en exécution directe, permission-gated en code).
 @Module({
   imports: [AuditModule, GuildConfigModule, ModerationModule, ModuleManagerModule, ToolRegistryModule],
-  providers: [AgentService, AdminWhitelistService, SkillService],
+  handlers: [
+    PanelButton0Handler,
+    PanelButton1Handler,
+    PanelButton2Handler,
+    PanelButton3Handler,
+    PanelButton4Handler,
+    PanelSelectHandler,
+  ],
+  providers: [AgentService, AdminWhitelistService, SkillService, PanelsService],
   exports: [AgentService, AdminWhitelistService],
 })
 export class AgentModule {}
