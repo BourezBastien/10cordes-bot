@@ -1,7 +1,6 @@
 import { Module } from '@spraxium/common';
 import { ComponentsModule } from '@spraxium/components';
 import { HttpModule, HttpClientModule, LoggerMiddleware } from '@spraxium/http';
-import { I18nModule } from '@spraxium/i18n';
 import { AuthController } from './auth/auth.controller';
 import { SessionGuard } from './auth/guards/session.guard';
 import { GuildAccessGuard } from './auth/guards/guild-access.guard';
@@ -11,8 +10,6 @@ import { AuditModule } from './modules/audit/audit.module';
 import { DatabaseModule } from './modules/database/database.module';
 import { GuildConfigModule } from './modules/guild-config/guild-config.module';
 import { ImagelabModule } from './modules/imagelab/imagelab.module';
-import { LevelsModule } from './modules/levels/levels.module';
-import { LocaleModule } from './modules/locale/locale.module';
 import { LoggingModule } from './modules/logging/logging.module';
 import { MemoryModule } from './modules/memory/memory.module';
 import { ModerationModule } from './modules/moderation/moderation.module';
@@ -39,14 +36,11 @@ import { WebToolsModule } from './modules/webtools/webtools.module';
 @Module({
   imports: [
     DatabaseModule,
-    I18nModule,
     ComponentsModule,
     AuditModule,
     HttpModule,
     GuildConfigModule,
     ImagelabModule,
-    LevelsModule,
-    LocaleModule,
     LoggingModule,
     MemoryModule,
     ModerationModule,

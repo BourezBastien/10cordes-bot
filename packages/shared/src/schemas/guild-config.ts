@@ -138,9 +138,5 @@ export const CONFIG_KEYS: ConfigKeyDescriptor[] = [
   { path: 'tickets.panelChannelId', type: 'channel', description: 'Salon du panneau de tickets' },
   { path: 'tickets.staffRoleId', type: 'role', description: 'Rôle staff des tickets' },
   { path: 'tickets.logChannelId', type: 'channel', description: 'Salon des transcripts de tickets' },
-  { path: 'levels.enabled', type: 'boolean', description: 'Activer le système de niveaux' },
-  { path: 'levels.xpPerMessage', type: 'number', description: 'XP par message' },
-  { path: 'levels.cooldownMinutes', type: 'number', description: 'Cooldown XP (minutes)' },
-  { path: 'levels.announceChannelId', type: 'channel', description: 'Salon des level-ups' },
   { path: 'assistant.channelId', type: 'channel', description: "Salon dédié de l'IA (vide = mention dans tous les salons)" },
 ];

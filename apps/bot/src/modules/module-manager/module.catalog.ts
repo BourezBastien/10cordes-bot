@@ -38,14 +38,6 @@ export const MODULE_CATALOG: ModuleDescriptor[] = [
     setupGroups: ['roles'],
     dependsOn: [],
   },
-  {
-    id: 'levels',
-    label: 'Levels',
-    description: 'XP per message, role rewards, leaderboard and announcements.',
-    commands: [],
-    dependsOn: [],
-    recommends: [],
-  },
 ];
 
 export function findModuleById(moduleId: string): ModuleDescriptor | undefined {

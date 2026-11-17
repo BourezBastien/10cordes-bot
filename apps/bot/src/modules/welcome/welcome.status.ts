@@ -23,7 +23,6 @@ export class WelcomeStatusService implements SpraxiumOnBoot {
             `**Welcome** : ${c.welcome.enabled ? 'activé' : 'désactivé'} → ${c.welcome.channelId ? `<#${c.welcome.channelId}>` : 'aucun salon'}`,
             `**Auto-rôle** : ${c.welcome.autoRoleId ? `<@&${c.welcome.autoRoleId}>` : 'aucun'}`,
             `**Farewell** : ${c.farewell.enabled ? 'activé' : 'désactivé'} → ${c.farewell.channelId ? `<#${c.farewell.channelId}>` : 'aucun salon'}`,
-            `**Langue par défaut** : ${c.defaultLocale}`,
           ].join(' · ');
         },
       }),

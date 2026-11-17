@@ -7,7 +7,7 @@ import { LlmService, QuotaExhaustedError, toApiToolName, type ChatMessage, type 
 import { getSkillTriggers } from '../agent/skill.service';
 import { IA_CONFIG_BUTTON_ID } from './components/ia-config.components';
 import { notice, panel, text } from '../../shared/ui';
-import { LocaleService } from '../locale/locale.service';
+import { detectLocale } from '../../shared/utils/locale-detect';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import type { GuildConfig } from '@10cordes/shared';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
@@ -216,7 +216,6 @@ export class AssistantService {
   constructor(
     private readonly llm: LlmService,
     private readonly registry: ToolRegistryService,
-    private readonly locales: LocaleService,
     private readonly config: GuildConfigService,
     private readonly audit: AuditService,
     private readonly memory: MemoryService,
@@ -329,7 +328,7 @@ export class AssistantService {
       const member = await guild.members.fetch(request.userId).catch(() => null);
       const displayName = member?.displayName ?? request.authorName;
       const staff = guild.ownerId === request.userId || (member?.permissions.has(PermissionFlagsBits.ManageGuild) ?? false);
-      const locale = await this.locales.resolve(request.userId, guildConfig.defaultLocale);
+      const locale = detectLocale(request.content);
       const introData: IntroData = {
         displayName,
         staff,
@@ -397,7 +396,7 @@ export class AssistantService {
     request: AgentRequest,
     guildConfig: GuildConfig,
   ): Promise<void> {
-    const locale = await this.locales.resolve(request.userId, guildConfig.defaultLocale);
+    const locale = detectLocale(request.content);
     const member = await guild.members.fetch(request.userId).catch(() => null);
     let permissions: string[] = member ? (member.permissions.toArray() as string[]) : [];
     // Rig E2E : un webhook listé dans E2E_STAFF_WEBHOOK_IDS parle avec les
