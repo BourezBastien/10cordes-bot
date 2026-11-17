@@ -79,4 +79,11 @@ export class AppEnv extends SpraxiumBaseEnv {
   @Env('DISCORD_BOT_ALIASES', { default: '', secret: false })
   @IsString()
   DISCORD_BOT_ALIASES!: string;
+
+  /** kie.ai (génération musicale Suno) — requis pour le tool generateMusic. */
+  @Env('KIE_API_KEY')
+  @IsOptional()
+  @Secret()
+  @IsString()
+  KIE_API_KEY?: string;
 }

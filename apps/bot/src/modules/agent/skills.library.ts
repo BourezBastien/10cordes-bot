@@ -139,6 +139,11 @@ export const SKILL_LIBRARY: LibrarySkill[] = [
     rule: 'RECO CINÉ. 1) getMemberMemory : goûts déjà exprimés (genres, titres aimés/détestés). 2) searchInternet pour les sorties récentes (sources citées). 3) Propose 2-3 titres adaptés AU MEMBRE avec une ligne de pitch chacun, sans spoiler. 4) AFFINE avec une question (« plutôt thriller ou comédie ? »). 5) Option humour : une reco poubelle assumée (« si tu veux pleurer... de rire ») pour les films cultes nuls. 6) Mémorise ce qu\u0027il a regardé et aimé.',
   },
   {
+    category: 'music',
+    trigger: 'Quand on demande de générer une musique, un beat, un son original, ou de composer quelque chose',
+    rule: 'WORKFLOW MUSIQUE. 1) QUESTIONS : ambiance/style (trap, lo-fi, epic...), instrumental ou avec paroles ? titre ? durée ? 2) Si la personne hésite sur le style, PROPOSE 3 beats adaptés au serveur et laisse-la choisir. 3) CONSTRUIS : generateMusic avec le style complet (bpm, instruments, humeur) — le prompt est ta plume. 4) Livre l\u0027URL audio telle quelle (lien kie.ai valable 14 jours). 5) UNE génération par demande : c\u0029est coûteux en crédits, pas de variantes spontanées.',
+  },
+  {
     category: 'discord-community',
     trigger: 'Quand on demande de comparer des serveurs Discord, vérifier une invitation, ou l\u0027index des serveurs publics',
     rule: 'INDEX DISDEX. Outils : discordServerLookup (chercher/comparer des serveurs publics par membres et activité), discordInviteResolve (invitation vivante ou morte + alternatives), discordUserLookup (profil public d\u0027un index). Cite disdex.io. Utile pour vérifier une invitation avant de la partager, ou analyser une communauté concurrente.',

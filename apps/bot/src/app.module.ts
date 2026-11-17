@@ -25,6 +25,7 @@ import { TicketsModule } from './modules/tickets/tickets.module';
 import { ToolRegistryModule } from './modules/tool-registry/tool-registry.module';
 import { WelcomeModule } from './modules/welcome/welcome.module';
 import { WebToolsModule } from './modules/webtools/webtools.module';
+import { MusicModule } from './modules/music/music.module';
 
 // Règle framework : @HttpClientModule et @Module sur LA MÊME classe (AppModule) —
 // un second module HTTP serait ignoré silencieusement.
@@ -49,6 +50,7 @@ import { WebToolsModule } from './modules/webtools/webtools.module';
     RolesModule,
     TicketsModule,
     WebToolsModule,
+    MusicModule,
     ToolRegistryModule,
     AutomationsModule,
     AgentModule,
