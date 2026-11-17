@@ -55,21 +55,25 @@ export class MusicService implements SpraxiumOnBoot {
       {
         name: 'generateMusic',
         description:
-          'Génère une musique complète (Suno V6_MINI via kie.ai) : titre, style, paroles, instrumental, 1 minute max. Asynchrone (30-120s). Coûteux en crédits (12 crédits par génération, durée sans effet sur le prix) : une génération par demande.',
+          'Génère une musique complète (Suno V6_MINI via kie.ai) : titre, style, paroles calibrées, instrumental, 1 min 30 max. Asynchrone (30-120s). Coûteux en crédits (12 crédits par génération, durée sans effet sur le prix) : une génération par demande.',
         category: 'music',
         paramsSchema: z.object({
           title: z.string().min(1).max(80),
           style: z.string().min(3).max(1000).describe('Ex: trap marseillais mélancolique, 90 bpm, piano sombre'),
           prompt: z.string().max(3000).optional().describe('Paroles complètes (chantées telles quelles) ou description libre si instrumental'),
           instrumental: z.boolean().default(false),
-          duration: z.number().int().min(10).max(60).default(60).describe('Durée cible en secondes. Plafonnée à 60 : une minute maximum, pas d\u0027exception'),
+          duration: z.number().int().min(10).max(90).default(90).describe('Durée cible en secondes. Plafonnée à 90 : 1 min 30 maximum'),
         }),
         requiredModules: [],
         destructive: false,
         systemPrompt:
           'Coûteux en crédits : UNE génération par demande, jamais de variantes non demandées. ' +
-          'Durée BLOQUÉE à 60 secondes (1 minute max) : ne propose jamais plus, même sur insistance. ' +
+          'Durée : 90 secondes max (1 min 30). CALIBRE les paroles sur la durée cible : UN couplet + UN refrain + une fin ' +
+          '(tags [Verse]/[Chorus]/[Outro]) qui se termine NATURELLEMENT dans la durée — jamais de couplets supplémentaires, ' +
+          'sinon Suno coupe le morceau en plein texte. Adaptation requise : un son rapide (trap, drill) tient moins de texte ' +
+          'qu\u0027une ballade ; réduis le nombre de lignes si le débit est élevé. ' +
           'Si le thème est éditorial (la vie actuelle, actu, société, fait divers) : fais de VRAIES recherches d\u0029abord (searchInternet, getNews) et écris des paroles qui parlent du VRAI (faits concrets, références datées) — pas de paroles génériques. ' +
+          'Référence d\u0029artiste (« à la Booba », « style Simone »...) : ne passe JAMAIS le nom au prompt Suno (rejet copyright) — traduis en caractéristiques objectives : voix (grave, posée), époque (boom-bap 90s, trap moderne), ambiance, débit, instruments typiques. ' +
           'Le fichier audio est posté automatiquement dans le salon : ne répète pas l\u0027URL, commente le résultat en UN message court.',
         handler: async (input, ctx) => {
           if (!guildOnly(ctx)) return { ok: false, summary: 'Contexte de serveur requis.' };
@@ -119,7 +123,7 @@ export class MusicService implements SpraxiumOnBoot {
             return { ok: false, summary: `Génération refusée par kie.ai : ${createdData.msg ?? 'erreur inconnue'}` };
           }
 
-          await update(`🎵 Génération lancée (Suno ${this.env.KIE_MODEL || 'V6_MINI'}, cible ${duration ?? 60}s) — 30 à 120 secondes...`);
+          await update(`🎵 Génération lancée (Suno ${this.env.KIE_MODEL || 'V6_MINI'}, cible ${duration ?? 90}s) — 30 à 120 secondes...`);
 
           // Poll jusqu'à complétion.
           const deadline = Date.now() + POLL_MAX_MS;

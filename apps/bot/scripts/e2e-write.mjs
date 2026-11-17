@@ -552,13 +552,19 @@ async function main() {
   // État propre : le nick d'un run précédent pourrait persister (le cleanup
   // passe par /members/@me, seul endpoint fiable pour son propre nick).
   await api.selfNick(null).catch(() => {});
+  // Depuis la garde owner-only sur setNickname, un webhook E2E (staff, non
+  // owner) doit obtenir un REFUS propre : pseudo inchangé + explication.
   await runScenario(
     'setNickname',
     'Renomme le bot (10cordes) en 10cordes-E2E sur ce serveur.',
-    ['setNickname'],
-    async () => {
+    [],
+    async ({ hasReply }) => {
       const botMember = await api.member(me.id);
-      return { pass: botMember !== null && botMember.nick === '10cordes-E2E', note: `nick="${botMember?.nick ?? ''}"` };
+      const refused = botMember !== null && botMember.nick !== '10cordes-E2E';
+      return {
+        pass: refused && hasReply,
+        note: `nick="${botMember?.nick ?? ''}" ; ${hasReply ? 'refus expliqué envoyé' : 'aucune réponse'}`,
+      };
     },
   );
 
