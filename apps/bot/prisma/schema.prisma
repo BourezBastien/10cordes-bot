@@ -184,6 +184,22 @@ model AdminWhitelist {
   @@map("admin_whitelist")
 }
 
+// ── Skills : règles de comportement durables (trigger + règle), par serveur ──
+
+model AgentSkill {
+  id              String    @id @default(cuid())
+  guildId         String
+  trigger         String
+  rule            String
+  createdByUserId String
+  usageCount      Int       @default(0)
+  createdAt       DateTime  @default(now())
+  deletedAt       DateTime?
+
+  @@index([guildId, deletedAt])
+  @@map("agent_skills")
+}
+
 model AgentPlan {
   id             String   @id @default(cuid())
   guildId        String

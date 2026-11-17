@@ -6,6 +6,7 @@ import { ModuleManagerModule } from '../module-manager/module-manager.module';
 import { ToolRegistryModule } from '../tool-registry/tool-registry.module';
 import { AgentApproveHandler, AgentCancelHandler } from './components/agent-buttons.handler';
 import { AgentService } from './agent.service';
+import { SkillService } from './skill.service';
 import { AdminWhitelistService } from './whitelist.service';
 
 // Plus de commandes slash agent : propose/approve passent par l'agent conversationnel
@@ -13,7 +14,7 @@ import { AdminWhitelistService } from './whitelist.service';
 @Module({
   imports: [AuditModule, GuildConfigModule, ModerationModule, ModuleManagerModule, ToolRegistryModule],
   handlers: [AgentApproveHandler, AgentCancelHandler],
-  providers: [AgentService, AdminWhitelistService],
+  providers: [AgentService, AdminWhitelistService, SkillService],
   exports: [AgentService, AdminWhitelistService],
 })
 export class AgentModule {}

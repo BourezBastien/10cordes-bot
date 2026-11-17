@@ -1,3 +1,5 @@
+import { createWriteStream } from 'node:fs';
+import { resolve } from 'node:path';
 import { IntentPreset, SpraxiumFactory } from '@spraxium/core';
 import { EnvValidator } from '@spraxium/env';
 import { I18nStoreRegistry } from '@spraxium/i18n';
@@ -9,6 +11,34 @@ import { ModuleEnabledGuard } from './modules/module-manager/module-enabled.guar
 
 async function main(): Promise<void> {
   const logger = new Logger('Main');
+
+  // Miroir de la sortie console vers un fichier : le CLI spraxium daemonise
+  // le process (--force-unlock) SANS stdio (process.stdout peut être absent),
+  // donc sans ce miroir tous les logs de boot et de crash seraient perdus.
+  // Jamais fatal : si le miroir échoue, on continue sur la sortie native.
+  try {
+    const mirrorPath = resolve(process.cwd(), 'bot-out.log');
+    const mirror = createWriteStream(mirrorPath, { flags: 'a' });
+    mirror.on('error', () => {});
+    const wrap = (original: typeof process.stdout.write) =>
+      ((...args: Parameters<typeof process.stdout.write>) => {
+        try {
+          mirror.write(typeof args[0] === 'string' ? args[0] : String(args[0]));
+        } catch {
+          /* le miroir ne doit jamais casser l'app */
+        }
+        try {
+          return original(...args);
+        } catch {
+          return true;
+        }
+      }) as typeof process.stdout.write;
+    if (typeof process.stdout?.write === 'function') process.stdout.write = wrap(process.stdout.write.bind(process.stdout));
+    if (typeof process.stderr?.write === 'function') process.stderr.write = wrap(process.stderr.write.bind(process.stderr));
+  } catch {
+    /* miroir indisponible : tant pis, on tourne sans */
+  }
+
   const environment = EnvValidator.validate(AppEnv);
 
   // Store i18n persisté (langue par utilisateur) — doit être enregistré avant le create.

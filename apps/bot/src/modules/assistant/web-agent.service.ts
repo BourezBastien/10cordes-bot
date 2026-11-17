@@ -7,6 +7,7 @@ import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import { LlmService, QuotaExhaustedError, toApiToolName, type ChatMessage, type OpenAiTool } from './llm.service';
 import { buildSystemPrompt, fetchRecentActions, sanitizeTranscriptLine, toolToOpenAiTool } from './assistant.service';
+import { getSkillTriggers } from '../agent/skill.service';
 import { type ToolRunContext } from '@10cordes/shared';
 import { PrismaService } from '../database/prisma.service';
 
@@ -71,11 +72,16 @@ export class WebAgentService {
     const tools = await this.registry.listForGuild(guildId);
     const openAiTools: OpenAiTool[] = tools.map(toolToOpenAiTool);
 
-    const [guildMemories, memberMemories, recentActions] = await Promise.all([
-      this.memory.listGuild(guildId, 20).catch(() => [] as string[]),
-      this.memory.listMember(guildId, discordUserId, 10).catch(() => [] as string[]),
+    const [guildProfile, memberProfile, recentActions, skillTriggers] = await Promise.all([
+      this.memory.getGuildProfile(guildId).catch(() => null),
+      this.memory.getMemberProfile(guildId, discordUserId).catch(() => null),
       fetchRecentActions(this.prisma, guildId, 12).catch(() => [] as string[]),
+      getSkillTriggers(guildId)
+        .then((skills) => skills.map((skill) => `${skill.id} | ${skill.trigger}`))
+        .catch(() => [] as string[]),
     ]);
+    const guildMemories = guildProfile ? [`Fiche serveur consolidée : ${guildProfile}`] : [];
+    const memberMemories = memberProfile ? [`Fiche du membre (consolidée) : ${memberProfile}`] : [];
 
     const transcript = channel
       ? await channel.messages
@@ -105,7 +111,7 @@ export class WebAgentService {
         content: buildSystemPrompt(locale, guild.name, channel?.name ?? 'web', tools.map((tool) => tool.name), permissions, {
           guildMemories,
           memberMemories,
-        }, recentActions),
+        }, recentActions, skillTriggers),
       },
       {
         role: 'user',

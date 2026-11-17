@@ -14,6 +14,11 @@ export interface ToolRunContext {
   permissions: string[];
   /** Canal de réponse humain du frontend appelant (chat, vocal→TTS, dashboard). */
   reply: (message: string) => Promise<void>;
+  /**
+   * Envoi d'un fichier dans le salon de la demande (ou targetChannelId).
+   * Optionnel : absent sur les surfaces sans fichiers (dashboard web).
+   */
+  sendFile?: (file: { name: string; attachment: Uint8Array | string }, targetChannelId?: string) => Promise<void>;
 }
 
 export interface ToolResult {

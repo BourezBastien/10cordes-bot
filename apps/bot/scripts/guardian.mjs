@@ -15,7 +15,7 @@
  *     la surveillance est silencieuse, les incidents sont notifiés par
  *     HealthMonitor (alerte uniquement sur changement d'état).
  */
-import { readFileSync, existsSync, openSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,6 +24,7 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const BOT_DIR = resolve(SCRIPT_DIR, '..');
 const ROOT_DIR = resolve(BOT_DIR, '..');
 const LOG_FILE = resolve(BOT_DIR, 'prod-run.log');
+const BOOT_LOG = resolve(BOT_DIR, 'guardian-boot.log');
 const DIST_ENTRY = resolve(BOT_DIR, '.spraxium/dist/src/main.mjs');
 
 const lines = [];
@@ -86,14 +87,16 @@ function relaunch() {
       return false;
     }
   }
-  // Démarrage officiel : `spraxium start` (le ConfigLoader lit
-  // .spraxium/dist/spraxium.config.js ; un node direct sur main.mjs casse
-  // la résolution du config TS).
-  const fd = openSync(LOG_FILE, 'a');
-  const child = spawn('pnpm', ['start'], {
+  // Démarrage officiel : `spraxium start --force-unlock`. La relance n'a lieu
+  // que si aucun bot n'écoute : le verrou d'instance peut y être resté coincé
+  // (crash précédent), force-unlock est donc systématique et sans risque ici.
+  // Sortie redirigée vers un fichier EXPLICITE : le CLI réoriente son propre
+  // stdio en daemon, l'héritage du fd ne suffit plus.
+  const BOOT_LOG = resolve(BOT_DIR, 'guardian-boot.log');
+  const child = spawn(`pnpm start --force-unlock >> "${BOOT_LOG}" 2>&1`, {
     cwd: BOT_DIR,
     detached: true,
-    stdio: ['ignore', fd, fd],
+    stdio: 'ignore',
     shell: true,
   });
   child.unref();
@@ -154,7 +157,12 @@ async function main() {
     lastReplyAt = lastReply?.createdAt ?? null;
     say('CHECK', `audit 35 min : ${errors} erreur(s) assistant, ${jobFails} job(s) échoué(s), dernière réponse ${lastReplyAt?.toISOString() ?? 'jamais'}.`);
     const logWindow = Date.now() - 35 * 60 * 1_000;
-    const errorLines = tail(LOG_FILE, 400).split(/\r?\n/).filter((l) => l.includes('ERROR'));
+    // Les boots récents écrivent dans guardian-boot.log ; prod-run.log garde
+    // l'historique des boots hérités. On scanne les deux.
+    const errorLines = [
+      ...tail(LOG_FILE, 400).split(/\r?\n/),
+      ...tail(BOOT_LOG, 400).split(/\r?\n/),
+    ].filter((l) => l.includes('ERROR'));
     const recent = errorLines.filter((l) => {
       const t = parseLogTime(l);
       return t && t.getTime() >= logWindow;
