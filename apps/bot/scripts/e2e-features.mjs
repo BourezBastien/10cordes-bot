@@ -150,7 +150,11 @@ async function main() {
     ['createPoll'],
     async () => {
       const messages = await rest(`/channels/${channelId}/messages?limit=10`);
-      const poll = messages.find((m) => m.content?.includes('Test E2E polls') && (m.components?.length ?? 0) > 0);
+      const poll = messages.find(
+        (m) =>
+          (m.content?.includes('Test E2E polls') || JSON.stringify(m.components || '').includes('Test E2E polls')) &&
+          (m.components?.length ?? 0) > 0,
+      );
       pollMessageId = poll?.id ?? null;
       return { pass: pollMessageId !== null, note: pollMessageId ? `message ${pollMessageId}` : 'message de sondage introuvable' };
     },
@@ -164,8 +168,11 @@ async function main() {
     if (pollMessageId) {
       try {
         const message = await rest(`/channels/${channelId}/messages/${pollMessageId}`);
-        const hasResults = message.content?.includes('Résultats') || JSON.stringify(message.components || '').includes('Résultats');
-        const noButtons = JSON.stringify(message.components || '').length < 40;
+        const componentsJson = JSON.stringify(message.components || '');
+        const hasResults = message.content?.includes('Résultats') || componentsJson.includes('Résultats');
+        // En V2 le Container de résultats reste (titre + barres) : ce qui doit
+        // disparaître, ce sont les boutons (custom_id présent uniquement eux).
+        const noButtons = !componentsJson.includes('custom_id');
         closed = hasResults && noButtons;
         note = hasResults ? (noButtons ? 'résultats publiés, boutons retirés' : 'résultats mais boutons encore présents') : 'clôture non éditée';
       } catch {
