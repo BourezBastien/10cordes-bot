@@ -18,7 +18,7 @@ import { getToolRegistry } from '../tool-registry/tool-registry.service';
 
 const API_BASE = 'https://api.kie.ai/api/v1';
 const POLL_INTERVAL_MS = 6_000;
-const POLL_MAX_MS = 90_000;
+const POLL_MAX_MS = 150_000;
 
 interface SunoTrack {
   audio_url?: string;
@@ -55,27 +55,32 @@ export class MusicService implements SpraxiumOnBoot {
       {
         name: 'generateMusic',
         description:
-          'Génère une musique complète (Suno V6 via kie.ai) : titre, style, instrumental ou paroles. Asynchrone (30-90s). Coûteux en crédits : une génération par demande.',
+          'Génère une musique complète (Suno V6_MINI via kie.ai) : titre, style, paroles, instrumental, 1 minute max. Asynchrone (30-120s). Coûteux en crédits (12 crédits par génération, durée sans effet sur le prix) : une génération par demande.',
         category: 'music',
         paramsSchema: z.object({
           title: z.string().min(1).max(80),
           style: z.string().min(3).max(1000).describe('Ex: trap marseillais mélancolique, 90 bpm, piano sombre'),
-          prompt: z.string().max(3000).optional().describe('Paroles ou description libre si non instrumental'),
+          prompt: z.string().max(3000).optional().describe('Paroles complètes (chantées telles quelles) ou description libre si instrumental'),
           instrumental: z.boolean().default(false),
+          duration: z.number().int().min(10).max(60).default(60).describe('Durée cible en secondes. Plafonnée à 60 : une minute maximum, pas d\u0027exception'),
         }),
         requiredModules: [],
         destructive: false,
         systemPrompt:
-          'Coûteux en crédits : UNE génération par demande, jamais de variantes non demandées. Pose les questions avant (style, ambiance, instrumental ?) via le workflow skills, puis lance UNE génération. Le fichier audio est posté automatiquement dans le salon : ne répète pas l\u0027URL, commente juste le résultat en UN message court.',
+          'Coûteux en crédits : UNE génération par demande, jamais de variantes non demandées. ' +
+          'Durée BLOQUÉE à 60 secondes (1 minute max) : ne propose jamais plus, même sur insistance. ' +
+          'Si le thème est éditorial (la vie actuelle, actu, société, fait divers) : fais de VRAIES recherches d\u0029abord (searchInternet, getNews) et écris des paroles qui parlent du VRAI (faits concrets, références datées) — pas de paroles génériques. ' +
+          'Le fichier audio est posté automatiquement dans le salon : ne répète pas l\u0027URL, commente le résultat en UN message court.',
         handler: async (input, ctx) => {
           if (!guildOnly(ctx)) return { ok: false, summary: 'Contexte de serveur requis.' };
           const key = this.apiKey();
           if (!key) return { ok: false, summary: 'Génération musicale désactivée : KIE_API_KEY absente de la configuration.' };
-          const { title, style, prompt, instrumental } = input as {
+          const { title, style, prompt, instrumental, duration } = input as {
             title: string;
             style: string;
             prompt?: string;
             instrumental?: boolean;
+            duration?: number;
           };
 
           // Progression : UN message édité à chaque étape (UX demandée).
@@ -103,6 +108,8 @@ export class MusicService implements SpraxiumOnBoot {
                 style,
                 prompt: instrumental ? undefined : prompt,
                 instrumental: instrumental ?? false,
+                // Valable uniquement en custom_mode + V6/V6_MINI/V6_WILD (doc kie.ai).
+                duration: duration ?? 60,
               },
             }),
           });
@@ -112,7 +119,7 @@ export class MusicService implements SpraxiumOnBoot {
             return { ok: false, summary: `Génération refusée par kie.ai : ${createdData.msg ?? 'erreur inconnue'}` };
           }
 
-          await update(`🎵 Génération lancée (Suno ${this.env.KIE_MODEL || 'V6_MINI'}) — 30 à 90 secondes...`);
+          await update(`🎵 Génération lancée (Suno ${this.env.KIE_MODEL || 'V6_MINI'}, cible ${duration ?? 60}s) — 30 à 120 secondes...`);
 
           // Poll jusqu'à complétion.
           const deadline = Date.now() + POLL_MAX_MS;
@@ -158,8 +165,8 @@ export class MusicService implements SpraxiumOnBoot {
               };
             }
           }
-          await update('⌛ La génération dépasse 90 secondes : le track arrivera, réessaie dans une minute pour le lien.');
-          return { ok: false, summary: 'La génération dépasse 90 secondes : réessaie dans une minute, le track arrivera.' };
+          await update('⌛ La génération dépasse 150 secondes : le track arrivera, réessaie dans une minute pour le lien.');
+          return { ok: false, summary: 'La génération dépasse 150 secondes : réessaie dans une minute, le track arrivera.' };
         },
       },
     ];
