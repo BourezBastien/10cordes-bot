@@ -34,6 +34,7 @@ function buildStyleGuide(guild: Guild): ToolResult {
             : channel.type === ChannelType.GuildForum
               ? 'forum'
               : 'autre',
+    connectes: channel.type === ChannelType.GuildVoice ? channel.members.size : undefined,
     topic:
       (channel.type === ChannelType.GuildText || channel.type === ChannelType.GuildAnnouncement) && channel.topic
         ? channel.topic.slice(0, 100)
@@ -92,7 +93,7 @@ export function discordExtraTools(
   helpers: ToolHelpers,
 ): BotTool[] {
   void agent;
-  const { guildOf, noGuild, proposePlan } = helpers;
+  const { guildOf, noGuild } = helpers;
   type Ctx = ToolRunContext;
 
   const textChannelOf = async (guild: Guild, channelId: string) => {

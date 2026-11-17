@@ -1,5 +1,6 @@
 import { Button, ButtonHandler } from '@spraxium/components';
 import { MessageFlags, type ButtonInteraction } from 'discord.js';
+import { Logger } from '@spraxium/logger';
 
 export const ANSWER_VIEW_ID = 'answer:view';
 
@@ -50,32 +51,35 @@ export function getAnswer(messageId: string): StoredAnswer | undefined {
 @Button({ customId: ANSWER_VIEW_ID, label: 'Afficher la réponse', style: 'primary' })
 export class AnswerViewButton {}
 
-/** Clic sur le portail : répond en ÉPHÉMÈRE avec le panneau V2 complet. */
+const log = new Logger('AnswerView');
+
+/** Clic sur le portail : DEFER immédiat (fenêtre 3s), puis panneau V2 en éphémère. */
 @ButtonHandler(AnswerViewButton)
 export class AnswerViewHandler {
   constructor(private readonly v2: import('@spraxium/components').V2Service) {}
 
   async handle(interaction: ButtonInteraction): Promise<void> {
+    const dispatchDelay = Date.now() - interaction.createdTimestamp;
+    if (dispatchDelay > 1500) log.warn(`dispatch tardif de ${dispatchDelay}ms sur answer:view`);
+    await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+
     const answer = getAnswer(interaction.message.id);
     if (!answer) {
-      void interaction
-        .reply({ content: 'Panneau expiré : mentionne-moi à nouveau.', flags: MessageFlags.Ephemeral })
-        .catch(() => {});
+      await interaction.editReply({ content: 'Panneau expiré : mentionne-moi à nouveau.' }).catch(() => {});
       return;
     }
     if (answer.ownerId && interaction.user.id !== answer.ownerId) {
-      void interaction
-        .reply({
-          content: 'Ce panneau est réservé à la personne qui a fait la demande.',
-          flags: MessageFlags.Ephemeral,
-        })
+      await interaction
+        .editReply({ content: 'Ce panneau est réservé à la personne qui a fait la demande.' })
         .catch(() => {});
       return;
     }
-    await interaction.reply({
-      components: answer.components as never,
-      flags: (MessageFlags.Ephemeral | MessageFlags.IsComponentsV2) as never,
-    });
+    await interaction
+      .editReply({
+        components: answer.components as never,
+        flags: (MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral) as never,
+      })
+      .catch(() => {});
     if (answer.tools) {
       // Réattache l'état de pagination au VRAI id du message éphémère.
       const ephemeralMessage = await interaction.fetchReply();

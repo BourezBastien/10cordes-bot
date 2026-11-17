@@ -1,30 +1,18 @@
-import { PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, MessageFlags, type Client, type Guild } from 'discord.js';
+import { PermissionFlagsBits, type Client, type Guild } from 'discord.js';
 import { z } from 'zod';
-import {
-  AdminOpSchema,
-  AgentPlanSchema,
-  DESTRUCTIVE_OP_TYPES,
-  type BotTool,
-  type ToolResult,
-  type ToolRunContext,
-} from '@10cordes/shared';
+import type { AdminOp, BotTool, ToolResult, ToolRunContext } from '@10cordes/shared';
 import { AgentService } from '../agent.service';
-import { buildPlanReply } from '../agent.panel';
-import { ANSWER_VIEW_ID, storeAnswer } from '../../assistant/handlers/answer-view.handler';
-import { text } from '../../../shared/ui';
 import { discordExtraTools } from './discord.tools.extra';
 
 /**
  * Tools Discord de l'Agent Admin — chaque tool embarque son propre systemPrompt
- * (préconditions, effets, refus) et respecte la grille de tiers :
- * - lecture libre ;
- * - tier 2 (créer / renommer / archiver / timeout) : exécution directe, permission vérifiée en code ;
- * - tier 3 (supprimer / kick / ban) : création d'un PLAN soumis à confirmation humaine (whitelist).
+ * (préconditions, effets, refus) et exécute DIRECTEMENT (plus de plans depuis
+ * le 17/11) : gates de permissions en code pour le demandeur ET le bot,
+ * archive-first pour les suppressions, tout audité.
  */
 export interface ToolHelpers {
   guildOf: (ctx: ToolRunContext) => Guild | null;
   noGuild: () => ToolResult;
-  proposePlan: (ctx: ToolRunContext, title: string, ops: Array<Record<string, unknown>>) => Promise<ToolResult>;
 }
 
 export function agentTools(agent: AgentService, client: Client): BotTool[] {
@@ -32,63 +20,14 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
     ctx.guildId ? (client.guilds.cache.get(ctx.guildId) ?? null) : null;
   const noGuild = (): ToolResult => ({ ok: false, summary: 'Contexte de serveur requis.' });
 
-  const proposePlan: ToolHelpers['proposePlan'] = async (
-    ctx: ToolRunContext,
-    title: string,
-    ops: Array<Record<string, unknown>>,
-  ): Promise<ToolResult> => {
-    const parsed = AgentPlanSchema.safeParse({ title, ops });
-    if (!parsed.success) {
-      const issue = parsed.error.issues[0];
-      return {
-        ok: false,
-        summary: `Plan invalide (${issue?.path.join('.') || 'ops'}) : ${issue?.message ?? ''}`,
-      };
-    }
-    if (!ctx.guildId || !ctx.channelId) return { ok: false, summary: 'Contexte de serveur et de canal requis.' };
-
-    // Portail minuscule (public) : le PANNEAU complet (ops + boutons) part en
-    // ÉPHÉMÈRE, visible uniquement par la personne qui a fait la demande.
-    const channel = await client.channels.fetch(ctx.channelId).catch(() => null);
-    if (!channel?.isTextBased() || !('send' in channel)) {
-      return { ok: false, summary: 'Salon introuvable pour poster le portail de confirmation.' };
-    }
-
-    const destructive = parsed.data.ops.some((op) => DESTRUCTIVE_OP_TYPES.has(op.type));
-    const planReply = buildPlanReply({
-      title: parsed.data.title,
-      ops: parsed.data.ops,
-      requesterId: ctx.userId,
-      expiresAt: new Date(Date.now() + 5 * 60 * 1_000),
-      destructive,
-    });
-    const portalContainer = new ContainerBuilder()
-      .setAccentColor(destructive ? 0xe8_8b_94 : 0x57_f2_87)
-      .addTextDisplayComponents(
-        text(
-          `**Plan « ${parsed.data.title} »** : ${parsed.data.ops.length} op(s) en attente de confirmation (5 min). Clique pour consulter et valider.`,
-        ),
-      )
-      .addActionRowComponents(
-        new ActionRowBuilder<ButtonBuilder>().addComponents(
-          new ButtonBuilder().setCustomId(ANSWER_VIEW_ID).setLabel('Consulter le plan').setStyle(ButtonStyle.Primary),
-        ),
-      );
-    const portal = await channel
-      .send({ components: [portalContainer], flags: MessageFlags.IsComponentsV2 })
-      .catch(() => null);
-    if (!portal) return { ok: false, summary: 'Impossible de poster le portail de confirmation.' };
-
-    // Réservé au demandeur : le clic d'un autre membre est refusé par le handler.
-    storeAnswer(portal.id, { components: planReply.components, ownerId: ctx.userId });
-
-    const plan = await agent.createPlan(ctx.guildId, ctx.channelId, ctx.userId, parsed.data, portal.id);
-    return {
-      ok: true,
-      summary: `Plan #${plan.planId} proposé : ${plan.destructiveOps.length} op(s) destructive(s). Panneau de confirmation éphémère envoyé au demandeur (5 min).`,
-      data: { planId: plan.planId },
-    };
+  /** Exécution directe d'une op via AgentService (gates + audit inclus). */
+  const executeDirectOp = async (ctx: ToolRunContext, op: AdminOp): Promise<ToolResult> => {
+    const guild = guildOf(ctx);
+    if (!guild) return noGuild();
+    const result = await agent.executeDirect(guild.id, ctx.userId, op);
+    return { ok: result.ok, summary: `${result.label}${result.detail ? ` (${result.detail})` : ''}` };
   };
+
 
   const baseTools: BotTool[] = [
     {
@@ -335,36 +274,37 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
     },
     {
       name: 'deleteChannel',
-      description: 'Supprime un salon, en passant obligatoirement par un plan confirmé (snapshot archivé avant suppression).',
+      description: 'Supprime un salon (snapshot archivé avant suppression). Exécution directe : permissions du demandeur vérifiées.',
       category: 'agent',
       paramsSchema: z.object({ channelId: z.string().min(1) }),
       requiredModules: [],
       permissions: ['ManageChannels'],
       destructive: true,
       systemPrompt:
-        'Tier 3 / DESTRUCTIVE, never executes directly: it creates a PLAN requiring owner-or-whitelist approval within 5 minutes. The default alternative is archiveChannel, prefer it unless the user explicitly wants deletion. For several deletions, use ONE grouped proposePlan call.',
+        'DESTRUCTIVE but EXECUTES DIRECTLY (no confirmation, no plan): permission-gated. The requester needs ManageChannels and the bot needs ManageChannels. archiveChannel is the gentler alternative unless the user explicitly wants deletion. Fail fast with the tool result if a permission is missing (requester OR bot), never invent obstacles.',
       handler: async (input, ctx) => {
         const { channelId } = input as { channelId: string };
-        return proposePlan(ctx, 'Suppression de salon', [{ type: 'channel.delete', channelId }]);
+        return executeDirectOp(ctx, { type: 'channel.delete', channelId });
       },
     },
     {
       name: 'deleteRole',
-      description: 'Supprime un rôle, en passant obligatoirement par un plan confirmé (snapshot stocké).',
+      description: 'Supprime un rôle (snapshot stocké). Exécution directe : permissions du demandeur vérifiées.',
       category: 'agent',
       paramsSchema: z.object({ roleId: z.string().min(1) }),
       requiredModules: [],
       permissions: ['ManageRoles'],
       destructive: true,
-      systemPrompt: 'Tier 3 / DESTRUCTIVE, creates a plan for human approval. Never guess the roleId: use role.list.',
+      systemPrompt:
+        'DESTRUCTIVE but EXECUTES DIRECTLY (no confirmation, no plan): permission-gated. Never guess the roleId: use getRoles. Fail fast with the tool result if a permission is missing, never invent obstacles.',
       handler: async (input, ctx) => {
         const { roleId } = input as { roleId: string };
-        return proposePlan(ctx, 'Suppression de rôle', [{ type: 'role.delete', roleId }]);
+        return executeDirectOp(ctx, { type: 'role.delete', roleId });
       },
     },
     {
       name: 'kickMember',
-      description: 'Expulse un membre, en passant obligatoirement par un plan confirmé (whitelist).',
+      description: 'Expulse un membre du serveur (bots inclus). Exécution directe : permissions du demandeur vérifiées.',
       category: 'agent',
       paramsSchema: z.object({
         userId: z.string().min(1),
@@ -374,15 +314,15 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       permissions: ['KickMembers'],
       destructive: true,
       systemPrompt:
-        'Tier 3 / DESTRUCTIVE and WHITELIST-GATED (owner + whitelisted IDs only). Creates a plan for approval. Temporary alternative: muteMember.',
+        'EXECUTES DIRECTLY (no confirmation, no plan): permission-gated. Requires requester KickMembers and bot KickMembers, hierarchy applies. Temporary alternative: muteMember. Kicking ANOTHER BOT member is a normal Discord action.',
       handler: async (input, ctx) => {
         const { userId, reason } = input as { userId: string; reason?: string };
-        return proposePlan(ctx, 'Expulsion de membre', [{ type: 'member.kick', userId, reason }]);
+        return executeDirectOp(ctx, { type: 'member.kick', userId, reason });
       },
     },
     {
       name: 'banMember',
-      description: 'Bannit un utilisateur, en passant obligatoirement par un plan confirmé (whitelist).',
+      description: 'Bannit un utilisateur du serveur. Exécution directe : permissions du demandeur vérifiées.',
       category: 'agent',
       paramsSchema: z.object({
         userId: z.string().min(1),
@@ -392,32 +332,13 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       permissions: ['BanMembers'],
       destructive: true,
       systemPrompt:
-        'Tier 3 / DESTRUCTIVE and WHITELIST-GATED. Creates a plan; a moderation case is created at execution time.',
+        'EXECUTES DIRECTLY (no confirmation, no plan): permission-gated. A moderation case is created. Requires requester BanMembers and bot BanMembers. Fail fast with the tool result, never invent obstacles.',
       handler: async (input, ctx) => {
         const { userId, reason } = input as { userId: string; reason?: string };
-        return proposePlan(ctx, 'Bannissement', [{ type: 'member.ban', userId, reason }]);
-      },
-    },
-    {
-      name: 'proposePlan',
-      description:
-        'Propose UN plan groupé de plusieurs ops (salons, rôles, membre) soumis à une confirmation par boutons. À préférer aux appels séparés pour toute demande multi-actions.',
-      category: 'agent',
-      paramsSchema: z.object({
-        title: z.string().min(1).max(256),
-        ops: z.array(AdminOpSchema).min(1).max(20),
-      }),
-      requiredModules: [],
-      permissions: ['ManageGuild'],
-      destructive: false,
-      systemPrompt:
-        'USE THIS for multi-action requests (e.g. "delete these 3 channels", "set up a member space"): ONE plan with N ops instead of N separate plans. Op types: channel.create, channel.rename, channel.archive, channel.delete, role.create, role.rename, role.delete, member.timeout, member.kick, member.ban. The confirmation panel with buttons is posted to the channel automatically.',
-      handler: async (input, ctx) => {
-        const { title, ops } = input as { title: string; ops: Array<Record<string, unknown>> };
-        return proposePlan(ctx, title, ops);
+        return executeDirectOp(ctx, { type: 'member.ban', userId, reason });
       },
     },
   ];
 
-  return [...baseTools, ...discordExtraTools(agent, client, { guildOf, noGuild, proposePlan })];
+  return [...baseTools, ...discordExtraTools(agent, client, { guildOf, noGuild })];
 }

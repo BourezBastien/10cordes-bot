@@ -6,10 +6,7 @@ import {
   dependenciesToEnable,
   findModule,
   missingDependencies,
-  AdminOpSchema,
   opLabel,
-  DESTRUCTIVE_OP_TYPES,
-  type AgentPlanInput,
   type AdminOp,
   type DisableCascade,
   type ModuleDescriptor,
@@ -54,8 +51,6 @@ export interface PlanOpResult {
   detail?: string;
 }
 
-const PLAN_TTL_MS = 5 * 60 * 1_000;
-
 let runtime: AgentService | undefined;
 
 /** Accès runtime pour les contextes sans DI (guards, layouts). */
@@ -65,9 +60,9 @@ export function getModuleManager(): AgentService {
 }
 
 /**
- * Agent Admin — plan → confirmation humaine → exécution → rapport → audit.
- * Fail-closed : expiration = annulation ; les ops destructives exigent la
- * whitelist (ou le owner) au moment du CLIC, pas seulement à la demande.
+ * Agent Admin — demande → exécution directe (gates de permissions en code)
+ * → rapport → audit. Les gates sont re-vérifiées par op : demandeur ET bot.
+ * Archive-first pour les suppressions ; tout est audité.
  */
 @Injectable()
 export class AgentService implements SpraxiumOnBoot {
@@ -75,7 +70,6 @@ export class AgentService implements SpraxiumOnBoot {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly client: Client,
-    private readonly whitelist: AdminWhitelistService,
     private readonly moderation: ModerationService,
     private readonly config: GuildConfigService,
     private readonly guildStates: GuildModuleStateService,
@@ -231,145 +225,62 @@ export class AgentService implements SpraxiumOnBoot {
     this.cooldowns.check(ctx.guildId, ctx.userId, ctx.memberRoleIds, module.id, constraints);
   }
 
-  /** Crée un plan d'ops (validé par le schéma) en attente de confirmation humaine. */
-  async createPlan(
+  /**
+   * Exécution DIRECTE d'une op : plus de plans ni de confirmation (décision
+   * produit du 17/11). Gates en code :
+   * - le demandeur doit avoir la permission Discord correspondante
+   *   (le registry l'a déjà vérifiée, on re-vérifie ici par op) ;
+   * - le bot doit avoir la permission (re-vérifiée dans executeOp).
+   * Archive-first pour les suppressions, audit complet.
+   */
+  async executeDirect(
     guildId: string,
-    channelId: string,
     requesterId: string,
-    input: AgentPlanInput,
-    panelMessageId?: string,
-  ): Promise<{ planId: string; expiresAt: Date; destructiveOps: AdminOp[] }> {
-    const expiresAt = new Date(Date.now() + PLAN_TTL_MS);
-    const plan = await this.prisma.agentPlan.create({
-      data: {
+    op: AdminOp,
+  ): Promise<PlanOpResult> {
+    const guild = this.client.guilds.cache.get(guildId);
+    if (!guild) return { ok: false, label: opLabel(op), detail: 'Serveur introuvable.' };
+
+    const requesterMember = await guild.members.fetch(requesterId).catch(() => null);
+    const requiredFlags: Partial<Record<AdminOp['type'], bigint>> = {
+      'channel.create': PermissionFlagsBits.ManageChannels,
+      'channel.rename': PermissionFlagsBits.ManageChannels,
+      'channel.archive': PermissionFlagsBits.ManageChannels,
+      'channel.delete': PermissionFlagsBits.ManageChannels,
+      'role.create': PermissionFlagsBits.ManageRoles,
+      'role.rename': PermissionFlagsBits.ManageRoles,
+      'role.delete': PermissionFlagsBits.ManageRoles,
+      'member.timeout': PermissionFlagsBits.ModerateMembers,
+      'member.kick': PermissionFlagsBits.KickMembers,
+      'member.ban': PermissionFlagsBits.BanMembers,
+    };
+    const required = requiredFlags[op.type];
+    const isOwner = guild.ownerId === requesterId;
+    const hasPermission = requesterMember?.permissions.has(required ?? PermissionFlagsBits.ManageGuild) ?? false;
+    if (!isOwner && !hasPermission) {
+      this.audit.record({
         guildId,
-        channelId,
-        requesterId,
-        title: input.title,
-        ops: JSON.stringify(input.ops),
-        expiresAt,
-        panelMessageId: panelMessageId ?? null,
-      },
-    });
+        source: 'agent',
+        action: 'agent.action.denied',
+        actorId: requesterId,
+        metadata: { op: op.type, reason: `permission ${required} manquante pour le demandeur` },
+      });
+      return {
+        ok: false,
+        label: opLabel(op),
+        detail: `Permission ${required} requise pour le demandeur.`,
+      };
+    }
+
+    const result = await this.executeOp(guild, op, requesterId, requesterMember, requesterId);
     this.audit.record({
       guildId,
       source: 'agent',
-      action: 'agent.plan.created',
+      action: 'agent.action.direct',
       actorId: requesterId,
-      metadata: { planId: plan.id, title: input.title, ops: input.ops.length },
+      metadata: { op: op.type, ok: result.ok, detail: result.detail ?? null },
     });
-    return {
-      planId: plan.id,
-      expiresAt,
-      destructiveOps: input.ops.filter((op) => DESTRUCTIVE_OP_TYPES.has(op.type)),
-    };
-  }
-
-  async latestPending(guildId: string, channelId: string): Promise<{ id: string } | null> {
-    const plans = await this.listPending(guildId, channelId);
-    return plans[0] ?? null;
-  }
-
-  /** Tous les plans en attente du salon (le plus ancien d'abord, avec titre). */
-  async listPending(guildId: string, channelId: string): Promise<Array<{ id: string; title: string }>> {
-    const plans = await this.prisma.agentPlan.findMany({
-      where: { guildId, channelId, status: 'pending', expiresAt: { gt: new Date() } },
-      orderBy: { createdAt: 'asc' },
-      select: { id: true, title: true },
-    });
-    return plans;
-  }
-
-  /**
-   * Confirmation : le CLIQUEUR est autorisé ici (règle n°3) — whitelist/owner
-   * pour les plans destructifs, ManageGuild sinon. Expiration = annulation.
-   */
-  async resolve(
-    planId: string,
-    approverId: string,
-    action: 'approve' | 'cancel',
-  ): Promise<{
-    status: 'executed' | 'cancelled' | 'expired' | 'denied' | 'notfound';
-    results?: PlanOpResult[];
-    denialReason?: string;
-    planTitle?: string;
-    panelMessageId?: string;
-  }> {
-    const plan = await this.prisma.agentPlan.findUnique({ where: { id: planId } });
-    if (!plan || plan.status !== 'pending') return { status: 'notfound', planTitle: plan?.title };
-    if (plan.expiresAt.getTime() < Date.now()) {
-      await this.prisma.agentPlan.update({ where: { id: planId }, data: { status: 'expired' } });
-      return { status: 'expired', planTitle: plan.title, panelMessageId: plan.panelMessageId ?? undefined };
-    }
-
-    const guild = this.client.guilds.cache.get(plan.guildId);
-    if (!guild) return { status: 'notfound', planTitle: plan.title, panelMessageId: plan.panelMessageId ?? undefined };
-
-    if (action === 'cancel') {
-      await this.prisma.agentPlan.update({
-        where: { id: planId },
-        data: { status: 'cancelled', approvedBy: approverId },
-      });
-      this.audit.record({
-        guildId: plan.guildId,
-        source: 'agent',
-        action: 'agent.plan.cancelled',
-        actorId: approverId,
-        metadata: { planId, title: plan.title },
-      });
-      return { status: 'cancelled', planTitle: plan.title, panelMessageId: plan.panelMessageId ?? undefined };
-    }
-
-    const ops = (JSON.parse(plan.ops) as AdminOp[]).map((op) => AdminOpSchema.parse(op));
-    const hasDestructive = ops.some((op) => DESTRUCTIVE_OP_TYPES.has(op.type));
-
-    // Gate d'approbation : owner/whitelist si destructif, ManageGuild sinon.
-    const approverIsOwner = guild.ownerId === approverId;
-    const approverWhitelisted = approverIsOwner || (await this.whitelist.isWhitelisted(plan.guildId, approverId));
-    if (hasDestructive && !approverWhitelisted) {
-      this.audit.record({
-        guildId: plan.guildId,
-        source: 'agent',
-        action: 'agent.plan.denied',
-        actorId: approverId,
-        metadata: { planId, reason: 'not whitelisted' },
-      });
-      return {
-        status: 'denied',
-        denialReason: 'Ce plan contient des ops destructives : réservées au owner et à la whitelist.',
-        planTitle: plan.title,
-        panelMessageId: plan.panelMessageId ?? undefined,
-      };
-    }
-    const approverMember = await guild.members.fetch(approverId).catch(() => null);
-    if (!hasDestructive && approverMember && !approverMember.permissions.has(PermissionFlagsBits.ManageGuild)) {
-      return {
-        status: 'denied',
-        denialReason: 'Permission ManageGuild requise pour approuver ce plan.',
-        planTitle: plan.title,
-        panelMessageId: plan.panelMessageId ?? undefined,
-      };
-    }
-
-    const requesterMember = await guild.members.fetch(plan.requesterId).catch(() => null);
-    const results: PlanOpResult[] = [];
-    for (const op of ops) {
-      const result = await this.executeOp(guild, op, plan.requesterId, requesterMember, approverId);
-      results.push(result);
-      this.audit.record({
-        guildId: plan.guildId,
-        source: 'agent',
-        action: `agent.op.${op.type}`,
-        actorId: approverId,
-        metadata: { planId, requesterId: plan.requesterId, ok: result.ok, detail: result.detail ?? null },
-      });
-    }
-
-    await this.prisma.agentPlan.update({
-      where: { id: planId },
-      data: { status: 'executed', approvedBy: approverId, results: JSON.stringify(results) },
-    });
-    return { status: 'executed', results, planTitle: plan.title, panelMessageId: plan.panelMessageId ?? undefined };
+    return result;
   }
 
   /** Exécution d'une op — chaque op re-vérifie les permissions du bot en code. */
@@ -378,11 +289,11 @@ export class AgentService implements SpraxiumOnBoot {
     op: AdminOp,
     requesterId: string,
     requesterMember: GuildMember | null,
-    approverId: string,
+    _actorId: string,
   ): Promise<PlanOpResult> {
     const label = opLabel(op);
     const me = guild.members.me;
-    const auditReason = `agent plan (requester <@${requesterId}>, approver <@${approverId}>)`;
+    const auditReason = `agent (demande de <@${requesterId}>)`;
 
     try {
       switch (op.type) {
@@ -422,8 +333,8 @@ export class AgentService implements SpraxiumOnBoot {
           return { ok: true, label, detail: `archivé (snapshot : \`${JSON.stringify(snapshot)}\`)` };
         }
         case 'channel.delete': {
-          // Archive-first : snapshot → suppression (l'op destructif n'arrive ici
-          // qu'après confirmation whitelist ; le snapshot est la trace restaurable).
+          // Archive-first : snapshot → suppression (le snapshot est la trace
+          // restaurable, visible dans le détail du résultat).
           if (!me?.permissions.has(PermissionFlagsBits.ManageChannels)) {
             return { ok: false, label, detail: "Le bot n'a pas la permission ManageChannels." };
           }
@@ -476,7 +387,7 @@ export class AgentService implements SpraxiumOnBoot {
           if (requesterMember) {
             this.moderation.assertHierarchy(requesterMember, member, meMember);
           }
-          const entry = await this.moderation.timeout(guild, member, approverId, op.durationMs, op.reason ?? auditReason);
+          const entry = await this.moderation.timeout(guild, member, requesterId, op.durationMs, op.reason ?? auditReason);
           return { ok: true, label, detail: `case #${entry.caseId}` };
         }
         case 'member.kick': {
@@ -487,7 +398,7 @@ export class AgentService implements SpraxiumOnBoot {
           if (requesterMember) {
             this.moderation.assertHierarchy(requesterMember, member, meMember);
           }
-          const entry = await this.moderation.kick(guild, member, approverId, op.reason ?? auditReason);
+          const entry = await this.moderation.kick(guild, member, requesterId, op.reason ?? auditReason);
           return { ok: true, label, detail: `case #${entry.caseId}` };
         }
         case 'member.ban': {
@@ -496,7 +407,7 @@ export class AgentService implements SpraxiumOnBoot {
           }
           const user: User | null = await this.client.users.fetch(op.userId).catch(() => null);
           if (!user) return { ok: false, label, detail: 'Utilisateur introuvable.' };
-          const entry = await this.moderation.ban(guild, user, approverId, op.reason ?? auditReason, false);
+          const entry = await this.moderation.ban(guild, user, requesterId, op.reason ?? auditReason, false);
           return { ok: true, label, detail: `case #${entry.caseId}` };
         }
       }

@@ -470,73 +470,30 @@ async function main() {
     },
   );
 
-  // Le ban est destructive : il doit finir en PLAN (proposePlan ou banMember),
-  // jamais appliqué directement. Le panneau avec boutons est posté par le tool.
+  // Le ban s'exécute DIRECTEMENT (plus de plans depuis le 17/11) : la cible
+  // factice est inconnue de Discord, le tool doit l'indiquer (ok=false).
   await runScenario(
-    'banMember (plan confirmatoire)',
+    'banMember (cible inconnue)',
     `Bannis l'utilisateur ${DUMMY_USER_ID} pour raison « test e2e ».`,
-    [],
+    ['banMember'],
     async ({ entries }) => {
-      const planned = entries.find(
-        (e) => e.action === 'assistant.tool.banMember' || e.action === 'assistant.tool.proposePlan',
-      );
+      const call = entries.find((e) => e.action === 'assistant.tool.banMember');
       let ok = '?';
-      if (planned) {
+      if (call) {
         try {
-          ok = JSON.parse(planned.metadata).ok;
+          ok = JSON.parse(call.metadata).ok;
         } catch {}
       }
       const bans = await api.bans();
       const applied = bans.some((b) => b.user.id === DUMMY_USER_ID);
       return {
-        pass: planned !== undefined && ok === true && !applied,
-        note: `via ${planned ? planned.action.replace('assistant.tool.', '') : 'aucun tool'} ok=${ok} ; ${applied ? 'BAN APPLIQUÉ (inattendu !)' : 'aucun ban appliqué avant confirmation'}`,
+        pass: call !== undefined && !applied,
+        note: `via ${call ? 'banMember' : 'aucun tool'} ok=${ok} ; ${applied ? 'BAN APPLIQUÉ (inattendu !)' : 'aucun ban (cible factice)'}`,
       };
     },
   );
 
-  // Suppression groupée : UN plan multi-ops plutôt que N plans séparés.
-  for (const name of ['e2e-guardian', 'e2e-guardian-2']) {
-    const ch = await findChannel(name);
-    if (!ch) {
-      await rest(`/guilds/${guildId}/channels`, {
-        method: 'POST',
-        body: JSON.stringify({ name, type: 0 }),
-      }).catch(() => {});
-    }
-  }
-  await runScenario(
-    'proposePlan (suppression groupée)',
-    'Supprime les salons e2e-guardian et e2e-guardian-2 en un seul plan groupé.',
-    ['proposePlan'],
-    async ({ entries }) => {
-      const call = entries.find((e) => e.action === 'assistant.tool.proposePlan');
-      let ok = '?';
-      let summary = '';
-      if (call) {
-        try {
-          const meta = JSON.parse(call.metadata);
-          ok = meta.ok;
-          summary = meta.summary ?? '';
-        } catch {}
-      }
-      const { PrismaClient } = await import('@prisma/client');
-      const prisma = new PrismaClient();
-      let opsCount = -1;
-      try {
-        const plan = await prisma.agentPlan.findFirst({ orderBy: { createdAt: 'desc' }, select: { ops: true } });
-        opsCount = plan ? (JSON.parse(plan.ops) ?? []).length : -1;
-      } finally {
-        await prisma.$disconnect();
-      }
-      return {
-        pass: call !== undefined && ok === true && opsCount >= 2,
-        note: `ok=${ok} ; ${opsCount} op(s) dans le dernier plan ; ${summary.includes('Panneau') ? 'panneau posté' : summary.slice(0, 80)}`,
-      };
-    },
-  );
-
-  // Un ban réel exige une vraie cible (Discord refuse « Unknown User » sur un
+// Un ban réel exige une vraie cible (Discord refuse « Unknown User » sur un
   // ID sans compte) : on vérifie le comportement (consulter l'état via
   // getBans puis répondre), pas l'effet. Le test complet unban s'inclut dans
   // les tests utilisateur avec un vrai membre banni.

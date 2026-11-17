@@ -60,6 +60,21 @@ export class MemoryCuratorService {
         create: { guildId, userId, text: result.text },
         update: { text: result.text },
       });
+      // Skill auto-généré : rend la fiche accessible en conversation via
+      // openSkill (« toute ta mémoire sur cette personne »).
+      const trigger = `Quand on demande des infos sur <@${userId}> ou qu'on lui parle`;
+      const rule = `Réponds avec TOUT ce que tu sais sur ce membre (fiche mémoire consolidée) : ${result.text.slice(0, 550)}`;
+      const existing = await this.prisma.agentSkill.findFirst({
+        where: { guildId, trigger, deletedAt: null },
+        select: { id: true },
+      });
+      if (existing) {
+        await this.prisma.agentSkill.update({ where: { id: existing.id }, data: { rule } });
+      } else {
+        await this.prisma.agentSkill.create({
+          data: { guildId, trigger, rule, createdByUserId: actorId },
+        });
+      }
     }
     this.audit.record({
       guildId,

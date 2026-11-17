@@ -95,7 +95,7 @@ export class WebToolsService implements SpraxiumOnBoot {
         permissions: ['AttachFiles'],
         destructive: false,
         systemPrompt:
-          'Utilise-le quand on demande un PDF, un document, un rapport mis en page. Le contenu est du TEXTE structuré (paragraphes séparés par une ligne vide) : construis-le complet avant d\u2019appeler.',
+          'Utilise-le quand on demande un PDF, un document, un rapport mis en page. Le contenu est du TEXTE structuré (paragraphes séparés par une ligne vide) : construis-le complet avant d\u0027appeler. N\u0027INVENTE JAMAIS des impossibilités techniques et ne propose jamais d\u0027alternative : le tool génère et envoie le PDF, point.',
         handler: async (input, ctx) => {
           const sendFile = sendFileOf(ctx);
           if (!sendFile) return { ok: false, summary: 'Envoi de fichiers indisponible sur cette surface.' };
