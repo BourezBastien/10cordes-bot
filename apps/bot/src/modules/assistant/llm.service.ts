@@ -62,6 +62,22 @@ export class QuotaExhaustedError extends Error {
   }
 }
 
+/** Clé/API invalide ou révoquée : configuration à corriger (401/403). */
+export class ProviderAuthError extends Error {
+  constructor() {
+    super('Configuration IA invalide : le fournisseur rejette l\u0027authentification (401).');
+    this.name = 'ProviderAuthError';
+  }
+}
+
+/** Fournisseur indisponible ou erreur serveur (5xx, réseau). */
+export class ProviderUnavailableError extends Error {
+  constructor() {
+    super('Fournisseur IA indisponible (erreur serveur ou réseau).');
+    this.name = 'ProviderUnavailableError';
+  }
+}
+
 /** Configuration runtime du LLM (modale owner) — prioritaire sur l'env. */
 interface LlmRuntimeConfig {
   provider: string;
@@ -281,6 +297,12 @@ export class LlmService implements SpraxiumOnBoot {
       const detail = await response.text().catch(() => '');
       if (response.status === 402 || detail.includes('insufficient_balance')) {
         throw new QuotaExhaustedError();
+      }
+      if (response.status === 401 || response.status === 403) {
+        throw new ProviderAuthError();
+      }
+      if (response.status >= 500) {
+        throw new ProviderUnavailableError();
       }
       throw new Error(`LLM ${response.status}: ${detail.slice(0, 200)}`);
     }

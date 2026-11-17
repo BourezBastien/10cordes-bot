@@ -7,6 +7,7 @@ import { GuildAccessGuard } from './auth/guards/guild-access.guard';
 import { AgentModule } from './modules/agent/agent.module';
 import { AssistantModule } from './modules/assistant/assistant.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { AutomationsModule } from './modules/automations/automations.module';
 import { DatabaseModule } from './modules/database/database.module';
 import { GuildConfigModule } from './modules/guild-config/guild-config.module';
 import { ImagelabModule } from './modules/imagelab/imagelab.module';
@@ -49,6 +50,7 @@ import { WebToolsModule } from './modules/webtools/webtools.module';
     TicketsModule,
     WebToolsModule,
     ToolRegistryModule,
+    AutomationsModule,
     AgentModule,
     AssistantModule,
     WelcomeModule,

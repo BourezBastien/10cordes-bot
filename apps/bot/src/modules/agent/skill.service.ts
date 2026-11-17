@@ -4,6 +4,7 @@ import { PrismaService } from '../database/prisma.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { z } from 'zod';
 import type { BotTool } from '@10cordes/shared';
+import { SKILL_LIBRARY } from './skills.library';
 
 /**
  * Skills : règles de comportement durables créées en conversation
@@ -21,7 +22,7 @@ import type { BotTool } from '@10cordes/shared';
  */
 
 const TRIGGER_MAX = 120;
-const RULE_MAX = 600;
+const RULE_MAX = 1500;
 const TRIGGER_CACHE_TTL_MS = 30_000;
 
 const toSingleLine = (value: string): string => value.replaceAll(/\s+/gu, ' ').trim();
@@ -56,6 +57,39 @@ export class SkillService implements SpraxiumOnBoot {
   async onBoot(): Promise<void> {
     setSkillsAccessor(async (guildId) => this.fetchTriggers(guildId).catch(() => [] as SkillTrigger[]));
     for (const tool of this.buildTools()) this.registry.register(tool);
+    await this.seedLibrary();
+  }
+
+  /**
+   * Bibliothèque : upsert des skills officiels manquants pour chaque serveur
+   * connu (idempotent par trigger exact). Tous actifs ; supprimables.
+   */
+  private async seedLibrary(): Promise<void> {
+    try {
+      const guilds = await this.prisma.guild.findMany({ select: { id: true } });
+      let seeded = 0;
+      for (const guild of guilds) {
+        for (const skill of SKILL_LIBRARY) {
+          const existing = await this.prisma.agentSkill.findFirst({
+            where: { guildId: guild.id, trigger: skill.trigger, deletedAt: null },
+            select: { id: true },
+          });
+          if (existing) continue;
+          await this.prisma.agentSkill.create({
+            data: {
+              guildId: guild.id,
+              trigger: skill.trigger,
+              rule: skill.rule,
+              createdByUserId: 'library',
+            },
+          });
+          seeded++;
+        }
+      }
+      if (seeded > 0) this.log.info(`${seeded} skill(s) de bibliothèque seedés.`);
+    } catch (error) {
+      this.log.warn(`Seed bibliothèque ignoré : ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private async invalidate(guildId: string): Promise<void> {

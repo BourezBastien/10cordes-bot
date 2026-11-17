@@ -18,6 +18,11 @@ function makeCurator(currentText: string | null = null) {
       findUnique: vi.fn().mockResolvedValue(null),
       upsert: vi.fn().mockResolvedValue({}),
     },
+    agentSkill: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue({}),
+      update: vi.fn().mockResolvedValue({}),
+    },
   };
   const audit = { record: vi.fn() };
   const curator = new MemoryCuratorService(prisma as never, audit as never);

@@ -200,6 +200,23 @@ model AgentSkill {
   @@map("agent_skills")
 }
 
+// ── Automatisations créées par l'agent (event → actions) ──
+
+model AgentAutomation {
+  id              String   @id @default(cuid())
+  guildId         String
+  name            String
+  triggerType     String // message.created | member.joined | member.left | channel.created
+  triggerFilter   String   @default("{}") // JSON: { channelId?, contains?, userIds? }
+  actions         String   @default("[]") // JSON: [{ type, params }]
+  enabled         Boolean  @default(true)
+  createdByUserId String
+  createdAt       DateTime @default(now())
+
+  @@index([guildId, enabled])
+  @@map("agent_automations")
+}
+
 model AgentPlan {
   id             String   @id @default(cuid())
   guildId        String

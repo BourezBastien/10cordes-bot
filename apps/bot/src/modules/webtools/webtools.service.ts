@@ -68,7 +68,7 @@ export class WebToolsService implements SpraxiumOnBoot {
         requiredModules: [],
         destructive: false,
         systemPrompt:
-          'Pour les infos d\u2019actualité, récentes ou que tu ne connais pas : cherche AVANT de répondre, puis cite les sources (URLs) dans ta réponse.',
+          'Pour les infos d\u0027actualité, récentes ou que tu ne connais pas : cherche AVANT de répondre. DOCTRINE DES SOURCES : croise au moins 2 sources indépendantes, cite les URLs de chaque source utilisée, ne publie que si les faits sont cohérents entre elles ; en cas de divergence signale-la, sans sources fiables dis « je ne sais pas » et propose où chercher. Préfère presse établie (Le Monde, France24 via getNews) et Wikipédia (searchWikipedia).',
         handler: async (input, _ctx) => {
           const { query } = input as { query: string };
           const results = await searchWeb(query);
@@ -138,12 +138,14 @@ export class WebToolsService implements SpraxiumOnBoot {
       },
       {
         name: 'githubRepo',
-        description: 'Infos sur un dépôt GitHub (propriétaire/nom) : description, étoiles, langage, dernière release.',
+        description:
+          'Infos sur un dépôt GitHub (propriétaire/nom) : description, étoiles, langage, dernière release, lien de diagramme interactif (gitdiagram). Limite API : 60 requêtes/heure sans auth.',
         category: 'web',
         paramsSchema: z.object({ repo: z.string().min(3).max(120).describe('Format propriétaire/nom, ex: discordjs/discord.js') }),
         requiredModules: [],
         destructive: false,
-        systemPrompt: 'Format strict propriétaire/nom. Utile pour suivre des projets et leurs versions.',
+        systemPrompt:
+          'Format strict propriétaire/nom. Pour une vue en diagramme de l\u0027architecture, donne le lien https://gitdiagram.com/{owner}/{repo}. Limite 60 req/h sans clé : pas de boucles intensives.',
         handler: async (input, _ctx) => {
           const { repo } = input as { repo: string };
           const clean = repo.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '');
@@ -163,8 +165,8 @@ export class WebToolsService implements SpraxiumOnBoot {
             .catch(() => ({}))) as { tag_name?: string; name?: string };
           return {
             ok: true,
-            summary: `${info.full_name} : ${info.description ?? 'sans description'}, ${info.stargazers_count ?? 0} étoiles, ${info.forks_count ?? 0} forks, langage ${info.language ?? '?'}${release.tag_name ? `, dernière version ${release.tag_name}` : ''}. ${info.html_url ?? ''}`,
-            data: { ...info, latestRelease: release.tag_name ?? null },
+            summary: `${info.full_name} : ${info.description ?? 'sans description'}, ${info.stargazers_count ?? 0} étoiles, ${info.forks_count ?? 0} forks, langage ${info.language ?? '?'}${release.tag_name ? `, dernière version ${release.tag_name}` : ''}. ${info.html_url ?? ''} | Diagramme interactif : https://gitdiagram.com/${clean}`,
+            data: { ...info, latestRelease: release.tag_name ?? null, diagramUrl: `https://gitdiagram.com/${clean}` },
           };
         },
       },
@@ -202,6 +204,493 @@ export class WebToolsService implements SpraxiumOnBoot {
             return `${index + 1}. ${title}${link ? ` : ${link}` : ''}${date ? ` (${date})` : ''}`;
           });
           return { ok: true, summary: lines.join(' | ').slice(0, 2000), data: { count: lines.length } };
+        },
+      },
+      {
+        name: 'getJoke',
+        description: 'Renvoie une blague en français ou anglais (JokeAPI, Chuck Norris en option).',
+        category: 'web',
+        paramsSchema: z.object({
+          lang: z.enum(['fr', 'en']).default('fr'),
+          source: z.enum(['any', 'chucknorris']).default('any'),
+        }),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt: 'Parfait pour détendre l\u0027ambiance. La blague est un contenu tiers : livre-la telle quelle, ne la modifie pas.',
+        handler: async (input, _ctx) => {
+          const { lang, source } = input as { lang?: string; source?: string };
+          if (source === 'chucknorris') {
+            const joke = (await fetch('https://api.chucknorris.io/jokes/random').then((res) => res.json())) as { value?: string };
+            return { ok: true, summary: joke.value ?? 'Aucune blague trouvée.', data: { source: 'api.chucknorris.io' } };
+          }
+          const joke = (await fetch(
+            `https://v2.jokeapi.dev/joke/Any?lang=${lang === 'en' ? 'en' : 'fr'}&safe-mode`,
+          ).then((res) => res.json())) as {
+            error?: boolean;
+            type?: string;
+            joke?: string;
+            setup?: string;
+            delivery?: string;
+          };
+          if (joke.error || (!joke.joke && !joke.setup)) return { ok: false, summary: 'Aucune blague disponible.' };
+          const text = joke.type === 'twopart' ? `${joke.setup} … ${joke.delivery}` : (joke.joke ?? '');
+          return { ok: true, summary: text, data: { source: 'jokeapi.dev' } };
+        },
+      },
+      {
+        name: 'getMeme',
+        description: 'Renvoie un mème aléatoire (image URL + titre, source Reddit).',
+        category: 'web',
+        paramsSchema: z.record(z.string(), z.unknown()),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt: 'Ambiance détendue uniquement. Vérifie que le mème est adapté au salon avant de le partager.',
+        handler: async (_input, _ctx) => {
+          const meme = (await fetch('https://meme-api.com/gimme').then((res) => res.json())) as {
+            url?: string;
+            title?: string;
+            postLink?: string;
+          };
+          if (!meme.url) return { ok: false, summary: 'Aucun mème disponible.' };
+          return {
+            ok: true,
+            summary: `${meme.title ?? 'mème'} : ${meme.url} (source : ${meme.postLink ?? 'reddit'})`,
+            data: { url: meme.url, postLink: meme.postLink },
+          };
+        },
+      },
+      {
+        name: 'getFact',
+        description: 'Renvoie un fait insolite vérifié (français ou anglais, uselessfacts).',
+        category: 'web',
+        paramsSchema: z.object({ lang: z.enum(['fr', 'en']).default('fr') }),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt: 'Anecdote insolite : livre-la avec la mention « fait vérifié » si tu la présentes comme vraie.',
+        handler: async (input, _ctx) => {
+          const { lang } = input as { lang?: string };
+          const fact = (await fetch(`https://uselessfacts.jsph.pl/api/v2/facts/random?language=${lang === 'en' ? 'en' : 'fr'}`).then((res) =>
+            res.json(),
+          )) as { text?: string };
+          return { ok: true, summary: fact.text ?? 'Aucun fait trouvé.', data: { source: 'uselessfacts.jsph.pl' } };
+        },
+      },
+      {
+        name: 'getAdvice',
+        description: 'Renvoie un conseil du jour (Advice Slip API, anglais).',
+        category: 'web',
+        paramsSchema: z.record(z.string(), z.unknown()),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt: 'Le conseil arrive en anglais : traduis-le si l\u0027utilisateur parle français.',
+        handler: async (_input, _ctx) => {
+          const advice = (await fetch('https://api.adviceslip.com/advice').then((res) => res.json())) as {
+            slip?: { advice?: string };
+          };
+          return { ok: true, summary: advice.slip?.advice ?? 'Aucun conseil trouvé.', data: { source: 'api.adviceslip.com' } };
+        },
+      },
+      {
+        name: 'getZenQuote',
+        description: 'Renvoie une citation inspirante (ZenQuotes, anglais).',
+        category: 'web',
+        paramsSchema: z.record(z.string(), z.unknown()),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt: 'Citation en anglais : traduis-la pour un public français.',
+        handler: async (_input, _ctx) => {
+          const quote = (await fetch('https://zenquotes.io/api/random').then((res) => res.json())) as Array<{ q?: string; a?: string }>;
+          const first = quote?.[0];
+          return { ok: true, summary: first ? `"${first.q}" : ${first.a}` : 'Aucune citation trouvée.', data: { source: 'zenquotes.io' } };
+        },
+      },
+      {
+        name: 'getTrivia',
+        description: 'Renvoie une question de quiz (Open Trivia DB) avec sa réponse, pour lancer un mini-quiz.',
+        category: 'web',
+        paramsSchema: z.object({ lang: z.enum(['fr', 'en']).default('en') }),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt: 'Lance le quiz : pose la question SANS révéler la réponse, puis dis que la réponse arrive quand les gens répondent (ou à la prochaine demande « réponse »).',
+        handler: async (input, _ctx) => {
+          const { lang } = input as { lang?: string };
+          const data = (await fetch(`https://opentdb.com/api.php?amount=1&type=multiple${lang === 'fr' ? '' : ''}`).then((res) =>
+            res.json(),
+          )) as {
+            results?: Array<{ question: string; correct_answer: string; incorrect_answers: string[]; category: string }>;
+          };
+          const q = data.results?.[0];
+          if (!q) return { ok: false, summary: 'Aucune question disponible.' };
+          return {
+            ok: true,
+            summary: `[${q.category}] ${q.question.replace(/&quot;|&#039;/g, "'").replace(/&amp;/g, '&')} — réponse : ${q.correct_answer}`,
+            data: { correct: q.correct_answer, wrong: q.incorrect_answers },
+          };
+        },
+      },
+      {
+        name: 'getRandomAnimal',
+        description: 'Renvoie une photo aléatoire de chien (dog.ceo).',
+        category: 'web',
+        paramsSchema: z.record(z.string(), z.unknown()),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt: 'Ambiance : parfait pour détendre un salon. Envoie juste l\u0027URL de l\u0027image.',
+        handler: async (_input, _ctx) => {
+          const dog = (await fetch('https://dog.ceo/api/breeds/image/random').then((res) => res.json())) as {
+            message?: string;
+          };
+          return { ok: true, summary: dog.message ?? 'Aucune image trouvée.', data: { url: dog.message } };
+        },
+      },
+      {
+        name: 'getPublicHolidays',
+        description: 'Jours fériés officiels d\u0027un pays pour une année (Nager.Date, 100+ pays, code pays ISO FR/US/DE...).',
+        category: 'web',
+        paramsSchema: z.object({
+          country: z.string().min(2).max(2).describe('Code ISO du pays (FR, US, DE...)'),
+          year: z.number().int().min(2020).max(2100).default(2026),
+        }),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt: 'Source : date.nager.at. Cite la source et le pays. Utile pour planifier des événements de serveur.',
+        handler: async (input, _ctx) => {
+          const { country, year } = input as { country: string; year?: number };
+          const holidays = (await fetch(`https://date.nager.at/api/v3/publicholidays/${year ?? 2026}/${country.toUpperCase()}`).then((res) =>
+            res.json(),
+          )) as Array<{ date: string; name: string; localName: string }>;
+          if (!Array.isArray(holidays) || holidays.length === 0) return { ok: false, summary: 'Aucun jour férié trouvé pour ce pays/année.' };
+          const lines = holidays.slice(0, 15).map((holiday) => `${holiday.date} : ${holiday.localName} (${holiday.name})`);
+          return { ok: true, summary: `Jours fériés ${year ?? 2026} (${country.toUpperCase()}, source date.nager.at) : ${lines.join(' | ')}`, data: { count: holidays.length } };
+        },
+      },
+      {
+        name: 'convertCurrency',
+        description: 'Convertit un montant entre devises (Frankfurter, taux BCE officiels, sans clé).',
+        category: 'web',
+        paramsSchema: z.object({
+          amount: z.number().min(0),
+          from: z.string().min(3).max(3),
+          to: z.string().min(3).max(3),
+        }),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt: 'Codes devises ISO (EUR, USD, GBP...). Source : Frankfurter (Banque centrale européenne). Cite la source.',
+        handler: async (input, _ctx) => {
+          const { amount, from, to } = input as { amount: number; from: string; to: string };
+          const data = (await fetch(
+            `https://api.frankfurter.app/latest?amount=${amount}&from=${from.toUpperCase()}&to=${to.toUpperCase()}`,
+          ).then((res) => res.json())) as { rates?: Record<string, number> };
+          const rate = data.rates?.[to.toUpperCase()];
+          if (rate === undefined) return { ok: false, summary: 'Devises inconnues ou non supportées.' };
+          return {
+            ok: true,
+            summary: `${amount} ${from.toUpperCase()} = ${rate} ${to.toUpperCase()} (source : Frankfurter/BCE).`,
+            data: { rate },
+          };
+        },
+      },
+      {
+        name: 'getCountryInfo',
+        description: 'Infos officielles sur un pays : capitale, population, devise, langues, drapeau (restcountries).',
+        category: 'web',
+        paramsSchema: z.object({ country: z.string().min(2).max(60) }),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt: 'Source : restcountries.com. Cite-la.',
+        handler: async (input, _ctx) => {
+          const { country } = input as { country: string };
+          const data = (await fetch(
+            `https://restcountries.com/v3.1/name/${encodeURIComponent(country)}?fields=name,capital,population,currencies,languages,flags`,
+          )
+            .then((res) => res.json())
+            .catch(() => null)) as
+            | Array<{
+                name: { common: string };
+                capital?: string[];
+                population?: number;
+                currencies?: Record<string, unknown>;
+                languages?: Record<string, string>;
+                flags?: { png?: string };
+              }>
+            | { status?: number };
+          if (!Array.isArray(data) || data.length === 0) return { ok: false, summary: 'Pays introuvable.' };
+          const c = data[0];
+          const currency = Object.keys(c.currencies ?? {})[0] ?? '?';
+          const languages = Object.values(c.languages ?? {}).join(', ') || '?';
+          return {
+            ok: true,
+            summary: `${c.name.common} : capitale ${c.capital?.[0] ?? '?'}, population ${(c.population ?? 0).toLocaleString('fr-FR')}, devise ${currency}, langues ${languages}. Drapeau : ${c.flags?.png ?? ''}`,
+            data: { country: c.name.common },
+          };
+        },
+      },
+      {
+        name: 'defineWord',
+        description: 'Définitions, prononciation et exemples d\u0027un mot anglais (Free Dictionary API).',
+        category: 'web',
+        paramsSchema: z.object({ word: z.string().min(1).max(60) }),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt: 'Source : dictionaryapi.dev. Traduis/paraphrase la définition pour l\u0027utilisateur français.',
+        handler: async (input, _ctx) => {
+          const { word } = input as { word: string };
+          const data = (await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`).then((res) =>
+            res.json(),
+          )) as
+            | Array<{
+                meanings?: Array<{ partOfSpeech: string; definitions?: Array<{ definition: string }> }>;
+                phonetic?: string;
+              }>
+            | { title?: string };
+          if (!Array.isArray(data) || data.length === 0) return { ok: false, summary: `Mot « ${word} » introuvable dans le dictionnaire.` };
+          const first = data[0];
+          const def = first.meanings?.[0]?.definitions?.[0]?.definition ?? '';
+          return {
+            ok: true,
+            summary: `« ${word} » (${first.phonetic ?? ''}, ${first.meanings?.[0]?.partOfSpeech ?? '?'}) : ${def} (source : dictionaryapi.dev)`,
+          };
+        },
+      },
+      {
+        name: 'getLyrics',
+        description: 'Paroles d\u0027une chanson (artiste + titre, lyrics.ovh).',
+        category: 'web',
+        paramsSchema: z.object({
+          artist: z.string().min(1).max(80),
+          title: z.string().min(1).max(100),
+        }),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt: 'Paroles complètes longues : extrais le refrain ou les 8 premières lignes et donne le lien source.',
+        handler: async (input, _ctx) => {
+          const { artist, title } = input as { artist: string; title: string };
+          const data = (await fetch(`https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`).then((res) =>
+            res.json(),
+          )) as { lyrics?: string };
+          if (!data.lyrics) return { ok: false, summary: 'Paroles introuvables pour ce titre.' };
+          return {
+            ok: true,
+            summary: `Paroles « ${title} » (${artist}) : ${data.lyrics.slice(0, 1200)}… (source : lyrics.ovh)`,
+          };
+        },
+      },
+      {
+        name: 'lookupIp',
+        description: 'Géolocalisation approximative d\u0027une IP publique (ip-api, usage non commercial).',
+        category: 'web',
+        paramsSchema: z.object({ ip: z.string().min(7).max(45) }),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt: 'Usage diagnostic uniquement (serveurs, connectivité). Ne géolocalise pas des membres.',
+        handler: async (input, _ctx) => {
+          const { ip } = input as { ip: string };
+          const data = (await fetch(`http://ip-api.com/json/${encodeURIComponent(ip)}`).then((res) => res.json())) as {
+            country?: string;
+            city?: string;
+            isp?: string;
+            status?: string;
+          };
+          if (data.status !== 'success') return { ok: false, summary: 'IP introuvable ou privée.' };
+          return { ok: true, summary: `${ip} : ${data.city ?? '?'}, ${data.country ?? '?'} (FAI : ${data.isp ?? '?'} — source ip-api.com).` };
+        },
+      },
+      {
+        name: 'searchWikipedia',
+        description: 'Résumé Wikipédia d\u0027un sujet (français ou anglais) avec lien de l\u0027article.',
+        category: 'web',
+        paramsSchema: z.object({
+          topic: z.string().min(2).max(120),
+          lang: z.enum(['fr', 'en']).default('fr'),
+        }),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt: 'Source Wikipédia : cite toujours le lien de l\u0027article. À croiser avec searchInternet pour les faits contestés.',
+        handler: async (input, _ctx) => {
+          const { topic, lang } = input as { topic: string; lang?: string };
+          const host = lang === 'en' ? 'en' : 'fr';
+          const data = (await fetch(
+            `https://${host}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(topic)}`,
+          ).then((res) => res.json())) as {
+            title?: string;
+            extract?: string;
+            content_urls?: { desktop?: { page?: string } };
+          };
+          if (!data.extract) return { ok: false, summary: 'Article Wikipédia introuvable pour ce sujet.' };
+          return {
+            ok: true,
+            summary: `${data.title} (Wikipédia ${host.toUpperCase()}) : ${data.extract.slice(0, 800)} Lien : ${data.content_urls?.desktop?.page ?? ''}`,
+          };
+        },
+      },
+      {
+        name: 'getNews',
+        description: 'Dernières actualités de sources vérifiées (Le Monde, France24 : flux RSS officiels).',
+        category: 'web',
+        paramsSchema: z.object({
+          source: z.enum(['lemonde', 'france24']).default('lemonde'),
+          limit: z.number().int().min(1).max(10).default(5),
+        }),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt:
+          'Sources vérifiées uniquement (presse établie). Liste les titres avec leurs liens pour que l\u0027utilisateur aille vérifier lui-même.',
+        handler: async (input, _ctx) => {
+          const { source, limit } = input as { source?: string; limit?: number };
+          const feeds: Record<string, string> = {
+            lemonde: 'https://www.lemonde.fr/rss/une.xml',
+            france24: 'https://www.france24.com/fr/rss',
+          };
+          const xml = await fetch(feeds[source ?? 'lemonde']).then((res) => res.text());
+          const parsed = new XMLParser({ ignoreAttributes: false }).parse(xml) as {
+            rss?: { channel?: { item?: Array<{ title?: unknown; link?: unknown }> } };
+          };
+          const items = parsed.rss?.channel?.item ?? [];
+          const list = (Array.isArray(items) ? items : [items]).slice(0, limit ?? 5);
+          if (list.length === 0) return { ok: false, summary: 'Aucune actualité récupérée.' };
+          const lines = list.map((item, index) => {
+            const title = typeof item.title === 'string' ? item.title : '?';
+            const link = typeof item.link === 'string' ? item.link : '';
+            return `${index + 1}. ${title}${link ? ` : ${link}` : ''}`;
+          });
+          return {
+            ok: true,
+            summary: `Actualités (${source === 'france24' ? 'France24' : 'Le Monde'}) : ${lines.join(' | ')}`,
+          };
+        },
+      },
+      {
+        name: 'getColorSchema',
+        description: 'Palette de couleurs depuis un hex (schéma, complémentaires, conversions).',
+        category: 'web',
+        paramsSchema: z.object({ hex: z.string().min(6).max(7).describe('Hex sans # ou avec') }),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt: 'Utile pour les demandes de schema de couleurs / branding de salon.',
+        handler: async (input, _ctx) => {
+          const { hex } = input as { hex: string };
+          const clean = hex.replace('#', '');
+          const data = (await fetch(`https://www.thecolorapi.com/scheme?hex=${clean}&format=json`).then((res) => res.json())) as {
+            hex?: { value?: string };
+            scheme?: string;
+            colors?: Array<{ hex?: { value?: string }; name?: { value?: string } }>;
+          };
+          const palette = (data.colors ?? []).map((color) => color.hex?.value).filter(Boolean);
+          return {
+            ok: true,
+            summary: `Schéma ${data.scheme ?? ''} depuis #${clean} : ${palette.join(', ')} (source : thecolorapi.com).`,
+            data: { palette },
+          };
+        },
+      },
+      {
+        name: 'discordServerLookup',
+        description:
+          'Cherche un serveur Discord public sur l\u0027index disdex (nom, tag, description) : membres, en ligne, boosts, langue, lien d\u0027invitation.',
+        category: 'web',
+        paramsSchema: z.object({ query: z.string().min(3).max(100) }),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt: 'Source : disdex.io. Cite-la. Utile pour comparer des communautés ou vérifier un serveur.',
+        handler: async (input, _ctx) => {
+          const { query } = input as { query: string };
+          const data = (await fetch(
+            `https://disdex.io/api/v1/servers?q=${encodeURIComponent(query)}&limit=5`,
+          ).then((res) => res.json())) as {
+            data?: Array<{ name: string; members: number; online: number; description: string; invite_url: string }>;
+          };
+          const list = data.data ?? [];
+          if (list.length === 0) return { ok: false, summary: 'Aucun serveur trouvé sur disdex.' };
+          const lines = list.map(
+            (server) =>
+              `${server.name} (${server.members.toLocaleString('fr-FR')} membres, ${server.online.toLocaleString('fr-FR')} en ligne) : ${server.description?.slice(0, 80) ?? ''} ${server.invite_url ?? ''}`,
+          );
+          return { ok: true, summary: `Serveurs disdex pour « ${query} » : ${lines.join(' | ')}` };
+        },
+      },
+      {
+        name: 'discordInviteResolve',
+        description:
+          'Résout un code d\u0027invitation Discord : serveur cible, invitation vivante ou morte, alternatives vivantes du même serveur.',
+        category: 'web',
+        paramsSchema: z.object({ invite: z.string().min(2).max(60).describe('Code ou lien discord.gg/...') }),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt: 'Source : disdex.io. Utile pour vérifier si une invitation est encore vivante.',
+        handler: async (input, _ctx) => {
+          const { invite } = input as { invite: string };
+          const code = invite.replace(/https?:\/\/discord\.gg\//i, '').trim();
+          const data = (await fetch(`https://disdex.io/api/v1/invites/${encodeURIComponent(code)}`).then((res) => res.json())) as {
+            status?: string;
+            server?: { name?: string; url?: string };
+            server_invites?: Array<{ code: string; alive: boolean }>;
+          };
+          const alternatives = (data.server_invites ?? [])
+            .filter((entry) => entry.alive)
+            .map((entry) => entry.code)
+            .slice(0, 3);
+          return {
+            ok: true,
+            summary: `Invitation « ${code} » : ${data.status ?? 'inconnue'}${data.server ? ` → ${data.server.name}` : ''}${alternatives.length > 0 ? `. Alternatives vivantes : ${alternatives.join(', ')}` : ''} (source : disdex.io).`,
+          };
+        },
+      },
+      {
+        name: 'discordUserLookup',
+        description: 'Infos publiques sur un utilisateur/bot indexé par disdex (serveurs vus, invitations créées).',
+        category: 'web',
+        paramsSchema: z.object({ userId: z.string().min(15).max(21) }),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt: 'Source : disdex.io. Données publiques d\u0027index, pas un profil privé.',
+        handler: async (input, _ctx) => {
+          const { userId } = input as { userId: string };
+          const data = (await fetch(`https://disdex.io/api/v1/users/${userId}`).then((res) => res.json())) as {
+            username?: string;
+            global_name?: string;
+            is_bot?: boolean;
+            server_count?: number;
+            invite_count?: number;
+          };
+          if (!data.username) return { ok: false, summary: 'Utilisateur non indexé sur disdex.' };
+          return {
+            ok: true,
+            summary: `${data.global_name ?? data.username} (${data.is_bot ? 'bot' : 'utilisateur'}) : vu sur ${data.server_count ?? 0} serveur(s), ${data.invite_count ?? 0} invitation(s) créée(s) (source : disdex.io).`,
+          };
+        },
+      },
+      {
+        name: 'getGithubProfile',
+        description:
+          'Fiche profil GitHub : avatar, bio, followers, repos publics, organisation. Limite API : 60 requêtes/heure sans authentification.',
+        category: 'web',
+        paramsSchema: z.object({ username: z.string().min(1).max(60) }),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt:
+          'Source : api.github.com. Limite 60 req/h sans clé : évite les boucles intensives. Pour le diagramme d\u0027un repo, propose le lien https://gitdiagram.com/{owner}/{repo}.',
+        handler: async (input, _ctx) => {
+          const { username } = input as { username: string };
+          const headers = { 'User-Agent': '10cordes-bot', Accept: 'application/vnd.github+json' };
+          const data = (await fetch(`https://api.github.com/users/${encodeURIComponent(username)}`, { headers }).then((res) =>
+            res.json(),
+          )) as {
+            login?: string;
+            name?: string;
+            bio?: string;
+            avatar_url?: string;
+            followers?: number;
+            public_repos?: number;
+            created_at?: string;
+            blog?: string;
+            message?: string;
+          };
+          if (data.message) return { ok: false, summary: `Profil introuvable : ${data.message}` };
+          return {
+            ok: true,
+            summary: `${data.name ?? data.login} (GitHub) : ${data.bio ?? 'sans bio'}, ${data.followers ?? 0} followers, ${data.public_repos ?? 0} repos publics, inscrit depuis ${data.created_at?.slice(0, 10) ?? '?'}${data.blog ? `, site : ${data.blog}` : ''}. Avatar : ${data.avatar_url ?? ''}`,
+            data: { avatar_url: data.avatar_url },
+          };
         },
       },
     ];
