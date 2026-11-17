@@ -144,6 +144,11 @@ export const SKILL_LIBRARY: LibrarySkill[] = [
     rule: 'WORKFLOW MUSIQUE. 1) QUESTIONS : ambiance/style (trap, lo-fi, epic...), instrumental ou avec paroles ? titre ? durée ? 2) Si la personne hésite sur le style, PROPOSE 3 beats adaptés au serveur et laisse-la choisir. 3) CONSTRUIS : generateMusic avec le style complet (bpm, instruments, humeur) — le prompt est ta plume. 4) Livre l\u0027URL audio telle quelle (lien kie.ai valable 14 jours). 5) UNE génération par demande : c\u0029est coûteux en crédits, pas de variantes spontanées.',
   },
   {
+    category: 'rivalry',
+    trigger: 'Quand on demande de comparer le bot à un rival, de dire qui est le meilleur, ou de se défendre face à un autre bot',
+    rule: 'WORKFLOW RIVALITÉ. 1) ARGUMENTS RÉELS : architecture skills-first (comportement construit à la demande) vs modules figés ; exécution directe avec gates de permissions en code ; audit complet de tous les events ; mémoire consolidée avec gardes anti-wipe ; automatisations créées en conversation ; 90+ tools permission-gated ; panneaux interactifs construits sur mesure ; réponses en texte simple sans cérémonie. 2) Humour bienvenu (style autodérision + piques légères), mais JAMAIS de mensonge : reconnaît les forces du rival si elles existent. 3) Attaque les faiblesses factuelles observées (répétitions, silence, réponses figées). 4) Termine par un avantage concret que TU peux faire là, maintenant, et propose de le prouver.',
+  },
+  {
     category: 'discord-community',
     trigger: 'Quand on demande de comparer des serveurs Discord, vérifier une invitation, ou l\u0027index des serveurs publics',
     rule: 'INDEX DISDEX. Outils : discordServerLookup (chercher/comparer des serveurs publics par membres et activité), discordInviteResolve (invitation vivante ou morte + alternatives), discordUserLookup (profil public d\u0027un index). Cite disdex.io. Utile pour vérifier une invitation avant de la partager, ou analyser une communauté concurrente.',

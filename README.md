@@ -2,7 +2,7 @@
 
 # 10cordes-bot
 
-**The modular, agentic Discord bot - every feature is a module, the AI runs the server with you.**
+**The agentic Discord bot - zero slash commands, you talk, it runs the server.**
 
 Built on [Spraxium](https://github.com/spraxium/spraxium) (discord.js v14) · TypeScript · Prisma · Fully typed · Components V2 everywhere
 
@@ -18,22 +18,12 @@ Built on [Spraxium](https://github.com/spraxium/spraxium) (discord.js v14) · Ty
 
 ## What makes it different
 
-- **An AI agent runs the server with you.** Mention it and ask: it checks your permissions, chains its tools, and answers in a clean Components V2 panel. Destructive actions require a human confirmation. Outside the dedicated AI channel, answers arrive through an ephemeral portal visible only to you.
-- **Everything is a module.** Enable/disable any feature live, globally and per server, with a dependency graph: disabling a module cleanly cascades to the modules that depend on it, unless they serve another active module.
-- **A single `/setup` dashboard.** All options, grouped by category, rendered as Components V2 with integrated pagination - the slash-command mirror of what you can ask the agent in plain language.
-- **Persistent memory.** Server-level and member-level memories (append-only) let the agent learn your rules, hierarchy and preferences - "present the server" works because it remembers.
-- **Language follows the user.** `/lang` sets a personal language, auto-detected from the Discord client otherwise. Never imposed by the server.
-- **60+ tools, permission-gated.** Channels, roles, members, messages, webhooks, audit logs, memory, levels, tags, image generation (PixelLab) - each tool declares the Discord permissions it requires and the registry refuses politely when you lack them.
-
-## Commands
-
-| Command | Description |
-|---|---|
-| `/setup` | Control panel: modules, welcome, logs, tickets, roles, levels, moderation, config, agent IA |
-| `/lang` | Your personal language (fr/en) |
-| `/help` | What the bot is and everything it can do |
-
-Everything else happens by talking to the agent.
+- **An AI agent runs the server with you, in plain language.** Mention it, type its name, or talk in the dedicated AI channel: it checks your permissions, chains its 80+ tools and answers directly in the chat. Every action re-verifies permissions in code (yours and the bot's), archives before deleting, and everything is audited.
+- **No confirmation ceremony.** Explicit request + permissions = immediate execution and a plain-text result. No plans, no approval buttons, no ephemeral portals, no DMs.
+- **Skills-first architecture.** Official skills (seeded per server: tickets, polls, moderation, trust score, welcome flows...) make the agent ask the right questions, recap, then build entire systems with its tools and wire recurring triggers as automations. Members can create their own skills and correct the agent's memory in conversation.
+- **Persistent memory.** Consolidated profiles per member and per server (LLM curator with anti-wipe and attribution guards) drive personalized answers and recommendations.
+- **Passive listening.** In the dedicated AI channel the agent follows the conversation and replies when relevant, without being named.
+- **80+ tools, permission-gated.** Channels, roles, members, messages, moderation, web search, news RSS (Le Monde/France24), Wikipedia, jokes/memes/trivia (FR/EN), PDF generation, weather, currency, holidays, GitHub, disdex, PixelLab - every tool documents its required permissions and rate limits, and every web fact is cross-checked with sources cited.
 
 ## Quickstart
 
@@ -41,42 +31,58 @@ Everything else happens by talking to the agent.
 
 ```bash
 pnpm install
-cp apps/bot/.env.example apps/bot/.env     # set DISCORD_TOKEN (+ DATABASE_URL optional)
-pnpm --filter 10cordes-bot exec prisma migrate dev
-pnpm dev                                   # shared package builds, then spraxium dev
+cp apps/bot/.env.example apps/bot/.env   # fill DISCORD_TOKEN at minimum
+pnpm dev                                  # builds @10cordes/shared then starts spraxium dev
 ```
 
 Enable the **MESSAGE CONTENT** privileged intent in the Discord developer portal.
+Optional keys: `DEEPSEEK_API_KEY` (agent brain), `PIXELLAB_API_KEY` (pixel art),
+`REDIS_URL` (durable queue; falls back to in-memory), `HTTP_API_KEY`,
+`BETTER_AUTH_SECRET` + `DISCORD_CLIENT_SECRET` (dashboard login).
 
-**Docker**
+## Repository
+
+```
+apps/bot          The Spraxium bot (agent, technical modules, REST API + better-auth)
+apps/dashboard    React dashboard (Discord OAuth, config, stats, agent chat)
+packages/shared   @10cordes/shared: Zod schemas, tool contracts, template engine
+docs/             ROADMAP.md (backlog and decisions) · ARCHITECTURE.md (deep dive)
+```
+
+Dependency rule: `apps/bot → @10cordes/shared ← apps/dashboard`.
+
+## Commands
 
 ```bash
-docker compose up -d
+pnpm dev          # build shared then spraxium dev (apps/bot)
+pnpm build        # build every workspace
+pnpm typecheck    # tsc --noEmit everywhere
+pnpm test         # vitest (packages/shared + bot)
+pnpm lint         # eslint flat config
+pnpm --filter 10cordes-bot exec prisma migrate dev   # DB migrations (Prisma 6)
 ```
 
-## Project structure
+Production (apps/bot): `pnpm build` then `pnpm start` - never `node
+dist/main.mjs` directly (the ConfigLoader reads `spraxium.config.js`).
 
-```
-apps/bot          Spraxium bot + REST API (Hono) + better-auth (Discord OAuth) - see apps/bot/README.md
-apps/dashboard    Web dashboard (React, planned - see apps/dashboard/README.md)
-packages/shared   Zod schemas, dependency-graph engine, template engine (bot + dashboard)
-references        Study repositories used for patterns (not part of the runtime)
-docs/             ROADMAP (feature backlog) · ARCHITECTURE (deep dive)
-```
+## Architecture in one paragraph
 
-Full architecture: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) · Feature backlog: [docs/ROADMAP.md](./docs/ROADMAP.md)
+Technical modules only: logging, ticket buttons, role menus, welcome
+templates, moderation cases, and plumbing (database, audit, HTTP, components,
+tool registry, module manager, health). All behavior lives in **skills**
+(`apps/bot/src/modules/agent/skills.library.ts` + `agent_skills` table,
+official library seeded per server at boot, member-created skills welcome) and
+**automations** (`createAutomation`: Discord event -> actions, executed by
+listeners with bot-permission gates). The agent's replies are plain text in
+the request channel; a response cache deduplicates repeated questions; provider
+failures (402 quota / 401 auth / 5xx) produce distinct, honest user notices.
 
-## Adding a module
+## Docs
 
-1. Scaffold `apps/bot/src/modules/<feature>/` - `commands/`, `handlers/`, `<feature>.module.ts`
-2. Register in the catalog: `module.catalog.ts` (`id`, `label`, `commands`, `dependsOn`, `recommends`)
-3. Add its Zod schema + agent tools in `packages/shared` if it exposes new config or tools
-4. Import the module in `apps/bot/src/app.module.ts` - done, it is toggleable like the rest
-
-## Contributing
-
-Read [CONTRIBUTING.md](./CONTRIBUTING.md). Branch model: `main` (stable) <- `develop` (integration) <- `feature/*`. Conventional commits. CI (lint, module consistency, typecheck, tests) must pass on every PR.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - detailed plumbing
+- [docs/ROADMAP.md](docs/ROADMAP.md) - backlog, platform verdicts, decisions
+- [apps/bot/README.md](apps/bot/README.md) · [apps/dashboard/README.md](apps/dashboard/README.md)
 
 ## License
 
-[MIT](./LICENSE)
+MIT

@@ -86,4 +86,9 @@ export class AppEnv extends SpraxiumBaseEnv {
   @Secret()
   @IsString()
   KIE_API_KEY?: string;
+
+  /** Modèle Suno : V6_MINI (meilleur ratio qualité/prix) ou V6 (qualité max). */
+  @Env('KIE_MODEL', { default: 'V6_MINI', secret: false })
+  @IsString()
+  KIE_MODEL!: string;
 }
