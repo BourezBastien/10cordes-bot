@@ -280,13 +280,26 @@ export class AssistantService {
       return;
     }
     this.cooldowns.set(cooldownKey, now);
-    log.info(`[FLOW] demande acceptée de ${request.authorName}`);
+    // Traçabilité : chaque demande porte un ID propagé dans les audits,
+    // les logs FLOW et les notices d'erreur.
+    const requestId = `req-${Math.random().toString(36).slice(2, 10)}`;
+    log.info(`[FLOW] demande acceptée de ${request.authorName} [${requestId}]`);
 
     try {
-      await this.processRequest(channel, guild, request, guildConfig);
+      await this.processRequest(channel, guild, request, guildConfig, requestId);
     } catch (error) {
-      log.error(`Assistant failure for ${request.userId}: ${error instanceof Error ? error.message : String(error)}`);
-      await channel.send(notice('Une erreur est survenue côté IA. Réessaie dans un instant.', true)).catch(() => {});
+      const message = error instanceof Error ? error.message : String(error);
+      log.error(`Assistant failure [${requestId}] user=${request.userId}: ${message}`);
+      await channel
+        .send(notice(`Erreur interne [${requestId}] : ${message.slice(0, 120)} — signale cette référence au staff si ça se répète.`, true))
+        .catch(() => {});
+      this.audit.record({
+        guildId: guild.id,
+        source: 'agent',
+        action: 'assistant.error',
+        actorId: request.userId,
+        metadata: { requestId, error: message.slice(0, 300) },
+      });
     }
   }
 
@@ -295,6 +308,7 @@ export class AssistantService {
     guild: import('discord.js').Guild,
     request: AgentRequest,
     guildConfig: GuildConfig,
+    requestId: string,
   ): Promise<void> {
     if (!this.llm.configured) {
       // Le staff connecte l'IA via le bouton dédié (portal éphémère), sans slash.
@@ -381,7 +395,7 @@ export class AssistantService {
     }
 
     // Boucle LLM : contexte complet, tools, portail éphémère ou salon dédié.
-    await this.withTypingIndicator(channel, () => this.converse(channel, guild, request, guildConfig));
+    await this.withTypingIndicator(channel, () => this.converse(channel, guild, request, guildConfig, requestId));
   }
 
   private async withTypingIndicator<T>(channel: import('discord.js').TextChannel, task: () => Promise<T>): Promise<T> {
@@ -401,6 +415,7 @@ export class AssistantService {
     guild: import('discord.js').Guild,
     request: AgentRequest,
     guildConfig: GuildConfig,
+    requestId: string,
   ): Promise<void> {
     const locale = detectLocale(request.content);
     const member = await guild.members.fetch(request.userId).catch(() => null);
@@ -520,7 +535,7 @@ export class AssistantService {
     if (!SILENCE_REQUEST_RE.test(request.content)) {
       const cachedReply = this.responseCache.get(guild.id, request.content);
       if (cachedReply) {
-        log.info(`[FLOW] cache HIT pour ${request.authorName}`);
+        log.info(`[FLOW] cache HIT pour ${request.authorName} [${requestId}]`);
         await channel.send({ content: cachedReply }).catch(() => {});
         this.audit.record({
           guildId: guild.id,
@@ -535,18 +550,18 @@ export class AssistantService {
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
       const chatStart = Date.now();
-      log.info(`[FLOW] chat #${iteration + 1} : ${messages.length} messages en entrée`);
+      log.info(`[FLOW][${requestId}] chat #${iteration + 1} : ${messages.length} messages en entrée`);
       const completion = await this.llm.chat(messages, openAiTools, {
         userId: request.userId,
         guildId: guild.id,
         cause: 'reply',
       }).catch((error: unknown) => {
-        log.info(`[FLOW] chat #${iteration + 1} ERREUR après ${Date.now() - chatStart}ms : ${error instanceof Error ? error.message : String(error)}`);
+        log.info(`[FLOW][${requestId}] chat #${iteration + 1} ERREUR après ${Date.now() - chatStart}ms : ${error instanceof Error ? error.message : String(error)}`);
         loopState.error = error instanceof Error ? error : new Error(String(error));
         return null;
       });
       if (!completion) break;
-      log.info(`[FLOW] chat #${iteration + 1} OK en ${Date.now() - chatStart}ms, toolCalls: ${completion.toolCalls.length}`);
+      log.info(`[FLOW][${requestId}] chat #${iteration + 1} OK en ${Date.now() - chatStart}ms, toolCalls: ${completion.toolCalls.length}`);
       if (completion.usage) {
         usage.promptTokens += completion.usage.promptTokens;
         usage.completionTokens += completion.usage.completionTokens;
@@ -617,16 +632,19 @@ export class AssistantService {
 
     if (finalText === null) {
       if (loopState.error) {
+        // Aucune erreur ne reste silencieuse : notice en salon + audit avec
+        // requestId. Les erreurs génériques ne remontent plus au worker.
+        const noticeFor = (message: string) => notice(`${message} [${requestId}]`, true);
         if (loopState.error instanceof QuotaExhaustedError) {
           this.audit.record({
             guildId: guild.id,
             source: 'agent',
             action: 'assistant.error',
             actorId: request.userId,
-            metadata: { kind: 'quota' },
+            metadata: { requestId, kind: 'quota' },
           });
           await channel
-            .send(notice('IA désactivée : crédits DeepSeek épuisés. Recharge le compte API, je reprends dès que c\u0027est réglé.', true))
+            .send(noticeFor('IA désactivée : crédits DeepSeek épuisés. Recharge le compte API, je reprends dès que c\u0027est réglé.'))
             .catch(() => {});
           return;
         }
@@ -636,10 +654,10 @@ export class AssistantService {
             source: 'agent',
             action: 'assistant.error',
             actorId: request.userId,
-            metadata: { kind: 'auth' },
+            metadata: { requestId, kind: 'auth' },
           });
           await channel
-            .send(notice('Configuration IA invalide (clé rejetée). Contacte le staff : la clé API doit être corrigée.', true))
+            .send(noticeFor('Configuration IA invalide (clé rejetée). Contacte le staff : la clé API doit être corrigée.'))
             .catch(() => {});
           return;
         }
@@ -649,15 +667,22 @@ export class AssistantService {
             source: 'agent',
             action: 'assistant.error',
             actorId: request.userId,
-            metadata: { kind: 'provider' },
+            metadata: { requestId, kind: 'provider' },
           });
           await channel
-            .send(notice('Problème temporaire avec le fournisseur IA. Patiente quelques minutes et réessaie.', true))
+            .send(noticeFor('Problème temporaire avec le fournisseur IA. Patiente quelques minutes et réessaie.'))
             .catch(() => {});
           return;
         }
-        await channel.send(notice(`Erreur IA : ${loopState.error.message.slice(0, 180)}`, true)).catch(() => {});
-        throw loopState.error;
+        this.audit.record({
+          guildId: guild.id,
+          source: 'agent',
+          action: 'assistant.error',
+          actorId: request.userId,
+          metadata: { requestId, kind: 'generic', error: loopState.error.message.slice(0, 300) },
+        });
+        await channel.send(noticeFor(`Erreur IA : ${loopState.error.message.slice(0, 180)}`)).catch(() => {});
+        return;
       }
       finalText = "J'ai traité ta demande via les tools, vérifie les résultats ci-dessus.";
     }
@@ -669,7 +694,7 @@ export class AssistantService {
         source: 'agent',
         action: 'llm.usage',
         actorId: request.userId,
-        metadata: { cause: 'reply', promptTokens: usage.promptTokens, completionTokens: usage.completionTokens },
+        metadata: { requestId, cause: 'reply', promptTokens: usage.promptTokens, completionTokens: usage.completionTokens },
       });
     }
 
@@ -686,7 +711,7 @@ export class AssistantService {
         source: 'agent',
         action: 'assistant.reply',
         actorId: request.userId,
-        metadata: { locale, silent: true, tools: executed.join(',') },
+        metadata: { requestId, locale, silent: true, tools: executed.join(',') },
       });
       return;
     }
@@ -713,7 +738,7 @@ export class AssistantService {
       source: 'agent',
       action: 'assistant.reply',
       actorId: request.userId,
-      metadata: { locale, permissions: permissions.length, tools: tools.length, public: true },
+      metadata: { requestId, locale, permissions: permissions.length, tools: tools.length, public: true },
     });
   }
 }

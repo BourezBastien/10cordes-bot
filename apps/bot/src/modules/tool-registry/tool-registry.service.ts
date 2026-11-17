@@ -108,8 +108,20 @@ export class ToolRegistryService {
       });
     }
 
-    const result = await tool.handler(parsed.data, ctx);
-    return finish(result);
+    // try/catch : une exception handler ne remonte JAMAIS à la boucle LLM —
+    // elle devient un refus explicite que le modèle reformule pour l'utilisateur
+    // (fix du silence : « Missing Permissions » non rattrapé laissait la
+    // demande sans réponse ni trace action).
+    try {
+      const result = await tool.handler(parsed.data, ctx);
+      return finish(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return finish({
+        ok: false,
+        summary: `Tool ${name} a échoué : ${message.slice(0, 180)}`,
+      });
+    }
   }
 }
 
