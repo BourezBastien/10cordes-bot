@@ -5,6 +5,7 @@ import { z } from 'zod';
 import type { BotTool, ToolResult, ToolRunContext } from '@10cordes/shared';
 import { safeFetch } from '../../shared/utils/safe-fetch';
 import { AppEnv } from '../../app.env';
+import { getToolRegistry } from '../tool-registry/tool-registry.service';
 
 /**
  * Génération musicale via kie.ai (Suno, V6). Clé KIE_API_KEY requise.
@@ -38,6 +39,8 @@ export class MusicService implements SpraxiumOnBoot {
     this.log.info(
       this.env.KIE_API_KEY ? `Music enabled (kie.ai, model ${this.env.KIE_MODEL}).` : 'Music disabled: KIE_API_KEY absent.',
     );
+    const registry = getToolRegistry();
+    for (const tool of this.buildTools()) registry.register(tool);
   }
 
   private apiKey(): string | null {
@@ -63,7 +66,7 @@ export class MusicService implements SpraxiumOnBoot {
         requiredModules: [],
         destructive: false,
         systemPrompt:
-          'Coûteux en crédits : UNE génération par demande, jamais de variantes non demandées. Pose les questions avant (style, ambiance, instrumental ?) via le workflow skills, puis lance UNE génération et livre l\u0027URL audio. Ne promets pas de fichier local : c\u0029est un lien kie.ai valable 14 jours.',
+          'Coûteux en crédits : UNE génération par demande, jamais de variantes non demandées. Pose les questions avant (style, ambiance, instrumental ?) via le workflow skills, puis lance UNE génération. Le fichier audio est posté automatiquement dans le salon : ne répète pas l\u0027URL, commente juste le résultat en UN message court.',
         handler: async (input, ctx) => {
           if (!guildOnly(ctx)) return { ok: false, summary: 'Contexte de serveur requis.' };
           const key = this.apiKey();
@@ -127,7 +130,11 @@ export class MusicService implements SpraxiumOnBoot {
             };
             const track = recordData.data?.response?.data?.[0];
             if (track?.audio_url) {
-              await update(`✅ Musique « ${track.title ?? title} » prête (${Math.round(track.duration ?? 0)}s) : ${track.audio_url}`);
+              // Une seule livraison : le fichier ci-dessous. Le message de
+              // progression se ferme SANS l'URL (elle restait collée dans 3
+              // messages d'affilée : progression, réponse du modèle, fichier).
+              const seconds = Math.round(track.duration ?? 0);
+              await update(`✅ Musique « ${track.title ?? title} » prête (${seconds}s) — envoi du fichier...`);
               // Le fichier part en message séparé : Discord ne permet pas
               // d'attacher une pièce jointe en éditant un message existant.
               if (progressChannel?.isTextBased() && 'send' in progressChannel) {
@@ -143,8 +150,11 @@ export class MusicService implements SpraxiumOnBoot {
               }
               return {
                 ok: true,
-                summary: `Musique « ${track.title ?? title} » générée (${Math.round(track.duration ?? 0)}s) : ${track.audio_url}`,
-                data: { audioUrl: track.audio_url, taskId: createdData.data.taskId },
+                summary:
+                  `Musique « ${track.title ?? title} » générée (${seconds}s) et postée en pièce jointe dans le salon. ` +
+                  'Le lien kie.ai (14 jours) est dans data.audioUrl si besoin. ' +
+                  'Ne répète PAS l\u0027URL ni ne reposte le fichier : réponds en UN message court de commentaire.',
+                data: { audioUrl: track.audio_url, taskId: createdData.data.taskId, duration: seconds },
               };
             }
           }

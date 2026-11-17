@@ -397,19 +397,23 @@ export function discordExtraTools(
     },
     {
       name: 'setNickname',
-      description: 'Change le pseudo d\u2019un membre (ou réinitialise si vide).',
+      description: "Change le pseudo d\u2019un membre (ou réinitialise si vide). Le pseudo DU BOT : owner du serveur uniquement.",
       category: 'agent',
       paramsSchema: z.object({ userId: z.string().min(1), nickname: z.string().max(32).optional() }),
       requiredModules: [],
       permissions: ['ManageNicknames'],
       destructive: false,
-      systemPrompt: 'Tier 2 (reversible).',
+      systemPrompt: 'Tier 2 (reversible) pour les membres. Le pseudo du BOT lui-même est protégé : seul le owner du serveur peut le changer, refuse poliment sinon.',
       handler: async (input, ctx) => {
         const guild = guildOf(ctx);
         if (!guild) return noGuild();
         const { userId, nickname } = input as { userId: string; nickname?: string };
         const member = await guild.members.fetch(userId).catch(() => null);
         if (!member) return { ok: false, summary: 'Membre introuvable.' };
+        // Le pseudo du bot est protégé : owner uniquement (anti-troll).
+        if (member.id === guild.members.me?.id && ctx.userId !== guild.ownerId) {
+          return { ok: false, summary: 'Le pseudo du bot ne peut être changé que par le owner du serveur.' };
+        }
         await member.setNickname(nickname ?? null, `agent tool (by <@${ctx.userId}>)`);
         return { ok: true, summary: `Pseudo de <@${userId}> : ${nickname ?? 'réinitialisé'}.` };
       },

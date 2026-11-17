@@ -114,7 +114,7 @@ export class ImagelabService implements SpraxiumOnBoot {
           "Génération d'image consommant des crédits PixelLab (budget limité). " +
           "Décris le visuel pixel art de façon précise (sujet, palette, fond) ; size 128 pour un avatar, 64 pour un petit émoji. " +
           "Ne régénère pas sans validation explicite de l'utilisateur.",
-        handler: async (input) => {
+        handler: async (input, ctx) => {
           if (!this.configured) return this.notConfigured();
           const { description, size, transparent, palette } = input as {
             description: string;
@@ -126,10 +126,16 @@ export class ImagelabService implements SpraxiumOnBoot {
             transparent,
             palette,
           });
+          // LIVRAISON : l'image part en pièce jointe dans le salon de la
+          // demande (sans ça, le base64 restait coincé dans le résultat du
+          // tool et le modèle annonçait faussement « image postée »).
+          await ctx.sendFile
+            ?.({ name: `pixel-icon-${Date.now()}.png`, attachment: Buffer.from(image.base64, 'base64') })
+            .catch(() => {});
           return {
             ok: true,
-            summary: `Icône ${size}x${size} générée (${image.costUsd ? `$${image.costUsd}` : "crédits consommés"}).`,
-            data: { base64: image.base64, size },
+            summary: `Icône ${size}x${size} générée et envoyée dans le salon (${image.costUsd ? `$${image.costUsd}` : 'crédits consommés'}).`,
+            data: { size },
           };
         },
       },
@@ -147,14 +153,17 @@ export class ImagelabService implements SpraxiumOnBoot {
         systemPrompt:
           "Émoji 64x64 transparent : décris UN seul sujet simple et lisible en petit (visage, objet, animal). " +
           "Propose un nom d'émoji court à l'utilisateur après génération.",
-        handler: async (input) => {
+        handler: async (input, ctx) => {
           if (!this.configured) return this.notConfigured();
           const { description, palette } = input as { description: string; palette?: string[] };
           const image = await this.generateImage(`pixel art emoji, single centered subject, ${description}`, 64, {
             transparent: true,
             palette,
           });
-          return { ok: true, summary: "Émoji 64x64 généré.", data: { base64: image.base64, size: 64 } };
+          await ctx.sendFile
+            ?.({ name: `pixel-emoji-${Date.now()}.png`, attachment: Buffer.from(image.base64, 'base64') })
+            .catch(() => {});
+          return { ok: true, summary: 'Émoji 64x64 généré et envoyé dans le salon. Propose un nom d\u0027émoji court à l\u0027utilisateur.', data: { size: 64 } };
         },
       },
     ];

@@ -1,11 +1,16 @@
 import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
 import { Logger } from '@spraxium/logger';
+import { Client } from 'discord.js';
 import { z } from 'zod';
 import { searchDuckDuckGo } from 'ts-duckduckgo-search';
 import PDFDocument from 'pdfkit';
 import { XMLParser } from 'fast-xml-parser';
-import type { BotTool, ToolRunContext } from '@10cordes/shared';
+import type { BotTool, ToolResult, ToolRunContext } from '@10cordes/shared';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
+import { safeFetch } from '../../shared/utils/safe-fetch';
+import { AppEnv } from '../../app.env';
+
+const KIE_API_BASE = 'https://api.kie.ai/api/v1';
 
 /**
  * Tools de capacités web et fichiers (inspiration Discord-AI-Bot) :
@@ -49,11 +54,81 @@ export class WebToolsService implements SpraxiumOnBoot {
   private readonly log = new Logger('WebTools');
   private readonly xmlParser = new XMLParser({ ignoreAttributes: false });
 
-  constructor(private readonly registry: ToolRegistryService) {}
+  constructor(
+    private readonly registry: ToolRegistryService,
+    private readonly env: AppEnv,
+    private readonly client: Client,
+  ) {}
 
   onBoot(): void {
     for (const tool of this.buildTools()) this.registry.register(tool);
     this.log.info(`${this.buildTools().length} tools web enregistrés`);
+  }
+
+  /**
+   * Génération d'image via kie.ai (jobs API, modèle image économique) :
+   * createTask → poll recordInfo → result_url. Pattern UX : UN message de
+   * progression édité à chaque étape, puis l'image téléchargée et postée en
+   * pièce jointe dans le salon (Discord n'accepte pas de PJ sur un edit).
+   */
+  private async kieImage(prompt: string, ctx: ToolRunContext, label: string): Promise<ToolResult> {
+    const key = this.env.KIE_API_KEY;
+    if (!key) return { ok: false, summary: 'Génération d\u0027image désactivée : KIE_API_KEY absente de la configuration.' };
+    if (!ctx.channelId) return { ok: false, summary: 'Salon de la demande introuvable.' };
+    const channel = await this.client.channels.fetch(ctx.channelId).catch(() => null);
+    if (!channel?.isTextBased() || !('send' in channel)) {
+      return { ok: false, summary: 'Salon introuvable pour poster l\u0027image.' };
+    }
+
+    const progress = await channel.send({ content: `🎨 ${label} : vérification du module image...` }).catch(() => null);
+    const update = async (message: string): Promise<void> => {
+      if (progress) await progress.edit({ content: message }).catch(() => {});
+    };
+
+    const created = await safeFetch(`${KIE_API_BASE}/jobs/createTask`, {
+      timeoutMs: 30_000,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      body: JSON.stringify({ model: 'gpt-4o-image', input: { prompt } }),
+    });
+    const createdData = (await created.json().catch(() => ({}))) as { code?: number; data?: { taskId?: string }; msg?: string };
+    if (createdData.code !== 200 || !createdData.data?.taskId) {
+      await update(`❌ Génération refusée par kie.ai : ${createdData.msg ?? 'erreur inconnue'}`);
+      return { ok: false, summary: `Génération refusée par kie.ai : ${createdData.msg ?? 'erreur inconnue'}` };
+    }
+
+    await update(`🎨 Génération lancée — 30 à 90 secondes...`);
+    const deadline = Date.now() + 120_000;
+    let elapsed = 0;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 8_000));
+      elapsed += 8;
+      const record = await safeFetch(`${KIE_API_BASE}/jobs/recordInfo?taskId=${createdData.data.taskId}`, {
+        timeoutMs: 15_000,
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      const recordData = (await record.json().catch(() => ({}))) as {
+        data?: { response?: { result_url?: string; status?: string } };
+      };
+      const resultUrl = recordData.data?.response?.result_url;
+      if (resultUrl) {
+        await update(`✅ Image prête — envoi...`);
+        const image = await fetch(resultUrl).then((res) => res.arrayBuffer()).catch(() => null);
+        if (image) {
+          await channel
+            .send({
+              content: `🎨 **${label}**`,
+              files: [{ name: `${label.replace(/[^a-zA-Z0-9-_]/gu, '-').slice(0, 40)}.png`, attachment: Buffer.from(image) }],
+            })
+            .catch(() => {});
+        }
+        await update(`✅ Image livrée (source : kie.ai / gpt-4o-image).`);
+        return { ok: true, summary: `Image générée et envoyée dans le salon (source : kie.ai, gpt-4o-image).`, data: { url: resultUrl } };
+      }
+      await update(`🎨 Génération en cours... ${elapsed}s`);
+    }
+    await update('⌛ La génération dépasse 120 secondes : l\u0029image arrivera, redemande-la dans une minute.');
+    return { ok: false, summary: 'La génération dépasse 120 secondes : réessaie dans une minute.' };
   }
 
   private buildTools(): BotTool[] {
@@ -235,6 +310,33 @@ export class WebToolsService implements SpraxiumOnBoot {
           if (joke.error || (!joke.joke && !joke.setup)) return { ok: false, summary: 'Aucune blague disponible.' };
           const text = joke.type === 'twopart' ? `${joke.setup} … ${joke.delivery}` : (joke.joke ?? '');
           return { ok: true, summary: text, data: { source: 'jokeapi.dev' } };
+        },
+      },
+      {
+        name: 'getGif',
+        description:
+          'Renvoie un GIF animé depuis un subreddit (ex: gifs, funnygifs, awwnverts). Image/vidéo URL + source Reddit. Sans clé, rate limit Reddit : une requête par demande.',
+        category: 'web',
+        paramsSchema: z.object({ subreddit: z.string().min(2).max(30).default('gifs') }),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt: 'Pour les demandes de GIF réaction. Vérifie l\u0027adaptation au salon. Certains posts Reddit sont des vidéos mp4 : livre l\u0027URL telle quelle.',
+        handler: async (input, _ctx) => {
+          const { subreddit } = input as { subreddit?: string };
+          const clean = (subreddit ?? 'gifs').replace(/[^a-zA-Z0-9_]/gu, '');
+          const gif = (await fetch(`https://meme-api.com/gimme/${clean}`).then((res) => res.json())) as {
+            url?: string;
+            title?: string;
+            postLink?: string;
+            nsfw?: boolean;
+          };
+          if (!gif.url) return { ok: false, summary: 'Aucun GIF trouvé pour ce subreddit.' };
+          if (gif.nsfw) return { ok: false, summary: 'Le GIF trouvé est NSFW : refuse et propose un autre subreddit.' };
+          return {
+            ok: true,
+            summary: `${gif.title ?? 'gif'} : ${gif.url} (source : ${gif.postLink ?? 'reddit'})`,
+            data: { url: gif.url, postLink: gif.postLink },
+          };
         },
       },
       {
@@ -581,6 +683,24 @@ export class WebToolsService implements SpraxiumOnBoot {
             summary: `Schéma ${data.scheme ?? ''} depuis #${clean} : ${palette.join(', ')} (source : thecolorapi.com).`,
             data: { palette },
           };
+        },
+      },
+      {
+        name: 'generateImage',
+        description:
+          'Génère une image libre (pas du pixel art) via kie.ai / gpt-4o-image : prompt descriptif, image livrée en pièce jointe dans le salon. Asynchrone (30-120s), coûteux en crédits : une génération par demande.',
+        category: 'web',
+        paramsSchema: z.object({
+          prompt: z.string().min(10).max(2000).describe('Description visuelle détaillée (sujet, style, lumière, cadrage)'),
+          label: z.string().min(2).max(60).default('image'),
+        }),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt:
+          'Pour les images NON pixel art (scènes, illustrations, logos libres). Le pixel art reste sur image.icon/image.emoji (PixelLab). Pose les questions avant si le visuel est vague, puis UNE génération. Le fichier est envoyé automatiquement dans le salon.',
+        handler: async (input, ctx) => {
+          const { prompt, label } = input as { prompt: string; label?: string };
+          return this.kieImage(prompt, ctx, label ?? 'image');
         },
       },
       {
