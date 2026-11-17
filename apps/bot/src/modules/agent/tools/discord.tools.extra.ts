@@ -518,24 +518,98 @@ export function discordExtraTools(
     },
     {
       name: 'readMessages',
-      description: 'Lit les derniers messages d\u2019un salon (max 10).',
+      description: 'Lit les derniers messages d\u2019un salon (max 20) avec dates : auteur, âge, contenu.',
       category: 'agent',
-      paramsSchema: z.object({ channelId: z.string().min(1), limit: z.number().int().min(1).max(10).default(5) }),
+      paramsSchema: z.object({ channelId: z.string().min(1), limit: z.number().int().min(1).max(20).default(10) }),
       requiredModules: [],
       permissions: [],
       destructive: false,
-      systemPrompt: 'Read-only. Vérifie le contenu d\u2019un salon avant/après une action.',
+      systemPrompt: 'Read-only. Les messages portent leur DATE (âge en jours) : tu peux calculer un seuil d\u0027inactivité. Ne prétends jamais qu\u0027un horodatage est indisponible.',
       handler: async (input, ctx) => {
         const guild = guildOf(ctx);
         if (!guild) return noGuild();
         const { channelId, limit } = input as { channelId: string; limit?: number };
         const channel = await textChannelOf(guild, channelId);
         if (!channel) return { ok: false, summary: 'Salon introuvable ou non textuel.' };
-        const messages = await channel.messages.fetch({ limit: limit ?? 5 });
+        const messages = await channel.messages.fetch({ limit: limit ?? 10 });
         const lines = [...messages.values()]
           .reverse()
-          .map((m) => `[${m.author.username}] : ${(m.content || '(sans texte)').slice(0, 120)}`);
+          .map((m) => {
+            const days = Math.floor((Date.now() - m.createdTimestamp) / 86_400_000);
+            const age = days === 0 ? 'aujourd\u0027hui' : `${days}j`;
+            return `[${m.author.username} (${age})] : ${(m.content || '(sans texte)').slice(0, 120)}`;
+          });
         return { ok: true, summary: lines.join(' | ') || 'Salon vide.' };
+      },
+    },
+    {
+      name: 'analyzeActivity',
+      description:
+        'Analyse l\u2019activité réelle des salons texte : date du dernier message d\u2019un VRAI membre (bots/webhooks exclus) par salon, avec seuil en jours. Une seule commande pour « archive les salons morts depuis X jours ».',
+      category: 'agent',
+      paramsSchema: z.object({
+        sinceDays: z.number().int().min(1).max(365).default(15).describe('Seuil d\u2019inactivité en jours'),
+        categoryId: z.string().optional().describe('Limiter l\u2019analyse aux salons de cette catégorie'),
+      }),
+      requiredModules: [],
+      permissions: ['ViewChannel'],
+      destructive: false,
+      systemPrompt:
+        'Utile AVANT tout archivage : la colonne jours dit précisément quels salons dépassent le seuil. Ensuite déplace avec moveChannel vers la catégorie archive (ou crée-la d\u0029abord). Ne devine jamais l\u0027inactivité « à l\u0027œil » : cet outil donne les dates exactes.',
+      handler: async (input, ctx) => {
+        const guild = guildOf(ctx);
+        if (!guild) return noGuild();
+        const { sinceDays, categoryId } = input as { sinceDays?: number; categoryId?: string };
+        const threshold = sinceDays ?? 15;
+        const channels = [...guild.channels.cache.values()].filter(
+          (channel): channel is import('discord.js').TextChannel | import('discord.js').NewsChannel =>
+            channel.isTextBased() && (!categoryId || channel.parentId === categoryId),
+        );
+        if (channels.length === 0) return { ok: false, summary: 'Aucun salon texte à analyser.' };
+
+        // Progression visible dans le salon : UN message édité pendant le scan.
+        const requestChannel = ctx.channelId ? await textChannelOf(guild, ctx.channelId) : null;
+        const progress = requestChannel
+          ? await requestChannel.send({ content: `🔧 Analyse d\u0029activité : 0/${channels.length} salons...` }).catch(() => null)
+          : null;
+        const update = async (text: string): Promise<void> => {
+          if (progress) await progress.edit({ content: text }).catch(() => {});
+        };
+
+        const now = Date.now();
+        const results: Array<{ name: string; id: string; days: number | null }> = [];
+        let scanned = 0;
+        for (const channel of channels) {
+          const messages = await channel.messages.fetch({ limit: 25 }).catch(() => null);
+          let lastHumanDays: number | null = null;
+          if (messages) {
+            for (const message of messages.values()) {
+              // Un vrai membre : ni bot ni webhook (les tests E2E passent par webhooks).
+              if (message.author.bot || message.webhookId) continue;
+              lastHumanDays = Math.floor((now - message.createdTimestamp) / 86_400_000);
+              break;
+            }
+          }
+          results.push({ name: channel.name, id: channel.id, days: lastHumanDays });
+          scanned += 1;
+          if (scanned % 8 === 0 || scanned === channels.length) {
+            await update(`🔧 Analyse d\u0029activité : ${scanned}/${channels.length} salons...`);
+          }
+        }
+        await update(`✅ Analyse terminée : ${scanned} salons.`);
+        const dead = results.filter((r) => r.days === null || r.days >= threshold);
+        const alive = results.length - dead.length;
+        const deadLines = dead
+          .sort((a, b) => (b.days ?? 9999) - (a.days ?? 9999))
+          .slice(0, 25)
+          .map((r) => `#${r.name} → ${r.days === null ? 'jamais de message membre' : `${r.days}j`}`);
+        return {
+          ok: true,
+          summary:
+            `${scanned} salons analysés, seuil ${threshold}j : ${dead.length} salon(s) inactif(s), ${alive} vivant(s). ` +
+            `Inactifs : ${deadLines.join(' | ') || 'aucun'}. Déplace-les avec moveChannel (categoryName/ID cible).`,
+          data: { threshold, scanned, deadIds: dead.map((r) => r.id) },
+        };
       },
     },
 

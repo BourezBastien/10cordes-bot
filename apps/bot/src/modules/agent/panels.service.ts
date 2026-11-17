@@ -120,6 +120,29 @@ export class PanelsService implements SpraxiumOnBoot {
             return { ok: false, summary: 'Salon cible introuvable ou non textuel.' };
           }
           const definition = parsed.data as PanelDefinition;
+          // Catégories validées SUR CE SERVEUR : un ID d'un autre serveur (ou
+          // supprimé) ferait ouvrir les tickets à la racine sans erreur.
+          const guild = this.client.guilds.cache.get(ctx.guildId);
+          if (!guild) return { ok: false, summary: 'Serveur introuvable.' };
+          const referencedCategories = [
+            ...(definition.buttons ?? []).map((button) => button.categoryId).filter((id): id is string => Boolean(id)),
+            ...(definition.selectMenu?.options ?? []).map((option) => option.categoryId).filter((id): id is string => Boolean(id)),
+          ];
+          const invalid: string[] = [];
+          for (const id of [...new Set(referencedCategories)]) {
+            const fetched = await guild.channels.fetch(id).catch(() => null);
+            if (!fetched || fetched.type !== ChannelType.GuildCategory) {
+              invalid.push(id);
+            }
+          }
+          if (invalid.length > 0) {
+            return {
+              ok: false,
+              summary:
+                `Catégories introuvables sur CE serveur : ${invalid.join(', ')}. ` +
+                'Crée-les d\u0029abord (createCategory) et utilise les IDs RENVOYÉS par le tool — jamais des IDs d\u0029une autre conversation ou d\u0029un autre serveur.',
+            };
+          }
           const sent = await channel.send({ flags: 32768, components: [this.buildContainer(definition)] }).catch(() => null);
           if (!sent) return { ok: false, summary: 'Impossible de poster le panel (permissions du salon ?).' };
 
@@ -256,11 +279,17 @@ export class PanelsService implements SpraxiumOnBoot {
     await this.prisma.ticket
       .create({ data: { guildId, number: counter.value, channelId: created.id, userId: member.id } })
       .catch(() => {});
+    // Accueil en V2 (embed moderne) + rangée standard claim / fermer / aide.
+    const welcome = new ContainerBuilder().setAccentColor(0xd9_59_26);
+    welcome.addTextDisplayComponents(new TextDisplayBuilder().setContent(`## 📬 Ticket — ${label}`));
+    welcome.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(
+        `${welcomeMessage ? `${welcomeMessage}\n\n` : ''}<@${member.id}> décris ta demande ici : le staff arrive.\n\n` +
+          '🙋 **Claim** (staff) : prise en charge · 🔒 **Fermer** (staff) : clôture + transcript · 🆘 **Aide** : appelle le staff.',
+      ),
+    );
     await created
-      .send({
-        content: `${welcomeMessage ? `${welcomeMessage}\n\n` : ''}<@${member.id}> ton ticket est ouvert : décris ta demande, le staff arrive.`,
-        components: [ticketActionRow()],
-      })
+      .send({ flags: 32768, components: [welcome, ticketActionRow()] })
       .catch(() => {});
     this.audit.record({
       guildId,

@@ -77,6 +77,29 @@ listeners with bot-permission gates). The agent's replies are plain text in
 the request channel; a response cache deduplicates repeated questions; provider
 failures (402 quota / 401 auth / 5xx) produce distinct, honest user notices.
 
+## Agent capabilities in production
+
+- **Music generation** (kie.ai / Suno V6_MINI, 12 credits per song, 90 s cap):
+  topical lyrics are researched first (web + news, sources verified but not
+  cited), lyrics calibrated to the duration, the MP3 is posted as a real
+  attachment, and `voice.join` + `voice.play` stream it in a voice channel
+  (@discordjs/voice, pure-JS stack: opusscript + libsodium + ffmpeg-static).
+- **Image generation** (kie.ai / z-image, 0.8 credit, ~6 s): free-form images
+  delivered as attachments (ratio-aware), pixel art stays on PixelLab.
+- **Polls**: `createPoll` posts a button-per-option panel, one vote per
+  member (changeable), auto-closes at the deadline (timer + boot sweep,
+  restart-safe) and edits the message with results: counts, percentages,
+  bars, winner, buttons removed.
+- **Tickets**: the agent builds categories per type, validates them on the
+  right guild, posts a panel (buttons or selector, each entry carries its
+  category), and every opened ticket gets a Components V2 welcome embed with
+  Claim / Close / Ask-for-help buttons (staff-gated, transcript on close).
+- **Server analysis**: `analyzeActivity` measures real inactivity (bots and
+  webhooks excluded, dates included) for archive campaigns; long analyses and
+  builds are narrated live (`announceStep`) with per-item counters.
+- **Progressive context**: full analyses are memorized (`saveServerMemory`)
+  so follow-up questions on the same topic answer instantly.
+
 ## Docs
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - detailed plumbing

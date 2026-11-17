@@ -105,6 +105,16 @@ function normalizeBaseUrl(raw: string): string {
 }
 
 /**
+ * Les contenus Discord (messages des membres, transcripts, résultats d'outils)
+ * peuvent contenir des surrogate pairs isolés (emoji copiés-collés corrompus).
+ * JSON.stringify les encode en \uD83X seuls : le fournisseur répond alors
+ * 400 « unexpected end of hex escape » et la demande échoue. On les retire.
+ */
+function stripLoneSurrogates(text: string): string {
+  return text.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/gu, '');
+}
+
+/**
  * Client LLM compatible OpenAI (chat completions + tool calling).
  * Config : modale owner (table IntegrationConfig, effet immédiat) sinon env.
  * Les noms de tools namespacés sont encodés pour l'API (points interdits).
@@ -286,7 +296,10 @@ export class LlmService implements SpraxiumOnBoot {
       },
       body: JSON.stringify({
         model,
-        messages,
+        messages: messages.map((message) => ({
+          ...message,
+          content: typeof message.content === 'string' ? stripLoneSurrogates(message.content) : message.content,
+        })),
         user_id: options.guildId ?? options.userId,
         reasoning_effort: this.env.DEEPSEEK_EFFORT || 'low',
         ...(apiTools.length > 0 ? { tools: apiTools, tool_choice: 'auto' } : {}),
