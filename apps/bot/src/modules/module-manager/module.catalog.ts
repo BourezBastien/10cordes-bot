@@ -40,10 +40,6 @@ export const MODULE_CATALOG: ModuleDescriptor[] = [
   },
 ];
 
-export function findModuleById(moduleId: string): ModuleDescriptor | undefined {
-  return MODULE_CATALOG.find((module) => module.id === moduleId);
-}
-
 export function findModuleByCommand(commandName: string, group?: string): ModuleDescriptor | undefined {
   const name = commandName.toLowerCase();
   if (group) {

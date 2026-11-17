@@ -20,11 +20,6 @@ export function separator(): SeparatorBuilder {
   return new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small);
 }
 
-/** Fichier joint référencé dans un container, visible via le composant File. */
-export function fileComponent(attachmentName: string): FileBuilder {
-  return new FileBuilder().setURL(`attachment://${attachmentName}`);
-}
-
 export interface PanelOptions {
   /** Titre markdown du panneau (ex: "## 🧩 Modules"). */
   title: string;

@@ -1,4 +1,8 @@
 
+import { TOOLS_PER_PAGE } from './v2.containers';
+
+export { TOOLS_PER_PAGE };
+
 export interface ToolCard {
   name: string;
   description: string;
@@ -11,8 +15,6 @@ export interface ToolsPageState {
   /** Phrase d'intro de l'agent, réaffichée à chaque page. */
   intro?: string;
 }
-
-export const TOOLS_PER_PAGE = 12;
 
 /** État des panneaux de tools paginés, par message (borné). */
 const pageStore = new Map<string, ToolsPageState>();

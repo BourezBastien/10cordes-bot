@@ -16,7 +16,6 @@ import { V2Service } from '@spraxium/components';
 import { AuditService } from '../audit/audit.service';
 import { MemoryService } from '../memory/memory.service';
 import { AssistantQueue } from './assistant.queue';
-import { ANSWER_VIEW_ID, deleteAnswer, storeAnswer } from './handlers/answer-view.handler';
 import { IntroContainer, type IntroData, ToolsListContainer, type ToolsData, TOOLS_PER_PAGE } from './v2.containers';
 import { storeToolsPanel } from './tools.panel';
 import { type AgentRequest, type AgentJobData } from './queue/types';

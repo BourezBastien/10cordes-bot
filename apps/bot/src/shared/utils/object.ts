@@ -12,16 +12,6 @@ export function deepMerge<T extends Record<string, unknown>>(base: T, patch: Rec
   return result as T;
 }
 
-/** Lecture d'une valeur par chemin pointé — undefined si absent. */
-export function getPath(source: Record<string, unknown>, path: string): unknown {
-  let current: unknown = source;
-  for (const part of path.split('.')) {
-    if (typeof current !== 'object' || current === null) return undefined;
-    current = (current as Record<string, unknown>)[part];
-  }
-  return current;
-}
-
 /** Construit un patch imbriqué à partir d'un chemin pointé, ex: setPath('a.b', 1) → { a: { b: 1 } }. */
 export function setPath(path: string, value: unknown): Record<string, unknown> {
   const [head, ...rest] = path.split('.');
