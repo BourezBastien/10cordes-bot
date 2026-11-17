@@ -15,11 +15,11 @@ function buildStyleGuide(guild: Guild): ToolResult {
 
   const overwriteSummary = (channel: import('discord.js').NonThreadGuildBasedChannel): Array<Record<string, unknown>> =>
     channel.permissionOverwrites.cache
-      .first(4)
+      .first(3)
       ?.map((overwrite) => ({
         role: roleName(overwrite.id),
-        allow: overwrite.allow.toArray().slice(0, 6),
-        deny: overwrite.deny.toArray().slice(0, 6),
+        allow: overwrite.allow.toArray().slice(0, 3),
+        deny: overwrite.deny.toArray().slice(0, 3),
       })) ?? [];
 
   const describeChannel = (channel: import('discord.js').NonThreadGuildBasedChannel): Record<string, unknown> => ({
@@ -45,7 +45,7 @@ function buildStyleGuide(guild: Guild): ToolResult {
   const categories = channels
     .filter((channel): channel is import('discord.js').CategoryChannel => channel.type === ChannelType.GuildCategory)
     .sort((a, b) => a.rawPosition - b.rawPosition)
-    .first(15)
+    .first(12)
     .map((category) => ({
       categorie: category.name,
       position: category.rawPosition,
@@ -66,13 +66,13 @@ function buildStyleGuide(guild: Guild): ToolResult {
         channel.parentId === null && channel.type !== ChannelType.GuildCategory && !channel.isThread(),
     )
     .sort((a, b) => a.rawPosition - b.rawPosition)
-    .first(15)
+    .first(12)
     .map(describeChannel);
 
   const roles = guild.roles.cache
     .filter((role) => !role.managed && role.id !== guild.id)
     .sort((a, b) => b.position - a.position)
-    .first(20)
+    .first(15)
     .map((role) => role.name);
 
   return {

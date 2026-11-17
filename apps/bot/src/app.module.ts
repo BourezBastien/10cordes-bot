@@ -23,8 +23,6 @@ import { MetaController } from './modules/api/meta.controller';
 import { HealthController } from './modules/health/health.controller';
 import { HealthMonitor } from './modules/health/health.monitor';
 import { RolesModule } from './modules/roles/roles.module';
-import { SetupModule } from './modules/setup/setup.module';
-import { TagsModule } from './modules/tags/tags.module';
 import { TicketsModule } from './modules/tickets/tickets.module';
 import { ToolRegistryModule } from './modules/tool-registry/tool-registry.module';
 import { WelcomeModule } from './modules/welcome/welcome.module';
@@ -54,11 +52,9 @@ import { WebToolsModule } from './modules/webtools/webtools.module';
     ModerationModule,
     ModuleManagerModule,
     RolesModule,
-    SetupModule,
-    TagsModule,
     TicketsModule,
-    ToolRegistryModule,
     WebToolsModule,
+    ToolRegistryModule,
     AgentModule,
     AssistantModule,
     WelcomeModule,

@@ -63,6 +63,14 @@ if (!token) {
   console.error('[FAIL] DISCORD_TOKEN absent de .env');
   process.exit(1);
 }
+// Garde serveur : les tests E2E ne tournent QUE sur le serveur de dev
+// (E2E_ENABLED=true). Jamais chez les clients.
+if (env.E2E_ENABLED !== 'true') {
+  console.log('[E2E] désactivé (E2E_ENABLED!=true) : aucun test lancé sur ce serveur.');
+  process.exit(0);
+}
+// Prisma (audit) lit process.env : depuis le .env ou la valeur par défaut du framework.
+process.env.DATABASE_URL ??= env.DATABASE_URL ?? 'file:../data/bot.db';
 // Prisma (audit) lit process.env : depuis le .env ou la valeur par défaut du framework.
 process.env.DATABASE_URL ??= env.DATABASE_URL ?? 'file:../data/bot.db';
 

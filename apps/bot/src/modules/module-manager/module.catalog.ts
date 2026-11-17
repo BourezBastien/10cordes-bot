@@ -23,13 +23,6 @@ export const MODULE_CATALOG: ModuleDescriptor[] = [
     dependsOn: [],
   },
   {
-    id: 'tags',
-    label: 'Tags',
-    description: 'Custom tag commands stored per server.',
-    commands: [],
-    dependsOn: [],
-  },
-  {
     id: 'tickets',
     label: 'Tickets',
     description: 'Support tickets with claim, close, transcripts and logs.',

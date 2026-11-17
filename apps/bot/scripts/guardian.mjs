@@ -180,6 +180,11 @@ async function main() {
   // 5. Sonde interne : GET /healthz — état DB, queue, gateway. AUCUN message
   // Discord : la surveillance ne spam pas le salon. Les incidents sont de
   // toute façon notifiés en continu par HealthMonitor (alerte sur changement).
+  // 5. Sonde interne : GET /healthz — état DB, queue, gateway. AUCUN message
+  // Discord : la surveillance ne spam pas le salon. Les incidents sont de
+  // toute façon notifiés en continu par HealthMonitor (alerte sur changement).
+  // La sonde E2E (webhook -> réponse de l'agent) ne tourne que sur le serveur
+  // de dev : E2E_ENABLED=true.
   try {
     const headers = env.HTTP_API_KEY ? { 'X-Api-Key': env.HTTP_API_KEY } : {};
     const res = await fetch('http://127.0.0.1:3000/healthz', { headers, signal: AbortSignal.timeout(10_000) });
@@ -191,6 +196,9 @@ async function main() {
     if (!res.ok || !health.ok) {
       say('FAIL', `/healthz signale un composant en échec (HTTP ${res.status}).`);
       process.exitCode = 1;
+    }
+    if (env.E2E_ENABLED !== 'true') {
+      say('PROBE', 'sonde E2E désactivée (E2E_ENABLED!=true) : aucun message envoyé sur le serveur.');
     }
   } catch (error) {
     say('FAIL', `sonde /healthz : ${error.message}`);
