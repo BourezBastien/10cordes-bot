@@ -689,39 +689,10 @@ export class AssistantService {
       return;
     }
 
-    // Plan de confirmation : le panneau envoyé au demandeur (DM, avec ses
-    // boutons) EST la réponse — aucun texte supplémentaire.
-    if (planProposed) {
-      this.audit.record({
-        guildId: guild.id,
-        source: 'agent',
-        action: 'assistant.reply',
-        actorId: request.userId,
-        metadata: { locale, permissions: permissions.length, tools: tools.length, plan: true, textSuppressed: true },
-      });
-      return;
-    }
-
+    // Tout part dans le salon, en texte simple (décision produit du 17/11 :
+    // plus de réponses privées, DM ni portails). Le cache coûts ne s'applique
+    // qu'aux réponses conversationnelles pures sans tools.
     const chunks = splitReplyChunks(finalText);
-
-    // Info personnelle, confirmation d'action, refus de permissions :
-    // DM direct au demandeur (visible uniquement par lui). Fallback : portail
-    // cliquable si les DM sont fermés, sinon salon public.
-    if (userScoped || actionRan || permissionRefused) {
-      const via = await this.deliverPrivate(channel, guild, request, chunks.join('\n\n'));
-      const reason = userScoped ? 'userScoped' : actionRan ? 'action' : 'permissionRefused';
-      this.audit.record({
-        guildId: guild.id,
-        source: 'agent',
-        action: 'assistant.reply',
-        actorId: request.userId,
-        metadata: { locale, permissions: permissions.length, tools: tools.length, private: true, via, reason },
-      });
-      return;
-    }
-
-    // Défaut : texte simple permanent (conversation). Sans tools appelés,
-    // la réponse est cachée pour les questions identiques (optimisation coûts).
     for (const chunk of chunks) {
       await channel.send({ content: chunk }).catch(() => {});
     }
@@ -735,62 +706,5 @@ export class AssistantService {
       actorId: request.userId,
       metadata: { locale, permissions: permissions.length, tools: tools.length, public: true },
     });
-  }
-
-  /**
-   * DM au demandeur : l'équivalent « éphémère » hors interaction (visible
-   * uniquement par lui, conforme à la doc Discord : l'éphémère natif n'existe
-   * que pour les interactions). Fallbacks : portail cliquable si les DM sont
-   * fermés, sinon salon public.
-   */
-  private async deliverPrivate(
-    channel: import('discord.js').TextChannel,
-    guild: import('discord.js').Guild,
-    request: AgentRequest,
-    text: string,
-  ): Promise<'dm' | 'portal' | 'public'> {
-    const member = await guild.members.fetch(request.userId).catch(() => null);
-    if (member) {
-      const sent = await member.send({ content: text.slice(0, 3500) }).catch(() => null);
-      if (sent) return 'dm';
-    }
-    const portal = await this.postPortal(channel, request.authorName);
-    if (portal) {
-      const panels: unknown[] = [];
-      for (const chunk of splitReplyChunks(text)) {
-        panels.push(panel({ title: '10cordes', lines: [chunk], accentColor: 0xd9_59_26 }));
-      }
-      storeAnswer(portal.id, { components: panels });
-      return 'portal';
-    }
-    await channel.send({ content: text.slice(0, 2000) }).catch(() => {});
-    return 'public';
-  }
-
-  /** Poste le portail éphémère (bouton) dans le salon. Retourne le message-portail. */
-  private async postPortal(
-    channel: import('discord.js').TextChannel,
-    displayName: string,
-  ): Promise<import('discord.js').Message | null> {
-    return channel
-      .send({
-        components: [
-          new ContainerBuilder()
-            .setAccentColor(0xd9_59_26)
-            .addTextDisplayComponents(
-              text(`**Réponse prête pour ${displayName}** (visible uniquement par toi).`),
-            )
-            .addActionRowComponents(
-              new ActionRowBuilder<ButtonBuilder>().addComponents(
-                new ButtonBuilder()
-                  .setCustomId(ANSWER_VIEW_ID)
-                  .setLabel('Afficher (éphémère)')
-                  .setStyle(ButtonStyle.Primary),
-              ),
-            ),
-        ],
-        flags: [MessageFlags.IsComponentsV2],
-      })
-      .catch(() => null);
   }
 }

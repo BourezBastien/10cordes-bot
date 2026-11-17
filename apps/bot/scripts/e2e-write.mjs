@@ -50,9 +50,14 @@ function releaseLock() {
 
 function loadEnv() {
   const env = {};
-  for (const raw of readFileSync(ENV_FILE, 'utf8').split(/\r?\n/)) {
-    const m = raw.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-    if (m) env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+  // .env.local prime sur .env (même convention que le guardian).
+  for (const file of ['.env.local', '.env']) {
+    const path = resolve(BOT_DIR, file);
+    if (!existsSync(path)) continue;
+    for (const raw of readFileSync(path, 'utf8').split(/\r?\n/)) {
+      const m = raw.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+      if (m && env[m[1]] === undefined) env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+    }
   }
   return env;
 }
@@ -147,7 +152,15 @@ async function main() {
 
   const me = await rest('/users/@me');
   const guilds = await rest('/users/@me/guilds');
-  const guildId = guilds[0].id;
+  // Cible : le serveur de dev désigné par E2E_GUILD_ID (jamais guilds[0],
+  // l'ordre de l'API n'est pas stable et le bot peut être chez des clients).
+  const devGuild = guilds.find((g) => g.id === env.E2E_GUILD_ID);
+  if (!devGuild) {
+    console.error(`[FAIL] E2E_GUILD_ID=${env.E2E_GUILD_ID} : le bot n'est pas sur ce serveur.`);
+    releaseLock();
+    process.exit(1);
+  }
+  const guildId = devGuild.id;
 
   const { PrismaClient } = await import('@prisma/client');
   const prisma = new PrismaClient();
@@ -164,13 +177,16 @@ async function main() {
   }
   if (!channelId) throw new Error('aucun salon texte trouvé');
 
-  const hooks = await rest(`/channels/${channelId}/webhooks`);
-  let hook = hooks.find((h) => h.name === WEBHOOK_NAME && h.user?.id === me.id);
+  // Webhook auto-réparant : supprime les restes du même nom (un webhook lié
+  // à un salon supprimé meurt avec lui), recrée, et synchronise la whitelist.
+  const existingHooks = await rest(`/channels/${channelId}/webhooks`);
+  let hook = existingHooks.find((h) => h.name === WEBHOOK_NAME && h.user?.id === me.id);
   if (!hook) {
     hook = await rest(`/channels/${channelId}/webhooks`, {
       method: 'POST',
       body: JSON.stringify({ name: WEBHOOK_NAME }),
     });
+    console.log('[SETUP] webhook E2E recréé.');
   }
 
   if (ensureWhitelist(hook.id)) {
@@ -178,6 +194,22 @@ async function main() {
     console.log(`[SETUP] E2E_STAFF_WEBHOOK_IDS=${hook.id} ajouté à .env`);
     console.log('[SETUP] redémarre le bot puis relance ce script.');
     process.exit(2);
+  }
+
+  // Test de vie : un webhook mort renvoie 404 Unknown Webhook au premier POST.
+  const alive = await fetch(`${API}/webhooks/${hook.id}/${hook.token}`, { method: 'GET' })
+    .then((res) => res.ok)
+    .catch(() => false);
+  if (!alive) {
+    await rest(`/channels/${channelId}/webhooks`, { method: 'POST', body: JSON.stringify({ name: WEBHOOK_NAME }) });
+    const refreshed = await rest(`/channels/${channelId}/webhooks`);
+    hook = refreshed.find((h) => h.name === WEBHOOK_NAME && h.user?.id === me.id);
+    if (ensureWhitelist(hook.id)) {
+      releaseLock();
+      console.log('[SETUP] webhook mort remplacé : redémarre le bot puis relance ce script.');
+      process.exit(2);
+    }
+    console.log('[SETUP] webhook mort remplacé et whitelist resynchronisée.');
   }
 
   const send = (content) =>
