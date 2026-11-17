@@ -88,16 +88,13 @@ export class MusicService implements SpraxiumOnBoot {
             duration?: number;
           };
 
-          // Progression : UN message édité à chaque étape (UX demandée).
+          // Progression dans LA ligne de statut (ctx.progress). La seule
+          // livraison visible : le fichier audio lui-même.
           const progressChannel = ctx.channelId
             ? await this.client.channels.fetch(ctx.channelId).catch(() => null)
             : null;
-          const progress =
-            progressChannel?.isTextBased() && 'send' in progressChannel
-              ? await progressChannel.send({ content: '🔎 Vérification du module musique...' }).catch(() => null)
-              : null;
           const update = async (message: string): Promise<void> => {
-            if (progress) await progress.edit({ content: message }).catch(() => {});
+            await ctx.progress?.(message);
           };
 
           const created = await safeFetch(`${API_BASE}/jobs/createTask`, {
@@ -120,11 +117,11 @@ export class MusicService implements SpraxiumOnBoot {
           });
           const createdData = (await created.json().catch(() => ({}))) as { code?: number; data?: { taskId?: string }; msg?: string };
           if (createdData.code !== 200 || !createdData.data?.taskId) {
-            await update(`❌ Génération refusée par kie.ai : ${createdData.msg ?? 'erreur inconnue'}`);
+            await update('musique : génération refusée par kie.ai');
             return { ok: false, summary: `Génération refusée par kie.ai : ${createdData.msg ?? 'erreur inconnue'}` };
           }
 
-          await update(`🎵 Génération lancée (Suno ${this.env.KIE_MODEL || 'V6_MINI'}, cible ${duration ?? 90}s) — 30 à 120 secondes...`);
+          await update(`musique : génération lancée (Suno ${this.env.KIE_MODEL || 'V6_MINI'}, cible ${duration ?? 90}s)`);
 
           // Poll jusqu'à complétion.
           const deadline = Date.now() + POLL_MAX_MS;
@@ -132,7 +129,7 @@ export class MusicService implements SpraxiumOnBoot {
           while (Date.now() < deadline) {
             await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
             elapsed += POLL_INTERVAL_MS / 1000;
-            await update(`🎵 Génération en cours... ${elapsed}s`);
+            await update(`musique : génération en cours... ${elapsed}s`);
             const record = await safeFetch(`${API_BASE}/jobs/recordInfo?taskId=${createdData.data.taskId}`, {
               timeoutMs: 15_000,
               headers: { Authorization: `Bearer ${key}` },
@@ -142,19 +139,16 @@ export class MusicService implements SpraxiumOnBoot {
             };
             const track = recordData.data?.response?.data?.[0];
             if (track?.audio_url) {
-              // Une seule livraison : le fichier ci-dessous. Le message de
-              // progression se ferme SANS l'URL (elle restait collée dans 3
-              // messages d'affilée : progression, réponse du modèle, fichier).
+              // Une seule livraison : le fichier ci-dessous, sans autre message.
               const seconds = Math.round(track.duration ?? 0);
-              await update(`✅ Musique « ${track.title ?? title} » prête (${seconds}s) — envoi du fichier...`);
-              // Le fichier part en message séparé : Discord ne permet pas
-              // d'attacher une pièce jointe en éditant un message existant.
+              await update(`musique prête (${seconds}s) — envoi du fichier`);
               if (progressChannel?.isTextBased() && 'send' in progressChannel) {
                 const destination = progressChannel as import('discord.js').TextChannel;
                 const audio = await fetch(track.audio_url).then((res) => res.arrayBuffer()).catch(() => null);
                 if (audio) {
                   await destination
                     .send({
+                      content: `**${track.title ?? title}** (${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')})`,
                       files: [{ name: `${(track.title ?? title).replace(/[^a-zA-Z0-9-_]/gu, '-').slice(0, 40)}.mp3`, attachment: Buffer.from(audio) }],
                     })
                     .catch(() => {});
@@ -163,14 +157,13 @@ export class MusicService implements SpraxiumOnBoot {
               return {
                 ok: true,
                 summary:
-                  `Musique « ${track.title ?? title} » générée (${seconds}s) et postée en pièce jointe dans le salon. ` +
-                  'Le lien kie.ai (14 jours) est dans data.audioUrl si besoin. ' +
-                  'Ne répète PAS l\u0027URL ni ne reposte le fichier : réponds en UN message court de commentaire.',
+                  `Musique « ${track.title ?? title} » (${seconds}s) postée en pièce jointe dans le salon. ` +
+                  'NE RÉPONDS RIEN : le fichier et le titre suffisent (sauf si un titre manquait, donne-le en une ligne).',
                 data: { audioUrl: track.audio_url, taskId: createdData.data.taskId, duration: seconds },
               };
             }
           }
-          await update('⌛ La génération dépasse 150 secondes : le track arrivera, réessaie dans une minute pour le lien.');
+          await update('musique : dépasse 150s, le track arrivera — réessaie dans une minute');
           return { ok: false, summary: 'La génération dépasse 150 secondes : réessaie dans une minute, le track arrivera.' };
         },
       },

@@ -125,6 +125,24 @@ export class SkillService implements SpraxiumOnBoot {
     if (cleanRule.length < 3 || cleanRule.length > RULE_MAX) {
       throw new Error(`La règle doit être une seule phrase de 3 à ${RULE_MAX} caractères (reçu ${cleanRule.length}).`);
     }
+    // Garde anti-doublon : un trigger qui recouvre un skill existant est
+    // refusé (deux règles concurrentes sur la même demande = comportement
+    // imprévisible). Normalisation minuscule/espaces pour la comparaison.
+    const normalize = (text: string): string => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    const existing = await this.listSkills(guildId);
+    const newWords = new Set(normalize(cleanTrigger).split(' ').filter((word) => word.length > 3));
+    for (const skill of existing) {
+      const oldWords = new Set(normalize(skill.trigger).split(' ').filter((word) => word.length > 3));
+      if (oldWords.size === 0) continue;
+      const overlap = [...newWords].filter((word) => oldWords.has(word)).length;
+      const ratio = overlap / Math.min(newWords.size, oldWords.size);
+      if (ratio >= 0.7) {
+        throw new Error(
+          `Doublon : ce trigger recouvre le skill existant « ${skill.trigger} » (${skill.id.slice(-6)}). ` +
+            'Ouvre-le avec openSkill et propose une correction (deleteSkill puis recréation) au lieu d\u0027empiler deux règles concurrentes.',
+        );
+      }
+    }
     const created = await this.prisma.agentSkill.create({
       data: { guildId, trigger: cleanTrigger, rule: cleanRule, createdByUserId: creatorId },
     });

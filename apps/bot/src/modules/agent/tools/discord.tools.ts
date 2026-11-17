@@ -149,8 +149,9 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
         if (!guild.members.me?.permissions.has(PermissionFlagsBits.ManageChannels)) {
           return { ok: false, summary: "Le bot n'a pas la permission ManageChannels." };
         }
+        const oldName = channel.name;
         await channel.setName(name, `agent tool (by <@${ctx.userId}>)`);
-        return { ok: true, summary: `Salon renommé en **${name}**.` };
+        return { ok: true, summary: `Salon renommé en **${name}**.`, data: { preState: { channelId: channel.id, oldName } } };
       },
     },
     {

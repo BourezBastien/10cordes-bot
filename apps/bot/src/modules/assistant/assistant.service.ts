@@ -48,6 +48,80 @@ function splitReplyChunks(content: string): string[] {
   return chunks;
 }
 
+/**
+ * Tools qui touchent à la structure du serveur : AVANT le premier appel,
+ * un instantané complet (catégories, salons, rôles) est archivé en audit
+ * (action 'server.snapshot') — la base immuable du retour arrière.
+ */
+const SNAPSHOT_TOOLS = new Set([
+  'deleteChannel',
+  'renameChannel',
+  'moveChannel',
+  'setChannelTopic',
+  'setChannelSlowmode',
+  'setChannelOverwrite',
+  'archiveChannel',
+  'deleteRole',
+  'renameRole',
+  'setRoleColor',
+  'banMember',
+  'kickMember',
+]);
+
+/**
+ * Ligne de statut UNIQUE pendant le traitement : éditée en place, jamais
+ * dupliquée. Format demandé par l'owner : préfixe de tag, zéro emoji.
+ *   [THINKING] Je réfléchis...
+ *   [TOOL] analyzeActivity : 24/48 salons...
+ * Supprimée juste avant la réponse finale.
+ */
+class LiveStatus {
+  private message: import('discord.js').Message | null = null;
+  private timer: NodeJS.Timeout | null = null;
+
+  constructor(private readonly channel: { send: (opts: { content: string }) => Promise<import('discord.js').Message> }) {}
+
+  /** Programme la ligne [THINKING] : postée seulement si rien ne répond en 3s. */
+  arm(): void {
+    this.timer = setTimeout(() => void this.post('[THINKING] Je réfléchis...'), 3_000);
+    this.timer.unref?.();
+  }
+
+  /** Étape visible (appel de tool) : annule le timer et met à jour. */
+  async step(toolName: string): Promise<void> {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    await this.post(`[TOOL] ${toolName}`);
+  }
+
+  /** Détail de progression DANS la ligne du tool (ex : 24/48 salons). */
+  async detail(text: string): Promise<void> {
+    await this.post(`[TOOL] ${text}`);
+  }
+
+  private async post(content: string): Promise<void> {
+    if (this.message) {
+      await this.message.edit({ content }).catch(() => {});
+      return;
+    }
+    this.message = await this.channel.send({ content }).catch(() => null);
+  }
+
+  /** Supprime la ligne de statut (idempotent). */
+  async done(): Promise<void> {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    if (this.message) {
+      await this.message.delete().catch(() => {});
+      this.message = null;
+    }
+  }
+}
+
 export function buildSystemPrompt(
   locale: string,
   guildName: string,
@@ -90,6 +164,7 @@ export function buildSystemPrompt(
     '<FORMAT_AND_SILENCE>',
     'Par défaut : réponds en TEXTE SIMPLE (phrases), sans panneau. Tes réponses partent telles quelles dans le salon.',
     'Préfixe [PANEL] au tout début de ta réponse UNIQUEMENT pour présenter des données structurées demandées explicitement (classement, longue liste, comparatif, carte de rang) : le système le rendra en panneau visuel.',
+    'LISTES = PANNEAU : quand on demande de LISTER quelque chose (tools, skills, salons, rôles, membres, options...), réponds TOUJOURS avec [PANEL] et une liste structurée (une entrée par ligne : nom + info clé) — jamais une phrase qui concatène tout ni un pavé inline. Les skills listés précisent s\u0029ils sont actifs ou non.',
     "Confirmation d'action (salon créé, rôle attribué, message purgé...) : UNE phrase courte avec le résultat concret, jamais un pavé.",
     "Silence demandé : si l'utilisateur demande d'agir SANS lui répondre (ex: « purge sans me répondre »), exécute puis appelle le tool skipReply et écris ensuite un texte final VIDE. Aucun message ne partira : c'est le comportement attendu, pas un échec.",
     '</FORMAT_AND_SILENCE>',
@@ -164,6 +239,7 @@ export function buildSystemPrompt(
     '</SKILLS>',
     '<AUDIT_AND_REPORTING>',
     'Après exécution, rapporte ce qui a changé avec noms et IDs.',
+    'ROLLBACK GARANTI : chaque action destructive ou mutation (suppression, renommage, déplacement, permissions) archive l\u0029état AVANT (preState dans l\u0029audit) ET un instantané complet du serveur (server.snapshot avant le premier tool structurel). Pour un « remets comme avant » : getLastSnapshot pour l\u0029état d\u0029origine + getAuditLogs pour la séquence des changements + ta mémoire serveur (habitudes d\u0029organisation) — puis restaure avec les tools d\u0029édition. JAMAIS de « je ne peux pas revenir en arrière ». Avant toute restauration, vérifie les deux sources de logs (audit Discord ET ton propre historique d\u0029actions).',
     '</AUDIT_AND_REPORTING>',
   ].join('\n');
 }
@@ -237,6 +313,40 @@ export class AssistantService {
     private readonly responseCache: ResponseCacheService,
   ) {
     queue.setProcessor((request) => this.processAgentRequest(request));
+    this.registry.register(this.getLastSnapshotTool());
+  }
+
+  /**
+   * Retourne le dernier instantané complet du serveur (archivé avant toute
+   * action destructive) : source de vérité pour un retour arrière demandé.
+   */
+  private getLastSnapshotTool(): BotTool {
+    return {
+      name: 'getLastSnapshot',
+      description: 'Récupère le dernier instantané complet du serveur (catégories, salons, rôles) archivé avant une modification destructive : la base exacte pour un retour arrière.',
+      category: 'agent',
+      paramsSchema: z.object({}),
+      requiredModules: [],
+      permissions: ['ManageChannels'],
+      destructive: false,
+      systemPrompt:
+        'Pour tout « remets comme avant / rollback » : compare ce snapshot à l\u0029état actuel (getServerStyle ou getChannels) puis restaure (renameChannel, moveChannel, setChannelOverwrite, createRole...). Jamais de « je ne peux pas revenir en arrière ».',
+      handler: async (_input, ctx) => {
+        if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
+        const entry = await this.prisma.auditLog.findFirst({
+          where: { guildId: ctx.guildId, action: 'server.snapshot' },
+          orderBy: { id: 'desc' },
+        });
+        if (!entry) return { ok: false, summary: 'Aucun instantané archivé pour ce serveur.' };
+        const meta = JSON.parse(entry.metadata || '{}') as { snapshot?: unknown; requestId?: string };
+        const snapshot = meta.snapshot ?? {};
+        return {
+          ok: true,
+          summary: `Dernier instantané archivé (demande ${meta.requestId ?? '?'}) : catégories/salons/rôles restaurables.`,
+          data: { snapshot },
+        };
+      },
+    };
   }
 
   /** Salon dédié IA configuré pour un serveur (vide = aucun). */
@@ -432,6 +542,11 @@ export class AssistantService {
       permissions = ['Administrator'];
     }
 
+    // Ligne de statut vivante dès le début : [THINKING] après 3s, [TOOL] à
+    // chaque appel, éditée en place, supprimée avant la réponse.
+    const status = new LiveStatus(channel);
+    status.arm();
+
     const tools = await this.registry.listForGuild(guild.id);
     const openAiTools: OpenAiTool[] = tools.map(toolToOpenAiTool);
     // Tool réservé au silence demandé — géré par la boucle, pas dans le registry.
@@ -493,6 +608,9 @@ export class AssistantService {
       userId: request.userId,
       locale,
       permissions,
+      // Ligne de statut unique : les tools y publient leur progression au lieu
+      // de poster leurs propres messages (fin du spam de lignes).
+      progress: async (text) => status.detail(text),
       reply: async (replyText) => {
         await channel.send({ content: replyText }).catch(() => {});
       },
@@ -534,6 +652,7 @@ export class AssistantService {
     const usage = { promptTokens: 0, completionTokens: 0 };
     const executed: string[] = [];
     const loopState: { error: Error | null } = { error: null };
+    let snapshotTaken = false;
 
     // Cache de coûts : question identique posée récemment dans le serveur →
     // réponse cachée sans appel LLM (jamais pour les demandes d'action).
@@ -541,6 +660,7 @@ export class AssistantService {
       const cachedReply = this.responseCache.get(guild.id, request.content);
       if (cachedReply) {
         log.info(`[FLOW] cache HIT pour ${request.authorName} [${requestId}]`);
+        await status.done();
         await channel.send({ content: cachedReply }).catch(() => {});
         this.audit.record({
           guildId: guild.id,
@@ -600,6 +720,31 @@ export class AssistantService {
             continue;
           }
           const tool = this.registry.get(call.name);
+          await status.step(call.name);
+          // Premier tool structurel de la demande : instantané complet du
+          // serveur en audit AVANT toute modification (rollback garanti).
+          if (SNAPSHOT_TOOLS.has(call.name) && !snapshotTaken) {
+            snapshotTaken = true;
+            const snapshot = {
+              at: new Date().toISOString(),
+              categories: [...guild.channels.cache.values()]
+                .filter((c) => !c.isThread() && c.type === 4)
+                .map((c) => ({ id: c.id, name: c.name, position: (c as import('discord.js').GuildChannel).rawPosition })),
+              channels: [...guild.channels.cache.values()]
+                .filter((c) => !c.isThread() && c.type !== 4)
+                .map((c) => ({ id: c.id, name: c.name, type: c.type, parent: c.parentId, position: (c as import('discord.js').GuildChannel).rawPosition })),
+              roles: guild.roles.cache
+                .filter((r) => r.name !== '@everyone')
+                .map((r) => ({ id: r.id, name: r.name, color: r.color, position: r.rawPosition })),
+            };
+            this.audit.record({
+              guildId: guild.id,
+              source: 'agent',
+              action: 'server.snapshot',
+              actorId: request.userId,
+              metadata: { requestId, snapshot },
+            });
+          }
           const result = await this.registry.run(call.name, input, ctx);
           executed.push(call.name);
           if (result.ok && (tool?.destructive || (tool?.permissions?.length ?? 0) > 0)) actionRan = true;
@@ -623,7 +768,13 @@ export class AssistantService {
             source: 'agent',
             action: `assistant.tool.${call.name}`,
             actorId: request.userId,
-            metadata: { ok: result.ok, summary: result.summary.slice(0, 200) },
+            metadata: {
+              ok: result.ok,
+              summary: result.summary.slice(0, 200),
+              // État avant mutation (rename/move/overwrite...) : la clé du
+              // retour arrière demandé par l'owner.
+              preState: (resultData as Record<string, unknown> | undefined)?.preState ?? undefined,
+            },
           });
         }
         continue;
@@ -648,6 +799,7 @@ export class AssistantService {
             actorId: request.userId,
             metadata: { requestId, kind: 'quota' },
           });
+          await status.done();
           await channel
             .send(noticeFor('IA désactivée : crédits DeepSeek épuisés. Recharge le compte API, je reprends dès que c\u0027est réglé.'))
             .catch(() => {});
@@ -661,6 +813,7 @@ export class AssistantService {
             actorId: request.userId,
             metadata: { requestId, kind: 'auth' },
           });
+          await status.done();
           await channel
             .send(noticeFor('Configuration IA invalide (clé rejetée). Contacte le staff : la clé API doit être corrigée.'))
             .catch(() => {});
@@ -674,6 +827,7 @@ export class AssistantService {
             actorId: request.userId,
             metadata: { requestId, kind: 'provider' },
           });
+          await status.done();
           await channel
             .send(noticeFor('Problème temporaire avec le fournisseur IA. Patiente quelques minutes et réessaie.'))
             .catch(() => {});
@@ -684,12 +838,15 @@ export class AssistantService {
           source: 'agent',
           action: 'assistant.error',
           actorId: request.userId,
-          metadata: { requestId, kind: 'generic', error: loopState.error.message.slice(0, 300) },
-        });
-        await channel.send(noticeFor(`Erreur IA : ${loopState.error.message.slice(0, 180)}`)).catch(() => {});
+            metadata: { requestId, kind: 'generic', error: loopState.error.message.slice(0, 300) },
+          });
+          await status.done();
+          await channel.send(noticeFor(`Erreur IA : ${loopState.error.message.slice(0, 180)}`)).catch(() => {});
         return;
       }
-      finalText = "J'ai traité ta demande via les tools, vérifie les résultats ci-dessus.";
+      // Tools exécutés sans texte final : les résultats sont VISIBLES dans le
+      // salon (salons créés, fichiers, panels) — aucun remplissage demandé.
+      finalText = executed.length > 0 ? '' : 'Fait.';
     }
 
     // Comptabilité IA : un enregistrement par demande (somme des itérations).
@@ -718,6 +875,7 @@ export class AssistantService {
         actorId: request.userId,
         metadata: { requestId, locale, silent: true, tools: executed.join(',') },
       });
+      await status.done();
       return;
     }
 
@@ -732,10 +890,12 @@ export class AssistantService {
       finalDelivery = finalDelivery.replaceAll('@everyone', '`everyone`').replaceAll('@here', '`here`');
     }
     const chunks = splitReplyChunks(finalDelivery);
+    await status.done();
     for (const chunk of chunks) {
+      if (!chunk.trim()) continue;
       await channel.send({ content: chunk }).catch(() => {});
     }
-    if (executed.length === 0 && chunks.length === 1) {
+    if (executed.length === 0 && chunks.length === 1 && chunks[0].trim()) {
       this.responseCache.put(guild.id, request.content, chunks[0]);
     }
     this.audit.record({

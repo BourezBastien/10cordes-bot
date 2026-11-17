@@ -81,9 +81,10 @@ export class WebToolsService implements SpraxiumOnBoot {
       return { ok: false, summary: 'Salon introuvable pour poster l\u0027image.' };
     }
 
-    const progress = await channel.send({ content: `🎨 ${label} : vérification du module image...` }).catch(() => null);
+    // Progression dans LA ligne de statut du traitement (ctx.progress) :
+    // jamais de message dédié, la seule livraison est le fichier lui-même.
     const update = async (message: string): Promise<void> => {
-      if (progress) await progress.edit({ content: message }).catch(() => {});
+      await ctx.progress?.(message);
     };
 
     const created = await safeFetch(`${KIE_API_BASE}/jobs/createTask`, {
@@ -94,11 +95,11 @@ export class WebToolsService implements SpraxiumOnBoot {
     });
     const createdData = (await created.json().catch(() => ({}))) as { code?: number; data?: { taskId?: string }; msg?: string };
     if (createdData.code !== 200 || !createdData.data?.taskId) {
-      await update(`❌ Génération refusée par kie.ai : ${createdData.msg ?? 'erreur inconnue'}`);
+      await update('image : génération refusée par kie.ai');
       return { ok: false, summary: `Génération refusée par kie.ai : ${createdData.msg ?? 'erreur inconnue'}` };
     }
 
-    await update(`🎨 Génération lancée (z-image, ${aspectRatio}) — quelques secondes...`);
+    await update(`image : génération lancée (z-image, ${aspectRatio})`);
     const deadline = Date.now() + 90_000;
     let elapsed = 0;
     while (Date.now() < deadline) {
@@ -131,22 +132,22 @@ export class WebToolsService implements SpraxiumOnBoot {
       }
       resultUrl ??= recordData.data?.response?.result_url ?? recordData.data?.response?.resultUrl ?? recordData.data?.response?.data?.find((entry) => entry.url)?.url;
       if (resultUrl) {
-        await update(`✅ Image prête — envoi...`);
+        await update('image prête — envoi du fichier');
         const image = await fetch(resultUrl).then((res) => res.arrayBuffer()).catch(() => null);
         if (image) {
           await channel
             .send({
-              content: `🎨 **${label}**`,
+              content: `**${label}**`,
               files: [{ name: `${label.replace(/[^a-zA-Z0-9-_]/gu, '-').slice(0, 40)}.png`, attachment: Buffer.from(image) }],
             })
             .catch(() => {});
         }
-        await update(`✅ Image livrée (source : kie.ai / z-image, 0,8 crédit).`);
+        await update('image livrée (z-image, 0,8 crédit)');
         return { ok: true, summary: `Image générée et envoyée dans le salon (source : kie.ai, z-image).`, data: { url: resultUrl } };
       }
-      await update(`🎨 Génération en cours... ${elapsed}s`);
+      await update(`image : génération en cours... ${elapsed}s`);
     }
-    await update('⌛ La génération dépasse 90 secondes : l\u0029image arrivera, redemande-la dans une minute.');
+    await update('image : dépasse 90s, elle arrivera — réessaie dans une minute');
     return { ok: false, summary: 'La génération dépasse 90 secondes : réessaie dans une minute.' };
   }
 

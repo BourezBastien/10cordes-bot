@@ -27,10 +27,10 @@ export class PanelButton4 {}
 @StringSelect({ customId: 'panel:select', placeholder: 'Choisis une option' })
 export class PanelSelect {}
 
-abstract class PanelInteractionBase {
-  constructor(protected readonly panels: PanelsService) {}
+class PanelInteractionFlow {
+  constructor(private readonly panels: PanelsService) {}
 
-  protected async reply(interaction: ButtonInteraction | StringSelectMenuInteraction, work: () => Promise<string>): Promise<void> {
+  async reply(interaction: ButtonInteraction | StringSelectMenuInteraction, work: () => Promise<string>): Promise<void> {
     await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
     const result = await work().catch((error: unknown) => `Échec : ${error instanceof Error ? error.message.slice(0, 150) : 'erreur'}`);
     await interaction.editReply({ content: result }).catch(() => {});
@@ -43,16 +43,6 @@ export class PanelButton0Handler {
 
   async handle(@Ctx() interaction: ButtonInteraction): Promise<void> {
     await new PanelInteractionFlow(this.panels).reply(interaction, () => this.panels.handleButton(interaction.message.id, 0, interaction.member as import('discord.js').GuildMember));
-  }
-}
-
-class PanelInteractionFlow {
-  constructor(private readonly panels: PanelsService) {}
-
-  async reply(interaction: ButtonInteraction | StringSelectMenuInteraction, work: () => Promise<string>): Promise<void> {
-    await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
-    const result = await work().catch((error: unknown) => `Échec : ${error instanceof Error ? error.message.slice(0, 150) : 'erreur'}`);
-    await interaction.editReply({ content: result }).catch(() => {});
   }
 }
 

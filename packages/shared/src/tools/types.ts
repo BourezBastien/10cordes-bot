@@ -19,6 +19,13 @@ export interface ToolRunContext {
    * Optionnel : absent sur les surfaces sans fichiers (dashboard web).
    */
   sendFile?: (file: { name: string; attachment: Uint8Array | string }, targetChannelId?: string) => Promise<void>;
+  /**
+   * Progression longue opération : édite LA ligne de statut unique du
+   * traitement (« [TOOL] analyse : 24/48 salons... »). Optionnel : absent
+   * sur les surfaces sans salon (dashboard). Les tools ne postent JAMAIS
+   * leurs propres messages de progression.
+   */
+  progress?: (text: string) => Promise<void>;
 }
 
 export interface ToolResult {

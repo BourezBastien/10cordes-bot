@@ -9,6 +9,11 @@ import type { ToolHelpers } from './discord.tools';
  * enfants (noms, types, topics), permissions par salon, positions.
  * L'agent l'appelle AVANT toute création pour reproduire les conventions.
  */
+/** État avant mutation : joint au résultat (data.preState) et archivé dans l'audit pour permettre un retour arrière. */
+function withPreState(result: ToolResult, preState: Record<string, unknown>): ToolResult {
+  return { ...result, data: { ...(result.data ?? {}), preState } };
+}
+
 function buildStyleGuide(guild: Guild): ToolResult {
   const channels = guild.channels.cache;
   const roleName = (id: string): string => (id === guild.id ? 'everyone' : (guild.roles.cache.get(id)?.name ?? id));
@@ -118,11 +123,12 @@ export function discordExtraTools(
         const { channelId, topic } = input as { channelId: string; topic: string };
         const channel = await guild.channels.fetch(channelId).catch(() => null);
         if (!channel || !('setTopic' in channel)) return { ok: false, summary: 'Salon introuvable ou non textuel.' };
+        const oldTopic = (channel as import('discord.js').TextChannel).topic ?? '';
         await (channel as unknown as { setTopic: (t: string, r: string) => Promise<unknown> }).setTopic(
           topic,
           `agent tool (by <@${ctx.userId}>)`,
         );
-        return { ok: true, summary: `Topic de <#${channel.id}> mis à jour.` };
+        return withPreState({ ok: true, summary: `Topic de <#${channel.id}> mis à jour.` }, { channelId: channel.id, oldTopic });
       },
     },
     {
@@ -140,11 +146,12 @@ export function discordExtraTools(
         const { channelId, seconds } = input as { channelId: string; seconds: number };
         const channel = await guild.channels.fetch(channelId).catch(() => null);
         if (!channel || !('setRateLimitPerUser' in channel)) return { ok: false, summary: 'Salon introuvable ou non textuel.' };
+        const oldSlowmode = (channel as import('discord.js').TextChannel).rateLimitPerUser;
         await (channel as unknown as { setRateLimitPerUser: (s: number, r: string) => Promise<unknown> }).setRateLimitPerUser(
           seconds,
           `agent tool (by <@${ctx.userId}>)`,
         );
-        return { ok: true, summary: `Mode lent de <#${channel.id}> : ${seconds}s.` };
+        return withPreState({ ok: true, summary: `Mode lent de <#${channel.id}> : ${seconds}s.` }, { channelId: channel.id, oldSlowmode });
       },
     },
     {
@@ -207,15 +214,22 @@ export function discordExtraTools(
         const overwrite: Record<string, boolean> = {};
         for (const flag of allow) overwrite[flag] = true;
         for (const flag of deny) overwrite[flag] = false;
+        const existing = (channel as import('discord.js').GuildChannel).permissionOverwrites.cache.get(roleId);
+        const preOverwrite = existing
+          ? { allow: existing.allow.toArray(), deny: existing.deny.toArray() }
+          : { allow: [], deny: [] };
         await (channel as import('discord.js').GuildChannel).permissionOverwrites.edit(roleId, overwrite, {
           reason: `agent tool (by <@${ctx.userId}>)`,
         });
         const target = roleId === guild.id ? 'le rôle everyone' : `<@&${roleId}>`;
-        return {
-          ok: true,
-          summary: `Permissions de <#${channel.id}> pour ${target} : +[${allow.join(', ') || '∅'}] -[${deny.join(', ') || '∅'}].`,
-          data: { channelId: channel.id, roleId },
-        };
+        return withPreState(
+          {
+            ok: true,
+            summary: `Permissions de <#${channel.id}> pour ${target} : +[${allow.join(', ') || '∅'}] -[${deny.join(', ') || '∅'}].`,
+            data: { channelId: channel.id, roleId },
+          },
+          { channelId: channel.id, roleId, oldOverwrite: preOverwrite },
+        );
       },
     },
     {
@@ -264,14 +278,15 @@ export function discordExtraTools(
         const { channelId, categoryId } = input as { channelId: string; categoryId?: string };
         const channel = await guild.channels.fetch(channelId).catch(() => null);
         if (!channel) return { ok: false, summary: 'Salon introuvable.' };
+        const oldParentId = channel.parentId;
         if (categoryId === undefined || categoryId === null) {
           await (channel as unknown as { setParent: (id: null, opts: object) => Promise<unknown> }).setParent(null, { lockPermissions: false, reason: `agent tool (by <@${ctx.userId}>)` });
-          return { ok: true, summary: `<#${channelId}> déplacé à la racine du serveur.` };
+          return withPreState({ ok: true, summary: `<#${channelId}> déplacé à la racine du serveur.` }, { channelId, oldParentId });
         }
         const category = await guild.channels.fetch(categoryId).catch(() => null);
         if (!category || category.type !== 4) return { ok: false, summary: 'Catégorie introuvable.' };
         await (channel as unknown as { setParent: (id: string, opts: object) => Promise<unknown> }).setParent(categoryId, { lockPermissions: false, reason: `agent tool (by <@${ctx.userId}>)` });
-        return { ok: true, summary: `<#${channelId}> déplacé dans **${category.name}**.` };
+        return withPreState({ ok: true, summary: `<#${channelId}> déplacé dans **${category.name}**.` }, { channelId, oldParentId });
       },
     },
 
@@ -291,8 +306,9 @@ export function discordExtraTools(
         const { roleId, name } = input as { roleId: string; name: string };
         const role = guild.roles.cache.get(roleId);
         if (!role) return { ok: false, summary: 'Rôle introuvable.' };
+        const oldName = role.name;
         await role.setName(name, `agent tool (by <@${ctx.userId}>)`);
-        return { ok: true, summary: `Rôle renommé en **${name}**.` };
+        return withPreState({ ok: true, summary: `Rôle renommé en **${name}**.` }, { roleId, oldName });
       },
     },
     {
@@ -567,13 +583,10 @@ export function discordExtraTools(
         );
         if (channels.length === 0) return { ok: false, summary: 'Aucun salon texte à analyser.' };
 
-        // Progression visible dans le salon : UN message édité pendant le scan.
-        const requestChannel = ctx.channelId ? await textChannelOf(guild, ctx.channelId) : null;
-        const progress = requestChannel
-          ? await requestChannel.send({ content: `🔧 Analyse d\u0029activité : 0/${channels.length} salons...` }).catch(() => null)
-          : null;
+        // Progression dans LA ligne de statut du traitement (ctx.progress) :
+        // jamais de messages dédiés, zéro spam.
         const update = async (text: string): Promise<void> => {
-          if (progress) await progress.edit({ content: text }).catch(() => {});
+          await ctx.progress?.(text);
         };
 
         const now = Date.now();
@@ -593,10 +606,10 @@ export function discordExtraTools(
           results.push({ name: channel.name, id: channel.id, days: lastHumanDays });
           scanned += 1;
           if (scanned % 8 === 0 || scanned === channels.length) {
-            await update(`🔧 Analyse d\u0029activité : ${scanned}/${channels.length} salons...`);
+            await update(`analyse : ${scanned}/${channels.length} salons`);
           }
         }
-        await update(`✅ Analyse terminée : ${scanned} salons.`);
+        await update('analyse terminée');
         const dead = results.filter((r) => r.days === null || r.days >= threshold);
         const alive = results.length - dead.length;
         const deadLines = dead
@@ -606,7 +619,7 @@ export function discordExtraTools(
         return {
           ok: true,
           summary:
-            `${scanned} salons analysés, seuil ${threshold}j : ${dead.length} salon(s) inactif(s), ${alive} vivant(s). ` +
+            `${scanned} salon(s) analysé(s), seuil ${threshold}j : ${dead.length} inactif(s), ${alive} vivant(s). ` +
             `Inactifs : ${deadLines.join(' | ') || 'aucun'}. Déplace-les avec moveChannel (categoryName/ID cible).`,
           data: { threshold, scanned, deadIds: dead.map((r) => r.id) },
         };

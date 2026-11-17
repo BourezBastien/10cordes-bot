@@ -35,6 +35,16 @@ const PanelButtonSchema = z.object({
   style: z.enum(['primary', 'secondary', 'success', 'danger']).default('primary'),
   categoryId: z.string().optional(),
   welcomeMessage: z.string().max(1000).optional(),
+  // Action générique : 'ticket' (défaut, historique) ouvre un salon de
+  // ticket ; 'reply' poste un message pré-écrit dans le salon du panel ;
+  // 'link' rend un bouton URL (aucune interaction gérée).
+  action: z
+    .union([
+      z.object({ type: z.literal('ticket') }),
+      z.object({ type: z.literal('reply'), message: z.string().min(1).max(1000) }),
+      z.object({ type: z.literal('link'), url: z.string().url().max(1000) }),
+    ])
+    .optional(),
 });
 
 const PanelOptionSchema = z.object({
@@ -48,6 +58,8 @@ const PanelDefinitionSchema = z
   .object({
     title: z.string().min(1).max(120),
     description: z.string().min(1).max(1800),
+    accentColor: z.number().int().min(0).max(0xffffff).optional().describe('Couleur de la barre latérale en hex (ex 0xd95926)'),
+    footer: z.string().max(200).optional(),
     buttons: z.array(PanelButtonSchema).max(MAX_BUTTONS).optional(),
     selectMenu: z
       .object({
@@ -81,13 +93,15 @@ export class PanelsService implements SpraxiumOnBoot {
     return {
       name: 'sendPanel',
       description:
-        'Poste un panel interactif (message V2 + jusqu\u0027à 5 boutons OU un sélecteur de 25 options). Chaque option/bouton crée un salon de ticket dans SA catégorie avec overwrites staff et message d\u0027accueil. Persisté en DB : survit aux restarts.',
+        'Le service embed+composants universel : poste un embed V2 (titre, description, couleur, footer) avec jusqu\u0027à 5 boutons à action configurée ou un sélecteur de 25 options. Actions de bouton : ticket (ouvre un salon dans la catégorie), reply (message pré-écrit), link (URL). Persisté en DB : les interactions survivent aux redémarrages.',
       category: 'agent',
       paramsSchema: z.object({
         channelId: z.string().min(1),
         kind: z.enum(['ticket', 'poll', 'custom']).default('custom'),
         title: z.string().min(1).max(120),
         description: z.string().min(1).max(1800),
+        accentColor: z.number().int().min(0).max(0xffffff).optional(),
+        footer: z.string().max(200).optional(),
         buttons: z.array(PanelButtonSchema).max(MAX_BUTTONS).optional(),
         selectMenu: z
           .object({
@@ -100,7 +114,7 @@ export class PanelsService implements SpraxiumOnBoot {
       permissions: ['ManageGuild'],
       destructive: false,
       systemPrompt:
-        'WORKFLOW PANELS : après tes questions et la création des catégories nécessaires (createCategory), construis le panel ici. Pour des tickets à plusieurs types, préfère le SÉLECTEUR (chaque option porte sa categoryId et son welcomeMessage). Permissions du bot vérifiées à l\u0027interaction.',
+        'USE UNIVERSEL pour tout message à composants construit à la volée : boutons intégrés DANS l\u0029embed (jamais en dessous). Actions : ticket / reply / link. Après tes questions et les catégories nécessaires (createCategory), construis ici. IDs de catégories : UNIQUEMENT ceux renvoyés par tes tools sur CE serveur. Les interactions fonctionnent après redémarrage (définition persistée).',
       handler: async (input, ctx) => {
         if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
         const guild = this.client.guilds.cache.get(ctx.guildId);
@@ -176,9 +190,12 @@ export class PanelsService implements SpraxiumOnBoot {
   }
 
   private buildContainer(definition: PanelDefinition): ContainerBuilder {
-    const container = new ContainerBuilder().setAccentColor(0xd9_59_26);
+    const container = new ContainerBuilder().setAccentColor(definition.accentColor ?? 0xd9_59_26);
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${definition.title}`));
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(definition.description));
+    if (definition.footer) {
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${definition.footer}`));
+    }
 
     if (definition.selectMenu?.options.length) {
       const menu = new StringSelectMenuBuilder()
@@ -198,7 +215,6 @@ export class PanelsService implements SpraxiumOnBoot {
     const row = new ActionRowBuilder<ButtonBuilder>();
     for (const [index, button] of (definition.buttons ?? []).entries()) {
       const builder = new ButtonBuilder()
-        .setCustomId(`panel:btn:${index}`)
         .setLabel(button.label.slice(0, 80))
         .setStyle(
           button.style === 'danger'
@@ -210,6 +226,12 @@ export class PanelsService implements SpraxiumOnBoot {
                 : ButtonStyle.Primary,
         );
       if (button.emoji) builder.setEmoji(button.emoji);
+      const action = button.action?.type ?? 'ticket';
+      if (action === 'link' && button.action?.type === 'link') {
+        builder.setURL(button.action.url).setStyle(ButtonStyle.Link);
+      } else {
+        builder.setCustomId(`panel:btn:${index}`);
+      }
       row.addComponents(builder);
     }
     container.addActionRowComponents(row);
@@ -226,13 +248,20 @@ export class PanelsService implements SpraxiumOnBoot {
     return this.createTicketChannel(row.guildId, option.label, option.categoryId, option.welcomeMessage, member, row.id);
   }
 
-  /** Bouton : index → salon de ticket dans la catégorie du bouton. */
+  /** Bouton : action générique — ticket (défaut) ou message pré-écrit. */
   async handleButton(messageId: string, buttonIndex: number, member: import('discord.js').GuildMember): Promise<string> {
     const row = await this.prisma.agentPanel.findFirst({ where: { messageId } });
     if (!row) throw new Error('Panel introuvable (supprimé ?).');
     const definition = PanelDefinitionSchema.parse(JSON.parse(row.definition)) as PanelDefinition;
     const button = definition.buttons?.[buttonIndex];
     if (!button) throw new Error('Bouton introuvable dans ce panel.');
+    if (button.action?.type === 'reply') {
+      const channel = await this.client.channels.fetch(row.channelId).catch(() => null);
+      if (!channel?.isTextBased() || !('send' in channel)) throw new Error('Salon du panel introuvable.');
+      await channel.send({ content: button.action.message.slice(0, 1000) }).catch(() => {});
+      return 'Message posté.';
+    }
+    if (button.action?.type === 'link') return 'Ce bouton est un lien : il ouvre une page directement.';
     return this.createTicketChannel(row.guildId, button.label, button.categoryId, button.welcomeMessage, member, row.id);
   }
 
