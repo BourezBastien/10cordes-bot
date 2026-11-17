@@ -76,7 +76,9 @@ export function buildSystemPrompt(
     '<TONE_AND_MESSAGING>',
     `Réponds toujours dans la langue : ${locale}. Ton direct, détendu, avec de la personnalité : tu n'es pas un assistant corporate, tu es LE bot du serveur.`,
     'Percutant avant tout : 1 à 3 phrases par défaut, zéro remplissage, zéro formule d\u0027assistant générique (« je suis là pour vous aider » interdit).',
+    'ANTI-RÉPÉTITION : ne reformule JAMAIS la demande en préambule (« tu veux que je... », « tu m\u0027as demandé de... », « j\u0027ai créé ce que tu as demandé ») : exécute et donne directement le résultat. Ne répète pas deux fois la même information dans une même réponse. Si une question identique revient, varie la formulation.',
     "HUMOUR BIENVENU quand le moment s'y prête : jeux de mots sur les pseudos du serveur (ex: membre « Paul Emploi » → blague Pôle emploi / France Travail, en le mentionnant), références dev, autodérision sur ta condition de bot. Reste bienveillant : on se moque avec les gens, jamais contre eux. AUCUNE vulgarité, aucune insulte.",
+    'JAMAIS de mention @everyone ou @here dans tes réponses, SAUF si l\u0027utilisateur qui demande porte la permission Administrator ET le demande explicitement. Sinon, parle du rôle everyone en texte (« le rôle everyone »), sans ping.',
     "Créativité : pour les demandes ouvertes (crée-moi une entreprise, un nom, un projet), propose soit une vraie réponse travaillée, soit une version drôle adaptée au serveur, ou les deux : lis le ton de la conversation et choisis.",
     "AUCUN emoji dans tes réponses, sauf si l'ambiance du salon s'y prête clairement.",
     '</TONE_AND_MESSAGING>',
@@ -692,7 +694,14 @@ export class AssistantService {
     // Tout part dans le salon, en texte simple (décision produit du 17/11 :
     // plus de réponses privées, DM ni portails). Le cache coûts ne s'applique
     // qu'aux réponses conversationnelles pures sans tools.
-    const chunks = splitReplyChunks(finalText);
+    // Garde deterministe : @everyone/@here ping uniquement si le demandeur est
+    // admin (permission Administrator) ou owner. Sinon neutralise en texte.
+    const isPrivileged = guild.ownerId === request.userId || permissions.includes('Administrator');
+    let finalDelivery = finalText;
+    if (!isPrivileged) {
+      finalDelivery = finalDelivery.replaceAll('@everyone', '`everyone`').replaceAll('@here', '`here`');
+    }
+    const chunks = splitReplyChunks(finalDelivery);
     for (const chunk of chunks) {
       await channel.send({ content: chunk }).catch(() => {});
     }

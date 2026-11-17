@@ -1,6 +1,7 @@
 import { createWriteStream } from 'node:fs';
 import { resolve } from 'node:path';
 import { IntentPreset, SpraxiumFactory } from '@spraxium/core';
+import { GatewayIntentBits } from 'discord.js';
 import { EnvValidator } from '@spraxium/env';
 import { Logger } from '@spraxium/logger';
 import { AppEnv } from './app.env';
@@ -44,9 +45,23 @@ async function main(): Promise<void> {
   app.useModule(AppModule);
   app.provide(AppEnv, environment);
   app.useGlobalGuards(ModuleEnabledGuard);
-  // MessageContent : requis pour l'historique des conversations de l'assistant IA
-  // (intent privileged, à activer aussi dans le portail développeur Discord).
-  app.intents(IntentPreset.WithMessageContent);
+  // Audite complet : tous les events non privilégiés + MessageContent.
+  // GuildMembers est privilégié ET requis (audit joins/leaves, welcome,
+  // trust score) : à activer dans le portail développeur.
+  app.intents([
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildBans,
+    GatewayIntentBits.GuildInvites,
+    GatewayIntentBits.GuildModeration,
+    GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.GuildEmojisAndStickers,
+    GatewayIntentBits.GuildScheduledEvents,
+    GatewayIntentBits.AutoModerationExecution,
+  ]);
 
   // Promesses rejetées sans catch (ex: écritures audit void) : visibles en console.
   process.on('unhandledRejection', (reason) => {
