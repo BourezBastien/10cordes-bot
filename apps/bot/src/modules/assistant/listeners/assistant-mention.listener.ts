@@ -9,6 +9,10 @@ import { PrismaService } from '../../database/prisma.service';
 const log = new Logger('AssistantListener');
 
 const TRIAGE_TIMEOUT_MS = 12_000;
+/** Anti-coûts : un triage par utilisateur toutes les 10s, hors messages adressés. */
+const TRIAGE_USER_COOLDOWN_MS = 10_000;
+/** Triage global : seuls les messages assez longs valent un appel cheap. */
+const TRIAGE_MIN_LENGTH = 8;
 
 /** Alias normalisés (minuscules, sans espaces superflus) depuis l'env. */
 function botNameVariants(): string[] {
@@ -30,13 +34,13 @@ function isAddressedToBot(message: Message, meId: string): boolean {
 }
 
 /**
- * Triage passif (salon dédié IA) : un modèle cheap décide si le bot doit
- * répondre à un message sans mention. OUI si adressé au bot, action Discord
- * demandée, question de suivi d'une conversation que le bot a initiée, ou
- * nouveau participant à présenter. NON si discussion entre humains sans le
- * bot, en cas de doute. Le transcript suffit : aucun historique persisté.
+ * Triage passif GLOBAL (décision 18/11 : le bot écoute partout) : un modèle
+ * cheap décide si le bot doit répondre à un message sans mention.
+ * OUI si : adressé au bot ou poursuit un fil où le bot vient de parler,
+ * question directe qui s'adresse visiblement à lui, action Discord demandée.
+ * NON si : discussion entre humains sans le bot, en cas de doute.
  */
-async function shouldReplyInDedicated(message: Message, botUsername: string): Promise<boolean> {
+async function shouldReply(message: Message, botUsername: string, inDedicatedChannel: boolean): Promise<boolean> {
   try {
     const recent = [...message.channel.messages.cache.values()]
       .filter((m) => !m.author.bot || m.author.id === botUsername)
@@ -44,15 +48,24 @@ async function shouldReplyInDedicated(message: Message, botUsername: string): Pr
       .reverse()
       .map((m) => `[${m.author.username}] : ${(m.content || '(sans texte)').slice(0, 150)}`)
       .join('\n');
+    const botParticipated = [...message.channel.messages.cache.values()]
+      .slice(-6)
+      .some((m) => m.author.id === botUsername);
+    const scope = inDedicatedChannel
+      ? 'Salon dédié IA : le bot suit TOUTE la conversation et peut répondre à toute question ou demande.'
+      : botParticipated
+        ? 'Salon normal : le bot a participé aux derniers échanges — il peut répondre aux messages qui poursuivent ce fil.'
+        : 'Salon normal : le bot n\u0027a PAS participé récemment. Ne réponds que si le message lui est clairement adressé ou demande explicitement son aide.';
     const completion = await getLlm().chat(
       [
         {
           role: 'system',
           content: [
             'Tu décides si un bot Discord doit répondre à un message. Réponds UNIQUEMENT OUI ou NON.',
-            'OUI si : le message s\u0027adresse au bot (question, demande, action Discord à faire), le fait de savoir (info utile pour la suite), ou poursuit une conversation que le bot a initiée.',
-            'NON si : discussion entre humains qui ne concerne pas le bot, salutation générique sans demande, trolldom pur sans contenu, message vide ou réaction.',
+            'OUI si : le message s\u0027adresse au bot (question, demande, action Discord à faire), poursuit une conversation que le bot a initiée, apporte une info utile pour la suite, ou est une question directe dans le flux quand le contexte le justifie.',
+            'NON si : discussion entre humains qui ne concerne pas le bot, salutation générique sans demande, troll sans contenu, message vide ou réaction.',
             'En cas de doute : NON.',
+            `Contexte : ${scope}`,
           ].join('\n'),
         },
         {
@@ -72,13 +85,17 @@ async function shouldReplyInDedicated(message: Message, botUsername: string): Pr
 /**
  * L'agent engage la conversation quand :
  * - il est mentionné (vraie mention Discord) ;
- * - son nom ou un surnom est tapé en texte brut (@10cordes sans autocomplétion, "10cordes", alias) ;
- * - le message est posté dans le salon dédié IA et le triage passif dit OUI ;
- * - le message répond directement à un de ses messages.
- * La demande part ensuite dans la file (FIFO par utilisateur).
+ * - son nom ou un surnom est tapé en texte brut ("10cordes", alias) ;
+ * - le message répond directement à un de ses messages ;
+ * - SINON, partout : triage passif cheap (OUI/NON avec garde de coûts :
+ *   cooldown 10s par utilisateur, longueur minimale) — dans le salon dédié
+ *   les règles sont larges, ailleurs elles exigent sa participation récente
+ *   ou une adresse claire.
  */
 @Listener(Events.MessageCreate)
 export class AssistantMentionListener {
+  private readonly triageCooldowns = new Map<string, number>();
+
   constructor(
     private readonly assistant: AssistantService,
     private readonly prisma: PrismaService,
@@ -105,26 +122,32 @@ export class AssistantMentionListener {
       `[GATE] salon=${message.channelId} mention=${message.mentions.users.has(me.id)} nom=${mentionsBotByName(message.content)} dédié=${inDedicatedChannel} réponse-bot=${repliesToBot}`,
     );
 
-    // Salon dédié : écoute passive. Adressé directement => réponse. Sinon le
-    // triage cheap décide (l'agent suit toujours la conversation). Chaque
-    // message VU fait avancer le watermark de reprise au boot.
+    // Chaque message VU dans le salon dédié fait avancer le watermark de
+    // reprise au boot (aucune demande perdue à un redémarrage).
     if (inDedicatedChannel) {
       void this.prisma.channelWatermark
         .upsert({ where: { channelId: message.channelId }, create: { channelId: message.channelId, lastMessageId: message.id }, update: { lastMessageId: message.id } })
         .catch(() => {});
     }
-    if (inDedicatedChannel && !addressed && !repliesToBot) {
-      if (message.content.trim().length === 0) return;
-      const shouldReply = await Promise.race([
-        shouldReplyInDedicated(message, me.username),
-        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), TRIAGE_TIMEOUT_MS).unref?.()),
-      ]);
-      if (!shouldReply) return;
-      log.info(`[GATE] triage passif : réponse déclenchée pour ${message.author.username}`);
-    } else if (!addressed && !repliesToBot) {
+
+    if (addressed || repliesToBot) {
+      await this.assistant.enqueueMessage(message, repliesToBot);
       return;
     }
+    if (message.content.trim().length < TRIAGE_MIN_LENGTH) return;
 
+    // Anti-coûts : un triage passif par utilisateur toutes les 10s.
+    const cooldownKey = `${guildId}:${message.author.id}`;
+    const lastTriage = this.triageCooldowns.get(cooldownKey);
+    if (lastTriage !== undefined && Date.now() - lastTriage < TRIAGE_USER_COOLDOWN_MS) return;
+    this.triageCooldowns.set(cooldownKey, Date.now());
+
+    const triageVerdict = await Promise.race([
+      shouldReply(message, me.username, inDedicatedChannel),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), TRIAGE_TIMEOUT_MS).unref?.()),
+    ]);
+    if (!triageVerdict) return;
+    log.info(`[GATE] triage passif : réponse déclenchée pour ${message.author.username}`);
     await this.assistant.enqueueMessage(message, repliesToBot);
   }
 }

@@ -1,6 +1,8 @@
 // 10cordes-bot — schéma P0.
-// Les tables better-auth (User, Session, Account, Verification) seront ajoutées
+// Les tables better-auth (User, Session, Account, Verification) ont été ajoutées
 // à l'étape API (P0-6) via `npx @better-auth/cli generate --output prisma/schema.prisma`.
+// Décision 18/11 : toutes les tables guild-scopées portent une VRAIE relation
+// vers Guild avec onDelete: Cascade — la suppression d'un serveur nettoie tout.
 
 generator client {
   provider = "prisma-client-js"
@@ -17,6 +19,23 @@ model Guild {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   guildModuleStates GuildModuleState[]
+  auditLogs         AuditLog[]
+  modCases          ModCase[]
+  modCounter        ModCounter?
+  roleBackups       RoleBackup[]
+  tags              Tag[]
+  adminWhitelist    AdminWhitelist[]
+  agentSkills       AgentSkill[]
+  agentAutomations  AgentAutomation[]
+  agentPanels       AgentPanel[]
+  agentPlans        AgentPlan[]
+  ticketCounter     TicketCounter?
+  tickets           Ticket[]
+  userLevels        UserLevel[]
+  guildMemories     GuildMemory[]
+  guildMemoryProfile GuildMemoryProfile?
+  memberMemories    MemberMemory[]
+  memberMemoryProfiles MemberMemoryProfile[]
 
   @@map("guilds")
 }
@@ -113,16 +132,19 @@ model AuditLog {
   targetId  String?
   metadata  String   @default("{}")
   createdAt DateTime @default(now())
+  guild     Guild?   @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@index([guildId, createdAt])
+  @@index([action])
   @@map("audit_logs")
 }
 
 // ── Modération (1.3) ─────────────────────────────────────────
 
 model ModCounter {
-  guildId String @id
   value   Int    @default(0)
+  guildId String @id
+  guild   Guild  @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@map("mod_counters")
 }
@@ -137,6 +159,7 @@ model ModCase {
   reason      String?
   durationMs  Int?
   createdAt   DateTime @default(now())
+  guild       Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@unique([guildId, caseId])
   @@index([guildId, userId])
@@ -150,6 +173,7 @@ model RoleBackup {
   roleIds   String
   createdBy String
   createdAt DateTime @default(now())
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@index([guildId, userId])
   @@map("role_backups")
@@ -166,6 +190,7 @@ model Tag {
   uses      Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@unique([guildId, name])
   @@map("tags")
@@ -179,6 +204,7 @@ model AdminWhitelist {
   userId    String
   addedBy   String
   createdAt DateTime @default(now())
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@unique([guildId, userId])
   @@map("admin_whitelist")
@@ -195,6 +221,7 @@ model AgentSkill {
   usageCount      Int       @default(0)
   createdAt       DateTime  @default(now())
   deletedAt       DateTime?
+  guild           Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@index([guildId, deletedAt])
   @@map("agent_skills")
@@ -212,6 +239,7 @@ model AgentAutomation {
   enabled         Boolean  @default(true)
   createdByUserId String
   createdAt       DateTime @default(now())
+  guild           Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@index([guildId, enabled])
   @@map("agent_automations")
@@ -229,14 +257,15 @@ model ChannelWatermark {
 // ── Panels interactifs construits par l'agent (boutons + sélecteur) ──
 
 model AgentPanel {
-  id        String   @id @default(cuid())
-  guildId   String
-  channelId String
-  messageId String
-  kind      String   @default("custom") // ticket | poll | custom
-  definition String // JSON: { title, description, selectMenu?, buttons? }
+  id              String   @id @default(cuid())
+  guildId         String
+  channelId       String
+  messageId       String
+  kind            String   @default("custom") // ticket | poll | custom
+  definition      String // JSON: { title, description, selectMenu?, buttons? }
   createdByUserId String
-  createdAt DateTime @default(now())
+  createdAt       DateTime @default(now())
+  guild           Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@index([guildId, messageId])
   @@map("agent_panels")
@@ -255,6 +284,7 @@ model AgentPlan {
   panelMessageId String?
   createdAt      DateTime @default(now())
   expiresAt      DateTime
+  guild          Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@index([guildId, status])
   @@map("agent_plans")
@@ -263,22 +293,24 @@ model AgentPlan {
 // ── Tickets (P2) ─────────────────────────────────────────────
 
 model TicketCounter {
-  guildId String @id
   value   Int    @default(0)
+  guildId String @id
+  guild   Guild  @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@map("ticket_counters")
 }
 
 model Ticket {
-  id          String    @id @default(cuid())
-  guildId     String
-  number      Int
-  channelId   String
-  userId      String
-  status      String    @default("open")
-  claimedBy   String?
-  createdAt   DateTime  @default(now())
-  closedAt    DateTime?
+  id        String    @id @default(cuid())
+  guildId   String
+  number    Int
+  channelId String
+  userId    String
+  status    String    @default("open")
+  claimedBy String?
+  createdAt DateTime  @default(now())
+  closedAt  DateTime?
+  guild     Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@unique([guildId, channelId])
   @@index([guildId, userId])
@@ -294,6 +326,7 @@ model UserLevel {
   xp        Int      @default(0)
   level     Int      @default(0)
   updatedAt DateTime @updatedAt
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@unique([guildId, userId])
   @@index([guildId, xp])
@@ -319,6 +352,7 @@ model GuildMemory {
   kind      String   @default("fact") // fact | rule | presentation | preference
   content   String
   createdAt DateTime @default(now())
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@index([guildId])
   @@map("guild_memories")
@@ -331,6 +365,7 @@ model MemberMemory {
   kind      String   @default("fact") // fact | preference | note
   content   String
   createdAt DateTime @default(now())
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@index([guildId, userId])
   @@map("member_memories")
@@ -343,14 +378,17 @@ model MemberMemoryProfile {
   userId    String
   text      String   @default("")
   updatedAt DateTime @updatedAt
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@id([guildId, userId])
   @@map("member_memory_profiles")
 }
 
 model GuildMemoryProfile {
-  guildId   String @id
-  text      String @default("")
-  updatedAt DateTime @updatedAt
+  guildId   String          @id
+  text      String          @default("")
+  updatedAt DateTime        @updatedAt
+  guild     Guild           @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
   @@map("guild_memory_profiles")
 }
