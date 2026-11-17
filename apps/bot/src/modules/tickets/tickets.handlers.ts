@@ -10,13 +10,19 @@ import {
 } from 'discord.js';
 import { TicketsService } from './tickets.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
-import { TicketPanelButton, TicketClaimButton, TicketCloseButton } from './components/ticket.components';
+import {
+  TicketPanelButton,
+  TicketClaimButton,
+  TicketCloseButton,
+  TicketHelpButton,
+} from './components/ticket.components';
 import { panel } from '../../shared/ui';
 
 function claimCloseRows(): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder().setCustomId('ticket:claim').setLabel('🙋 Claim').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('ticket:close').setLabel('🔒 Fermer').setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId('ticket:help').setLabel('🆘 Demander de l\u0027aide').setStyle(ButtonStyle.Primary),
   );
 }
 
@@ -103,6 +109,24 @@ export class TicketClaimHandler {
     await interaction.reply({
       flags: MessageFlags.IsComponentsV2,
       components: [panel({ title: '## 🙋 Ticket claimé', lines: [`Pris en charge par <@${interaction.user.id}>`] })],
+    });
+  }
+}
+
+@ButtonHandler(TicketHelpButton)
+export class TicketHelpHandler {
+  constructor(private readonly config: GuildConfigService) {}
+
+  /** Bouton visible : le membre appelle le staff sur son ticket (non éphémère). */
+  async handle(@Ctx() interaction: ButtonInteraction): Promise<void> {
+    const guild = interaction.guild;
+    const member = interaction.member as GuildMember | null;
+    if (!guild || !member || !interaction.channelId) return;
+    const config = await this.config.get(guild.id).catch(() => null);
+    const staffMention = config?.tickets.staffRoleId ? `<@&${config.tickets.staffRoleId}>` : 'le staff';
+    await interaction.reply({
+      content: `🆘 <@${member.id}> demande de l\u0027aide sur ce ticket — ${staffMention} notifié.`,
+      allowedMentions: { users: [member.id], roles: config?.tickets.staffRoleId ? [config.tickets.staffRoleId] : [] },
     });
   }
 }

@@ -74,7 +74,8 @@ export class MusicService implements SpraxiumOnBoot {
           'qu\u0027une ballade ; réduis le nombre de lignes si le débit est élevé. ' +
           'Si le thème est éditorial (la vie actuelle, actu, société, fait divers) : fais de VRAIES recherches d\u0029abord (searchInternet, getNews) et écris des paroles qui parlent du VRAI (faits concrets, références datées) — pas de paroles génériques. ' +
           'Référence d\u0029artiste (« à la Booba », « style Simone »...) : ne passe JAMAIS le nom au prompt Suno (rejet copyright) — traduis en caractéristiques objectives : voix (grave, posée), époque (boom-bap 90s, trap moderne), ambiance, débit, instruments typiques. ' +
-          'Le fichier audio est posté automatiquement dans le salon : ne répète pas l\u0027URL, commente le résultat en UN message court.',
+          'Le fichier audio est posté automatiquement dans le salon : ne répète pas l\u0027URL, commente le résultat en UN message court. ' +
+          'data.audioUrl alimente voice.play si l\u0027utilisateur veut écouter en vocal.',
         handler: async (input, ctx) => {
           if (!guildOnly(ctx)) return { ok: false, summary: 'Contexte de serveur requis.' };
           const key = this.apiKey();

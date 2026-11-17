@@ -250,8 +250,17 @@ export class PanelsService implements SpraxiumOnBoot {
           : []),
       ],
     });
+    // Ligne Ticket obligatoire : les boutons claim/close du module tickets
+    // résolvent le ticket par (guildId, channelId) en DB — sans elle ils
+    // seraient des no-op silencieux sur les tickets ouverts par le panel.
+    await this.prisma.ticket
+      .create({ data: { guildId, number: counter.value, channelId: created.id, userId: member.id } })
+      .catch(() => {});
     await created
-      .send(`${welcomeMessage ? `${welcomeMessage}\n\n` : ''}<@${member.id}> ton ticket est ouvert : décris ta demande, le staff arrive.`)
+      .send({
+        content: `${welcomeMessage ? `${welcomeMessage}\n\n` : ''}<@${member.id}> ton ticket est ouvert : décris ta demande, le staff arrive.`,
+        components: [ticketActionRow()],
+      })
       .catch(() => {});
     this.audit.record({
       guildId,
@@ -263,4 +272,13 @@ export class PanelsService implements SpraxiumOnBoot {
     });
     return `Salon <#${created.id}> créé dans la catégorie ${categoryId ? `<#${categoryId}>` : 'racine'}.`;
   }
+}
+
+/** Ligne d'action standard d'un ticket ouvert : claim / fermer / demander de l'aide. */
+function ticketActionRow(): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId('ticket:claim').setLabel('🙋 Claim').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('ticket:close').setLabel('🔒 Fermer').setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId('ticket:help').setLabel('🆘 Demander de l\u0027aide').setStyle(ButtonStyle.Primary),
+  );
 }

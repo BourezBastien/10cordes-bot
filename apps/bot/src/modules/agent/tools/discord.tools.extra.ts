@@ -638,6 +638,27 @@ export function discordExtraTools(
         return { ok: true, summary: lines.join(' | ') || 'Journal vide.' };
       },
     },
+    {
+      name: 'announceStep',
+      description: 'Poste une ligne d\u2019étape visible dans le salon (🔧) pour narrer un montage en cours.',
+      category: 'agent',
+      paramsSchema: z.object({
+        message: z.string().min(3).max(200).describe('Étape en cours, ex : « Création des 3 catégories de tickets... »'),
+      }),
+      requiredModules: [],
+      destructive: false,
+      systemPrompt:
+        'OBLIGATOIRE pendant les montages multi-étapes (tickets, panels, catégories, rôles, automatisations) : annonce chaque phase AVANT de l\u0027exécuter, puis fais le récap final dans ta réponse. Ne l\u0027utilise pas pour les réponses simples.',
+      handler: async (input, ctx) => {
+        const guild = guildOf(ctx);
+        if (!guild || !ctx.channelId) return noGuild();
+        const channel = await textChannelOf(guild, ctx.channelId);
+        if (!channel) return { ok: false, summary: 'Salon de la demande introuvable.' };
+        const { message } = input as { message: string };
+        await channel.send({ content: `🔧 ${message}` }).catch(() => null);
+        return { ok: true, summary: `Étape annoncée : ${message.slice(0, 80)}` };
+      },
+    },
   ];
 }
 

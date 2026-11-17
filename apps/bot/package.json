@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@10cordes/shared": "workspace:*",
+    "@discordjs/voice": "^0.19.2",
     "@prisma/client": "^6.19.3",
     "@spraxium/common": "^0.9.0",
     "@spraxium/components": "^0.9.0",
@@ -28,14 +29,18 @@
     "bullmq": "^6.7.7",
     "discord.js": "^14.28.1",
     "fast-xml-parser": "^5.12.1",
+    "ffmpeg-static": "^5.3.0",
     "hono": "^4.13.19",
     "ioredis": "^6.0.0",
+    "libsodium-wrappers": "^0.8.4",
+    "opusscript": "^0.1.1",
     "pdfkit": "^0.20.2",
     "ts-duckduckgo-search": "^0.3.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@spraxium/cli": "^0.9.0",
+    "@types/libsodium-wrappers": "^0.8.2",
     "@types/node": "^26.6.6",
     "@types/pdfkit": "^0.17.7",
     "prisma": "^6.19.3",

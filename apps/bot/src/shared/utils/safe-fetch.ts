@@ -12,14 +12,11 @@ const BLOCKED_HOST_PATTERNS = [
 ];
 
 /**
- * Fetch restreint : https uniquement, host validé (jamais localhost / privé / réservé).
- * Utilisé pour télécharger des fichiers distants fournis par des interactions (ex: import de config)
- * et appeler des APIs externes (ex: PixelLab).
+ * Valide une URL pour tout usage serveur : https uniquement, host jamais
+ * localhost / privé / réservé. Exportée pour les consommateurs non-fetch
+ * (ex : passer une URL à ffmpeg dans le module vocal).
  */
-export async function safeFetch(
-  url: string,
-  init?: RequestInit & { timeoutMs?: number },
-): Promise<Response> {
+export function assertSafeUrl(url: string): URL {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -30,6 +27,19 @@ export async function safeFetch(
   if (BLOCKED_HOST_PATTERNS.some((pattern) => pattern.test(parsed.hostname))) {
     throw new Error(`Blocked host: ${parsed.hostname}`);
   }
+  return parsed;
+}
+
+/**
+ * Fetch restreint : https uniquement, host validé (jamais localhost / privé / réservé).
+ * Utilisé pour télécharger des fichiers distants fournis par des interactions (ex: import de config)
+ * et appeler des APIs externes (ex: PixelLab).
+ */
+export async function safeFetch(
+  url: string,
+  init?: RequestInit & { timeoutMs?: number },
+): Promise<Response> {
+  const parsed = assertSafeUrl(url);
   const { timeoutMs = 30_000, ...rest } = init ?? {};
   return fetch(parsed, { ...rest, signal: AbortSignal.timeout(timeoutMs) });
 }

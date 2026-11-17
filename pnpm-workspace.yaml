@@ -10,6 +10,7 @@ allowBuilds:
   'esbuild': true
   'tsdown': true
   'msgpackr-extract': true
+  ffmpeg-static: true
 
 minimumReleaseAgeExclude:
   - i18next@27.1.3
