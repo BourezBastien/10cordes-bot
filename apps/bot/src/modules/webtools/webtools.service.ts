@@ -66,12 +66,13 @@ export class WebToolsService implements SpraxiumOnBoot {
   }
 
   /**
-   * Génération d'image via kie.ai (jobs API, modèle image économique) :
-   * createTask → poll recordInfo → result_url. Pattern UX : UN message de
-   * progression édité à chaque étape, puis l'image téléchargée et postée en
-   * pièce jointe dans le salon (Discord n'accepte pas de PJ sur un edit).
+   * Génération d'image via kie.ai (jobs API, z-image / Tongyi-MAI) :
+   * createTask → poll recordInfo → resultJson.resultUrls[0]. Z-Image = 0,8
+   * crédit (~$0.004) l'image, rendu en ~6s, aspect_ratio requis. Pattern UX :
+   * UN message de progression édité à chaque étape, puis l'image téléchargée
+   * et postée en pièce jointe (Discord n'accepte pas de PJ sur un edit).
    */
-  private async kieImage(prompt: string, ctx: ToolRunContext, label: string): Promise<ToolResult> {
+  private async kieImage(prompt: string, ctx: ToolRunContext, label: string, aspectRatio: string): Promise<ToolResult> {
     const key = this.env.KIE_API_KEY;
     if (!key) return { ok: false, summary: 'Génération d\u0027image désactivée : KIE_API_KEY absente de la configuration.' };
     if (!ctx.channelId) return { ok: false, summary: 'Salon de la demande introuvable.' };
@@ -89,7 +90,7 @@ export class WebToolsService implements SpraxiumOnBoot {
       timeoutMs: 30_000,
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model: 'gpt-4o-image', input: { prompt } }),
+      body: JSON.stringify({ model: 'z-image', input: { prompt, aspect_ratio: aspectRatio } }),
     });
     const createdData = (await created.json().catch(() => ({}))) as { code?: number; data?: { taskId?: string }; msg?: string };
     if (createdData.code !== 200 || !createdData.data?.taskId) {
@@ -97,20 +98,38 @@ export class WebToolsService implements SpraxiumOnBoot {
       return { ok: false, summary: `Génération refusée par kie.ai : ${createdData.msg ?? 'erreur inconnue'}` };
     }
 
-    await update(`🎨 Génération lancée — 30 à 90 secondes...`);
-    const deadline = Date.now() + 120_000;
+    await update(`🎨 Génération lancée (z-image, ${aspectRatio}) — quelques secondes...`);
+    const deadline = Date.now() + 90_000;
     let elapsed = 0;
     while (Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 8_000));
-      elapsed += 8;
+      await new Promise((resolve) => setTimeout(resolve, 4_000));
+      elapsed += 4;
       const record = await safeFetch(`${KIE_API_BASE}/jobs/recordInfo?taskId=${createdData.data.taskId}`, {
         timeoutMs: 15_000,
         headers: { Authorization: `Bearer ${key}` },
       });
       const recordData = (await record.json().catch(() => ({}))) as {
-        data?: { response?: { result_url?: string; status?: string } };
+        data?: {
+          // z-image : resultJson = chaîne JSON {"resultUrls":[...]}. Autres
+          // modèles jobs : response.result_url / resultUrl / liste.
+          resultJson?: string;
+          response?: {
+            result_url?: string;
+            resultUrl?: string;
+            data?: Array<{ url?: string }>;
+          };
+        };
       };
-      const resultUrl = recordData.data?.response?.result_url;
+      let resultUrl: string | undefined;
+      if (recordData.data?.resultJson) {
+        try {
+          const inner = JSON.parse(recordData.data.resultJson) as { resultUrls?: string[] };
+          resultUrl = inner.resultUrls?.[0];
+        } catch {
+          // Format inattendu : on retombera sur les autres formes.
+        }
+      }
+      resultUrl ??= recordData.data?.response?.result_url ?? recordData.data?.response?.resultUrl ?? recordData.data?.response?.data?.find((entry) => entry.url)?.url;
       if (resultUrl) {
         await update(`✅ Image prête — envoi...`);
         const image = await fetch(resultUrl).then((res) => res.arrayBuffer()).catch(() => null);
@@ -122,13 +141,13 @@ export class WebToolsService implements SpraxiumOnBoot {
             })
             .catch(() => {});
         }
-        await update(`✅ Image livrée (source : kie.ai / gpt-4o-image).`);
-        return { ok: true, summary: `Image générée et envoyée dans le salon (source : kie.ai, gpt-4o-image).`, data: { url: resultUrl } };
+        await update(`✅ Image livrée (source : kie.ai / z-image, 0,8 crédit).`);
+        return { ok: true, summary: `Image générée et envoyée dans le salon (source : kie.ai, z-image).`, data: { url: resultUrl } };
       }
       await update(`🎨 Génération en cours... ${elapsed}s`);
     }
-    await update('⌛ La génération dépasse 120 secondes : l\u0029image arrivera, redemande-la dans une minute.');
-    return { ok: false, summary: 'La génération dépasse 120 secondes : réessaie dans une minute.' };
+    await update('⌛ La génération dépasse 90 secondes : l\u0029image arrivera, redemande-la dans une minute.');
+    return { ok: false, summary: 'La génération dépasse 90 secondes : réessaie dans une minute.' };
   }
 
   private buildTools(): BotTool[] {
@@ -688,19 +707,21 @@ export class WebToolsService implements SpraxiumOnBoot {
       {
         name: 'generateImage',
         description:
-          'Génère une image libre (pas du pixel art) via kie.ai / gpt-4o-image : prompt descriptif, image livrée en pièce jointe dans le salon. Asynchrone (30-120s), coûteux en crédits : une génération par demande.',
+          'Génère une image libre (pas du pixel art) via kie.ai / z-image (Tongyi-MAI, ~6s, 0,8 crédit par image) : prompt descriptif, choix du ratio, image livrée en pièce jointe dans le salon.',
         category: 'web',
         paramsSchema: z.object({
           prompt: z.string().min(10).max(2000).describe('Description visuelle détaillée (sujet, style, lumière, cadrage)'),
           label: z.string().min(2).max(60).default('image'),
+          aspect_ratio: z.enum(['1:1', '16:9', '9:16', '4:3', '3:4']).default('1:1').describe('1:1 icône/avatar, 16:9 paysage/carte, 9:16 fond vertical'),
         }),
         requiredModules: [],
         destructive: false,
         systemPrompt:
-          'Pour les images NON pixel art (scènes, illustrations, logos libres). Le pixel art reste sur image.icon/image.emoji (PixelLab). Pose les questions avant si le visuel est vague, puis UNE génération. Le fichier est envoyé automatiquement dans le salon.',
+          'Pour les images NON pixel art (scènes, cartes, illustrations, logos libres) — exemple : « imagine la carte de GTA 7 ». Le pixel art reste sur image.icon/image.emoji (PixelLab). ' +
+          'Choisis le ratio adapté (16:9 pour une carte ou un paysage, 1:1 pour un visuel carré, 9:16 pour un fond mobile). Pose les questions avant si le visuel est vague, puis UNE génération. Le fichier est envoyé automatiquement dans le salon.',
         handler: async (input, ctx) => {
-          const { prompt, label } = input as { prompt: string; label?: string };
-          return this.kieImage(prompt, ctx, label ?? 'image');
+          const { prompt, label, aspect_ratio } = input as { prompt: string; label?: string; aspect_ratio?: string };
+          return this.kieImage(prompt, ctx, label ?? 'image', aspect_ratio ?? '1:1');
         },
       },
       {
