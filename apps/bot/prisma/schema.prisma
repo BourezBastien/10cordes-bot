@@ -217,6 +217,15 @@ model AgentAutomation {
   @@map("agent_automations")
 }
 
+// ── Watermark de reprise au boot (récupération des demandes manquées) ──
+
+model ChannelWatermark {
+  channelId     String   @id
+  lastMessageId String
+  updatedAt     DateTime @updatedAt
+  @@map("channel_watermarks")
+}
+
 model AgentPlan {
   id             String   @id @default(cuid())
   guildId        String

@@ -4,6 +4,7 @@ import { Events, type Message } from 'discord.js';
 import { AssistantService } from '../assistant.service';
 import { getValidatedEnv } from '../../../auth/env.accessor';
 import { getLlm } from '../llm.accessor';
+import { PrismaService } from '../../database/prisma.service';
 
 const log = new Logger('AssistantListener');
 
@@ -78,7 +79,10 @@ async function shouldReplyInDedicated(message: Message, botUsername: string): Pr
  */
 @Listener(Events.MessageCreate)
 export class AssistantMentionListener {
-  constructor(private readonly assistant: AssistantService) {}
+  constructor(
+    private readonly assistant: AssistantService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   @On()
   async onMessageCreate(message: Message): Promise<void> {
@@ -102,7 +106,13 @@ export class AssistantMentionListener {
     );
 
     // Salon dédié : écoute passive. Adressé directement => réponse. Sinon le
-    // triage cheap décide (l'agent suit toujours la conversation).
+    // triage cheap décide (l'agent suit toujours la conversation). Chaque
+    // message VU fait avancer le watermark de reprise au boot.
+    if (inDedicatedChannel) {
+      void this.prisma.channelWatermark
+        .upsert({ where: { channelId: message.channelId }, create: { channelId: message.channelId, lastMessageId: message.id }, update: { lastMessageId: message.id } })
+        .catch(() => {});
+    }
     if (inDedicatedChannel && !addressed && !repliesToBot) {
       if (message.content.trim().length === 0) return;
       const shouldReply = await Promise.race([

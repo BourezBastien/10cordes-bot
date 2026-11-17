@@ -14,6 +14,8 @@ import { WebAgentService } from './web-agent.service';
 
 import { ResponseCacheService } from './response-cache.service';
 
+import { BootRecoveryService } from './boot-recovery.service';
+
 // @Global : LlmService + AssistantQueue + WebAgentService consommés par la
 // santé et l'API dashboard fournie au niveau AppModule — sans ça, les exports
 // restent confinés au container du premier chargeur transitif.
@@ -22,7 +24,7 @@ import { ResponseCacheService } from './response-cache.service';
   imports: [AuditModule, GuildConfigModule, ImagelabModule, ToolRegistryModule],
   listeners: [AssistantMentionListener],
   handlers: [IaConfigureButtonHandler, IaConfigureModalSubmitHandler, ToolsPrevHandler, ToolsNextHandler],
-  providers: [AssistantQueue, AssistantService, LlmService, WebAgentService, ResponseCacheService],
+  providers: [AssistantQueue, AssistantService, LlmService, WebAgentService, ResponseCacheService, BootRecoveryService],
   exports: [LlmService, AssistantQueue, WebAgentService, ResponseCacheService],
 })
 export class AssistantModule {}
