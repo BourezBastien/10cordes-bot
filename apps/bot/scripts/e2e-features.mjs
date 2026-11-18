@@ -122,7 +122,11 @@ async function main() {
     console.log(`[${pass ? 'PASS' : 'FAIL'}] ${name}${note ? ` — ${note}` : ''}`);
   };
 
+  // E2E_ONLY="scenario1,scenario2" pour ne rejouer qu'une partie (obligatoire
+  // pour toute re-validation ciblée : interdiction de re-spammer les autres).
+  const only = process.env.E2E_ONLY ? process.env.E2E_ONLY.split(',').map((s) => s.trim()) : null;
   const runScenario = async (name, prompt, expectTools, check) => {
+    if (only && !only.includes(name)) return;
     const watermark = new Date(Date.now() - 2_000);
     await sleep(COOLDOWN_MS);
     await send(prompt);
@@ -144,6 +148,7 @@ async function main() {
 
   // ---- 1. Sondage : création puis clôture automatique avec résultats ----
   let pollMessageId = null;
+  const pollsSelected = !only || only.includes('polls.create');
   await runScenario(
     'polls.create',
     "Crée un sondage ici : question « Test E2E polls ? » avec deux options « Oui » et « Non », durée 1 minute.",
@@ -161,8 +166,8 @@ async function main() {
   );
 
   console.log('[E2E-features] attente de la clôture automatique (75s)...');
-  await sleep(75_000);
-  {
+  if (pollsSelected) await sleep(75_000);
+  if (pollsSelected) {
     let closed = false;
     let note = 'message introuvable';
     if (pollMessageId) {
