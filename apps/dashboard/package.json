@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -b --noEmit"
+    "typecheck": "pnpm --filter @10cordes/shared build && tsc -b --noEmit"
   },
   "dependencies": {
     "@10cordes/shared": "workspace:*",
