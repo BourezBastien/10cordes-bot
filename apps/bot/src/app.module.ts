@@ -28,6 +28,7 @@ import { WebToolsModule } from './modules/webtools/webtools.module';
 import { MusicModule } from './modules/music/music.module';
 import { VoiceModule } from './modules/voice/voice.module';
 import { PollsModule } from './modules/polls/polls.module';
+import { GiveawaysModule } from './modules/giveaways/giveaways.module';
 
 // Règle framework : @HttpClientModule et @Module sur LA MÊME classe (AppModule) —
 // un second module HTTP serait ignoré silencieusement.
@@ -56,6 +57,7 @@ import { PollsModule } from './modules/polls/polls.module';
     MusicModule,
     VoiceModule,
     PollsModule,
+    GiveawaysModule,
     AutomationsModule,
     AgentModule,
     AssistantModule,

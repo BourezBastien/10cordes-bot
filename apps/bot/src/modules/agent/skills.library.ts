@@ -139,6 +139,11 @@ export const SKILL_LIBRARY: LibrarySkill[] = [
     rule: 'WORKFLOW SONDAGE. 1) Le plus souvent AUCUNE question nécessaire : question + options lisibles en tête. Si l\u0027utilisateur précise une durée (« dans 10 minutes »), convertis en minutes. 2) createPoll : channelId = salon actuel (ctx), options 2-6 DISTINCTES (labels courts, emoji si l\u0029ambiance s\u0029y prête), durationMinutes = la durée demandée. 3) La clôture est AUTOMATIQUE à l\u0029échéance avec résultats (compteurs, pourcentages, gagnant) édités dans le message : ne promets JAMAIS de clôturer à la main, ne propose pas de bouton de clôture. 4) Une fois posté : UNE phrase de statut max (« résultats dans 10 min ») — NE répète NI la question NI les options NI l\u0027ID du message, l\u0027utilisateur le voit.',
   },
   {
+    category: 'giveaways',
+    trigger: 'Quand on demande de lancer un giveaway, un tirage au sort, un drop ou un concours',
+    rule: 'WORKFLOW GIVEAWAY. 1) QUESTIONS si manquant : lots ? durée ? nombre de gagnants ? salon ? 2) createPoll-equivalent : giveaway.start (annonce 🎉, participation par réaction, tirage AUTOMATIQUE à l\u0029échéance — jamais de tirage manuel promis) ou giveaway.drop pour un premier-arrivé-gagnant. 3) Une fois lancé : UNE phrase de statut (lots + heure de fin <t:..:R>), l\u0029embed est déjà dans le salon. 4) giveaway.reroll pour refaire un tirage sur demande explicite, giveaway.list pour l\u0029état. 5) NE touche jamais au message du giveaway avec les tools d\u0029édition : la lib le gère.',
+  },
+  {
     category: 'movies',
     trigger: 'Quand on demande de conseiller un film, une série, ou de parler de cinéma',
     rule: 'RECO CINÉ. 1) getMemberMemory : goûts déjà exprimés (genres, titres aimés/détestés). 2) searchInternet pour les sorties récentes (sources citées). 3) Propose 2-3 titres adaptés AU MEMBRE avec une ligne de pitch chacun, sans spoiler. 4) AFFINE avec une question (« plutôt thriller ou comédie ? »). 5) Option humour : une reco poubelle assumée (« si tu veux pleurer... de rire ») pour les films cultes nuls. 6) Mémorise ce qu\u0027il a regardé et aimé.',
