@@ -29,6 +29,7 @@ import { MusicModule } from './modules/music/music.module';
 import { VoiceModule } from './modules/voice/voice.module';
 import { PollsModule } from './modules/polls/polls.module';
 import { GiveawaysModule } from './modules/giveaways/giveaways.module';
+import { ServerlifeModule } from './modules/serverlife/serverlife.module';
 
 // Règle framework : @HttpClientModule et @Module sur LA MÊME classe (AppModule) —
 // un second module HTTP serait ignoré silencieusement.
@@ -58,6 +59,7 @@ import { GiveawaysModule } from './modules/giveaways/giveaways.module';
     VoiceModule,
     PollsModule,
     GiveawaysModule,
+    ServerlifeModule,
     AutomationsModule,
     AgentModule,
     AssistantModule,

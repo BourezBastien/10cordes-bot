@@ -36,7 +36,12 @@ export const SKILL_LIBRARY: LibrarySkill[] = [
   {
     category: 'moderation',
     trigger: 'Quand on demande de mettre en place ou durcir la modération',
-    rule: 'WORKFLOW MODÉRATION. 1) QUESTIONS : seuils de sanction (combien de warns → timeout/kick/ban) ? rôles staff autorisés ? salon des logs de modération ? sanctions automatiques pour insultes/spam ? 2) RÉCAP. 3) CONSTRUIS : crée le salon logs si absent (setChannelOverwrite staff-only), active le logging (config logs.channels), crée les automatisations : message.created contenant insulte connue → deleteMessage + timeout 1h (les mots sont donnés par le demandeur), membre rejoint trop vite (raid) → alerte staff. 4) Explique la hiérarchie : tu ne sanctionnes jamais au-dessus de ton rôle ni un admin sans ordre du owner.',
+    rule: 'WORKFLOW MODÉRATION. 1) QUESTIONS : seuils de sanction (combien de warns → timeout/kick/ban) ? rôles staff autorisés ? salon des logs de modération ? sanctions automatiques pour insultes/spam ? 2) RÉCAP. 3) CONSTRUIS : crée le salon logs si absent (setChannelOverwrite staff-only), active le logging (config logs.channels), crée les automatisations : message.created contenant insulte connue → deleteMessage + timeout 1h (les mots sont donnés par le demandeur), membre rejoint trop vite (raid) → alerte staff. 4) ARSENAL DISPONIBLE : member.trust AVANT chaque sanction (score < 400 = historique lourd, durcis ; > 800 = indulgence), temp.sanction pour TOUTE sanction temporaire (révocation automatique programmée, ne promets jamais de lever à la main), lockdown en cas de raid (lock puis unlock), dehoist contre les pseudos symboles, snipe pour voir ce qui a été effacé. 5) Explique la hiérarchie : tu ne sanctionnes jamais au-dessus de ton rôle ni un admin sans ordre du owner.',
+  },
+  {
+    category: 'serverlife',
+    trigger: 'Quand un membre donne son anniversaire, demande d\u0029enregistrer ou de lister les anniversaires',
+    rule: 'ANNIVERSAIRES. birthday.set avec date MM-DD strict (demande-la si absente, par défaut soi-même) ; birthday.list pour tout lister en [PANEL] ; le bot annonce automatiquement le jour J dans le salon système. Réponse : UNE ligne de confirmation.',
   },
   {
     category: 'trust-score',

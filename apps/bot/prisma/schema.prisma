@@ -28,6 +28,11 @@ model Guild {
   agentSkills       AgentSkill[]
   agentAutomations  AgentAutomation[]
   agentPanels       AgentPanel[]
+  birthdays         MemberBirthday[]
+  stickyRoles       StickyRole[]
+  afkStatuses       AfkStatus[]
+  tempSanctions     TempSanction[]
+  memberActivities  MemberActivity[]
   agentPlans        AgentPlan[]
   ticketCounter     TicketCounter?
   tickets           Ticket[]
@@ -409,4 +414,69 @@ model GuildMemoryProfile {
   guild     Guild           @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@map("guild_memory_profiles")
+}
+
+// ── Vie de serveur (birthdays, sticky, AFK, sanctions temporaires, activité) ──
+
+model MemberBirthday {
+  id      String @id @default(cuid())
+  guildId String
+  userId  String
+  date    String // 'MM-DD'
+  guild   Guild  @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, userId])
+  @@map("member_birthdays")
+}
+
+model StickyRole {
+  id      String @id @default(cuid())
+  guildId String
+  userId  String
+  roleId  String
+  guild   Guild  @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, userId, roleId])
+  @@map("sticky_roles")
+}
+
+model AfkStatus {
+  id      String   @id @default(cuid())
+  guildId String
+  userId  String
+  reason  String
+  since   DateTime @default(now())
+  guild   Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, userId])
+  @@map("afk_statuses")
+}
+
+model TempSanction {
+  id        String   @id @default(cuid())
+  guildId   String
+  userId    String
+  type      String // 'timeout' | 'role' | 'ban'
+  payload   String   @default("{}")
+  revokeAt  DateTime
+  done      Boolean  @default(false)
+  createdBy String
+  createdAt DateTime @default(now())
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@index([guildId, done])
+  @@map("temp_sanctions")
+}
+
+model MemberActivity {
+  id           String   @id @default(cuid())
+  guildId      String
+  userId       String
+  messages     Int      @default(0)
+  voiceMinutes Int      @default(0)
+  updatedAt    DateTime @updatedAt
+  guild        Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, userId])
+  @@map("member_activities")
 }
