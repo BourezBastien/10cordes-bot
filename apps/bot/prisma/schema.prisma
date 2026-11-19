@@ -301,20 +301,38 @@ model TicketCounter {
 }
 
 model Ticket {
-  id        String    @id @default(cuid())
-  guildId   String
-  number    Int
-  channelId String
-  userId    String
-  status    String    @default("open")
-  claimedBy String?
-  createdAt DateTime  @default(now())
-  closedAt  DateTime?
-  guild     Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  id              String    @id @default(cuid())
+  guildId         String
+  number          Int
+  channelId       String
+  userId          String
+  status          String    @default("open")
+  priority        String    @default("LOW")
+  claimedBy       String?
+  firstResponseAt DateTime?
+  createdAt       DateTime  @default(now())
+  closedAt        DateTime?
+  guild           Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  feedbacks       TicketFeedback[]
 
   @@unique([guildId, channelId])
   @@index([guildId, userId])
   @@map("tickets")
+}
+
+// Feedback post-fermeture (notation 1-5 par l'ouverture du ticket, avant suppression du salon)
+model TicketFeedback {
+  id        String   @id @default(cuid())
+  guildId   String
+  ticketId  String
+  userId    String
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@unique([ticketId, userId])
+  @@map("ticket_feedbacks")
 }
 
 // ── Leveling (P2) ────────────────────────────────────────────
