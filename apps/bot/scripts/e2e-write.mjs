@@ -43,7 +43,8 @@ function acquireLock() {
 function releaseLock() {
   try {
     unlinkSync(LOCK_FILE);
-  } catch {
+  }
+  catch {
     /* rien à nettoyer */
   }
 }
@@ -82,7 +83,7 @@ process.env.DATABASE_URL ??= env.DATABASE_URL ?? 'file:../data/bot.db';
 async function rest(path, init) {
   const res = await fetch(`${API}${path}`, {
     ...init,
-    headers: { Authorization: `Bot ${token}`, 'Content-Type': 'application/json' },
+    headers: { 'Authorization': `Bot ${token}`, 'Content-Type': 'application/json' },
   });
   const body = res.headers.get('content-type')?.includes('json') ? await res.json() : await res.text();
   if (!res.ok) throw new Error(`${init?.method ?? 'GET'} ${path} -> ${res.status}: ${JSON.stringify(body).slice(0, 200)}`);
@@ -100,7 +101,8 @@ async function newAuditSince(since) {
       orderBy: { createdAt: 'asc' },
       select: { action: true, createdAt: true, metadata: true, actorId: true },
     });
-  } finally {
+  }
+  finally {
     await prisma.$disconnect();
   }
 }
@@ -120,7 +122,8 @@ async function waitQuiescent(watermark, { requireTool = true, maxMs = 100000, qu
     if (e.action !== 'assistant.reply') return false;
     try {
       return JSON.parse(e.metadata ?? '{}').silent !== true;
-    } catch {
+    }
+    catch {
       return true;
     }
   });
@@ -131,14 +134,13 @@ async function waitQuiescent(watermark, { requireTool = true, maxMs = 100000, qu
 function ensureWhitelist(id) {
   let text = existsSync(ENV_FILE) ? readFileSync(ENV_FILE, 'utf8') : '';
   const line = text.split(/\r?\n/).find((l) => l.startsWith('E2E_STAFF_WEBHOOK_IDS='));
-  const ids = line
-    ? line.slice('E2E_STAFF_WEBHOOK_IDS='.length).split(',').map((s) => s.trim()).filter(Boolean)
-    : [];
+  const ids = line ? line.slice('E2E_STAFF_WEBHOOK_IDS='.length).split(',').map((s) => s.trim()).filter(Boolean) : [];
   if (ids.includes(id)) return false;
   const merged = [...new Set([...ids, id])].join(',');
   if (line) {
     text = text.replace(line, `E2E_STAFF_WEBHOOK_IDS=${merged}`);
-  } else {
+  }
+  else {
     text = `${text}${text.endsWith('\n') || text.length === 0 ? '' : '\n'}E2E_STAFF_WEBHOOK_IDS=${merged}\n`;
   }
   writeFileSync(ENV_FILE, text);
@@ -168,7 +170,8 @@ async function main() {
   try {
     const g = await prisma.guild.findUnique({ where: { id: guildId }, select: { settings: true } });
     channelId = g?.settings ? JSON.parse(g.settings)?.assistant?.channelId ?? null : null;
-  } finally {
+  }
+  finally {
     await prisma.$disconnect();
   }
   if (!channelId) {
@@ -212,11 +215,10 @@ async function main() {
     console.log('[SETUP] webhook mort remplacé et whitelist resynchronisée.');
   }
 
-  const send = (content) =>
-    rest(`/webhooks/${hook.id}/${hook.token}?wait=true`, {
-      method: 'POST',
-      body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
-    });
+  const send = (content) => rest(`/webhooks/${hook.id}/${hook.token}?wait=true`, {
+    method: 'POST',
+    body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
+  });
 
   const api = {
     channels: () => rest(`/guilds/${guildId}/channels`),
@@ -260,7 +262,8 @@ async function main() {
       const out = await check({ entries, hasReply });
       checkPass = out.pass;
       checkNote = out.note ?? '';
-    } catch (error) {
+    }
+    catch (error) {
       checkPass = false;
       checkNote = `check error: ${error.message}`;
     }
@@ -362,9 +365,7 @@ async function main() {
       const everyoneDenied = overwrites.some(
         (o) => o.id === guildId && (BigInt(o.deny) & BigInt(viewBit)) !== 0n,
       );
-      const roleAllowed = restrictRole
-        ? overwrites.some((o) => o.id === restrictRole.id && (BigInt(o.allow) & BigInt(viewBit)) !== 0n)
-        : false;
+      const roleAllowed = restrictRole ? overwrites.some((o) => o.id === restrictRole.id && (BigInt(o.allow) & BigInt(viewBit)) !== 0n) : false;
       return {
         pass: everyoneDenied && roleAllowed,
         note: `@everyone deny ViewChannel=${everyoneDenied} ; rôle allow ViewChannel=${roleAllowed}`,
@@ -431,8 +432,9 @@ async function main() {
       const purged = entries.some((e) => {
         if (e.action !== 'assistant.tool.purgeMessages') return false;
         try {
-          return /1 message/.test(JSON.parse(e.metadata).summary ?? '');
-        } catch {
+          return (/1 message/).test(JSON.parse(e.metadata).summary ?? '');
+        }
+        catch {
           return false;
         }
       });
@@ -497,7 +499,8 @@ async function main() {
         let ok = '?';
         try {
           ok = JSON.parse(call.metadata).ok;
-        } catch {
+        }
+        catch {
           ok = '?';
         }
         return { pass: true, note: `tool exécuté, ok=${ok} (refus Discord/hiérarchie attendu sur l'owner)` };
@@ -522,7 +525,8 @@ async function main() {
       if (call) {
         try {
           ok = JSON.parse(call.metadata).ok;
-        } catch {}
+        }
+        catch {}
       }
       const bans = await api.bans();
       const applied = bans.some((b) => b.user.id === DUMMY_USER_ID);
@@ -533,7 +537,7 @@ async function main() {
     },
   );
 
-// Un ban réel exige une vraie cible (Discord refuse « Unknown User » sur un
+  // Un ban réel exige une vraie cible (Discord refuse « Unknown User » sur un
   // ID sans compte) : on vérifie le comportement (consulter l'état via
   // getBans puis répondre), pas l'effet. Le test complet unban s'inclut dans
   // les tests utilisateur avec un vrai membre banni.
@@ -591,7 +595,8 @@ async function main() {
       try {
         await api.channelDelete(ch.id);
         cleanupNote.push(`${name}: supprimé`);
-      } catch (e) {
+      }
+      catch (e) {
         cleanupNote.push(`${name}: ${e.message.slice(0, 60)}`);
       }
     }
@@ -601,7 +606,8 @@ async function main() {
     try {
       await api.roleDelete(role.id);
       cleanupNote.push('rôle: supprimé');
-    } catch (e) {
+    }
+    catch (e) {
       cleanupNote.push(`rôle: ${e.message.slice(0, 60)}`);
     }
   }

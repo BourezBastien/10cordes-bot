@@ -15,8 +15,8 @@
  *     la surveillance est silencieuse, les incidents sont notifiés par
  *     HealthMonitor (alerte uniquement sur changement d'état).
  */
-import { readFileSync, existsSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
+import { readFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -64,7 +64,8 @@ async function botAlive() {
   try {
     await fetch('http://127.0.0.1:3000/', { signal: AbortSignal.timeout(3_000) });
     return true; // 404 inclus : le serveur écoute.
-  } catch {
+  }
+  catch {
     return false;
   }
 }
@@ -130,13 +131,15 @@ async function main() {
     if (alive) {
       const boot = tail(LOG_FILE, 40);
       say('REPAIR', boot.includes('Logged in') ? 'bot de nouveau connecté.' : 'port OK mais "Logged in" absent du log.');
-    } else {
+    }
+    else {
       say('FAIL', 'relance infructueuse : le port 3000 reste silencieux.');
       console.log('VERDICT: FAIL');
       process.exitCode = 1;
       return;
     }
-  } else {
+  }
+  else {
     say('CHECK', 'bot vivant (port 3000).');
   }
 
@@ -173,7 +176,8 @@ async function main() {
       console.log('VERDICT: FAIL');
       process.exitCode = 1;
     }
-  } finally {
+  }
+  finally {
     await prisma.$disconnect();
   }
 
@@ -200,7 +204,8 @@ async function main() {
     if (env.E2E_ENABLED !== 'true') {
       say('PROBE', 'sonde E2E désactivée (E2E_ENABLED!=true) : aucun message envoyé sur le serveur.');
     }
-  } catch (error) {
+  }
+  catch (error) {
     say('FAIL', `sonde /healthz : ${error.message}`);
     process.exitCode = 1;
   }

@@ -44,7 +44,7 @@ process.env.DATABASE_URL ??= env.DATABASE_URL ?? 'file:../data/bot.db';
 async function rest(path, init) {
   const res = await fetch(`${API}${path}`, {
     ...init,
-    headers: { Authorization: `Bot ${token}`, 'Content-Type': 'application/json' },
+    headers: { 'Authorization': `Bot ${token}`, 'Content-Type': 'application/json' },
   });
   const body = res.headers.get('content-type')?.includes('json') ? await res.json() : await res.text();
   if (!res.ok) throw new Error(`${init?.method ?? 'GET'} ${path} -> ${res.status}: ${JSON.stringify(body).slice(0, 160)}`);
@@ -62,7 +62,8 @@ async function newAuditSince(since) {
       orderBy: { createdAt: 'asc' },
       select: { action: true, createdAt: true, metadata: true },
     });
-  } finally {
+  }
+  finally {
     await prisma.$disconnect();
   }
 }
@@ -100,7 +101,8 @@ async function main() {
   try {
     const g = await prisma.guild.findUnique({ where: { id: guildId }, select: { settings: true } });
     channelId = g?.settings ? JSON.parse(g.settings)?.assistant?.channelId ?? null : null;
-  } finally {
+  }
+  finally {
     await prisma.$disconnect();
   }
   if (!channelId) throw new Error('aucun salon dédié IA configuré');
@@ -110,11 +112,10 @@ async function main() {
   if (!hook) {
     hook = await rest(`/channels/${channelId}/webhooks`, { method: 'POST', body: JSON.stringify({ name: WEBHOOK_NAME }) });
   }
-  const send = (content) =>
-    rest(`/webhooks/${hook.id}/${hook.token}?wait=true`, {
-      method: 'POST',
-      body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
-    });
+  const send = (content) => rest(`/webhooks/${hook.id}/${hook.token}?wait=true`, {
+    method: 'POST',
+    body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
+  });
 
   const results = [];
   const verdict = (name, pass, note = '') => {
@@ -139,7 +140,8 @@ async function main() {
       const out = await check({ entries });
       pass = out.pass;
       note = out.note ?? '';
-    } catch (error) {
+    }
+    catch (error) {
       pass = false;
       note = `check error: ${error.message}`;
     }
@@ -151,14 +153,13 @@ async function main() {
   const pollsSelected = !only || only.includes('polls.create');
   await runScenario(
     'polls.create',
-    "Crée un sondage ici : question « Test E2E polls ? » avec deux options « Oui » et « Non », durée 1 minute.",
+    'Crée un sondage ici : question « Test E2E polls ? » avec deux options « Oui » et « Non », durée 1 minute.',
     ['createPoll'],
     async () => {
       const messages = await rest(`/channels/${channelId}/messages?limit=10`);
       const poll = messages.find(
-        (m) =>
-          (m.content?.includes('Test E2E polls') || JSON.stringify(m.components || '').includes('Test E2E polls')) &&
-          (m.components?.length ?? 0) > 0,
+        (m) => (m.content?.includes('Test E2E polls') || JSON.stringify(m.components || '').includes('Test E2E polls'))
+          && (m.components?.length ?? 0) > 0,
       );
       pollMessageId = poll?.id ?? null;
       return { pass: pollMessageId !== null, note: pollMessageId ? `message ${pollMessageId}` : 'message de sondage introuvable' };
@@ -180,7 +181,8 @@ async function main() {
         const noButtons = !componentsJson.includes('custom_id');
         closed = hasResults && noButtons;
         note = hasResults ? (noButtons ? 'résultats publiés, boutons retirés' : 'résultats mais boutons encore présents') : 'clôture non éditée';
-      } catch {
+      }
+      catch {
         note = 'message supprimé (?)';
       }
     }
@@ -215,7 +217,7 @@ async function main() {
   let panelMessageId = null;
   await runScenario(
     'panel.link',
-    "Poste un panel ici : titre « Test E2E panel », description « un essai de composants », et un seul bouton lien vers https://example.com intitulé « Docs ».",
+    'Poste un panel ici : titre « Test E2E panel », description « un essai de composants », et un seul bouton lien vers https://example.com intitulé « Docs ».',
     ['sendPanel'],
     async () => {
       const messages = await rest(`/channels/${channelId}/messages?limit=10`);
