@@ -123,16 +123,41 @@ export class AssistantMentionListener {
       names = cached.names;
     } else {
       const members = await guild.members.fetch().catch(() => null);
-      names = members
+      // Alias manuels de l'owner (DISCORD_OTHER_BOTS=jp,autrebot) : surnoms
+      // qu'aucune heuristique ne peut deviner (ex « JP » pour Jean Pascal).
+      const envAliases = getValidatedEnv()
+        .DISCORD_OTHER_BOTS.split(',')
+        .map((alias) => alias.toLowerCase().trim())
+        .filter((alias) => alias.length >= 2);
+      const fromMembers = members
         ? [...members.values()]
             .filter((member) => member.user.bot && member.id !== meId)
-            .map((member) => (member.displayName ?? member.user.username).toLowerCase().trim())
-            .filter((name) => name.length >= 2)
+            .flatMap((member) => {
+              const display = (member.displayName ?? member.user.username).toLowerCase().trim();
+              const variants = new Set<string>([display, member.user.username.toLowerCase().trim()]);
+              // Initiales (Jean Pascal → jp) : le raccourci que les membres tapent.
+              const initials = display
+                .split(/\s+/u)
+                .map((word) => word[0] ?? '')
+                .join('')
+                .trim();
+              if (initials.length >= 2) variants.add(initials);
+              return [...variants].filter((variant) => variant.length >= 2);
+            })
         : [];
+      names = [...fromMembers, ...envAliases];
       this.otherBotNamesCache.set(cacheKey, { names, fetchedAt: Date.now() });
     }
     const head = message.content.trimStart().toLowerCase();
-    return names.some((name) => head.startsWith(name));
+    return names.some(
+      (name) =>
+        head === name ||
+        head.startsWith(`${name} `) ||
+        head.startsWith(`${name},`) ||
+        head.startsWith(`${name} !`) ||
+        head.startsWith(`${name} ?`) ||
+        head.startsWith(`${name}.`),
+    );
   }
 
   @On()
@@ -159,15 +184,6 @@ export class AssistantMentionListener {
       ? message.channel.messages.cache.get(message.reference.messageId)?.author.id
       : undefined;
     const repliesToBot = referencedAuthor === me.id;
-
-    // Adressé à un AUTRE bot (mention d'un autre bot, ou nom d'un autre bot
-    // en tête de message) → c'est pour lui, pas pour nous : silence total,
-    // même en salon dédié. Empêche « JP fais ça » d'être traité par nous.
-    const addressedToOtherBot = await this.isAddressedToOtherBot(message, me.id);
-    if (addressedToOtherBot) {
-      log.info(`[GATE] adressé à un autre bot → ignoré`);
-      return;
-    }
 
     log.info(
       `[GATE] salon=${message.channelId} mention=${message.mentions.users.has(me.id)} nom=${mentionsBotByName(message.content)} dédié=${inDedicatedChannel} réponse-bot=${repliesToBot}`,
