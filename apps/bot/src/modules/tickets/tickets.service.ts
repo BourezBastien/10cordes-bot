@@ -268,15 +268,21 @@ export class TicketsService implements SpraxiumOnBoot {
   }
 
   /**
-   * Ferme le ticket : transcript texte complet renvoyé (à attacher au salon de logs),
-   * statut passé en closed. La suppression du salon est gérée par l'appelant.
+   * Ferme le ticket : transcript TEXTE + HTML stylé renvoyés (à joindre au
+   * salon de logs), statut passé en closed. La suppression du salon est
+   * gérée par l'appelant.
    */
-  async close(guildId: string, channelId: string, closedBy: string): Promise<{ number: number; userId: string; transcript: string } | null> {
+  async close(
+    guildId: string,
+    channelId: string,
+    closedBy: string,
+  ): Promise<{ number: number; userId: string; transcript: string; html: string } | null> {
     const ticket = await this.findByChannel(guildId, channelId);
     if (!ticket || ticket.status !== 'open') return null;
 
     const channel = await this.client.channels.fetch(channelId).catch(() => null);
     const transcriptLines: string[] = [];
+    const htmlLines: string[] = [];
     if (channel?.isTextBased() && !channel.partial) {
       let lastId: string | undefined;
       for (let page = 0; page < 10; page++) {
@@ -286,6 +292,14 @@ export class TicketsService implements SpraxiumOnBoot {
         for (const message of [...batch.values()].reverse()) {
           const when = new Date(message.createdTimestamp).toISOString().slice(0, 16).replace('T', ' ');
           transcriptLines.push(`[${when}] ${message.author.username} : ${message.content || '(sans texte)'}`);
+          const safe = (message.content || '(sans texte)')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;');
+          htmlLines.push(
+            `<div class="msg"><span class="who">${message.author.username}</span><span class="when">${when}</span><p>${safe}</p></div>`,
+          );
         }
         if (batch.size < 100) break;
       }
@@ -301,10 +315,22 @@ export class TicketsService implements SpraxiumOnBoot {
       `Ouvert par : ${ticket.userId} · Fermé par : ${closedBy}`,
       ''.padEnd(60, '='),
     ];
+    const html = [
+      '<!doctype html><html lang="fr"><head><meta charset="utf-8">',
+      `<title>Ticket #${ticket.number}</title>`,
+      '<style>body{background:#111114;color:#e6e6ea;font-family:system-ui,sans-serif;max-width:900px;margin:2rem auto;padding:0 1rem}',
+      'h1{color:#d95926}.msg{border-left:3px solid #303038;padding:.4rem .8rem;margin:.4rem 0;background:#19191E;border-radius:.375rem}',
+      '.who{color:#72C99B;font-weight:600;margin-right:.6rem}.when{color:#8a8a96;font-size:.8rem;float:right}p{margin:.3rem 0 0}</style>',
+      '</head><body>',
+      `<h1>Ticket #${ticket.number}</h1><p>Ouvert par ${ticket.userId} · Fermé par ${closedBy}</p>`,
+      ...htmlLines,
+      '</body></html>',
+    ].join('\n');
     return {
       number: ticket.number,
       userId: ticket.userId,
       transcript: [...header, ...transcriptLines].join('\n'),
+      html,
     };
   }
 }

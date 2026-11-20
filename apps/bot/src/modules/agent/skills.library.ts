@@ -149,6 +149,21 @@ export const SKILL_LIBRARY: LibrarySkill[] = [
     rule: 'WORKFLOW GIVEAWAY. 1) QUESTIONS si manquant : lots ? durée ? nombre de gagnants ? salon ? 2) createPoll-equivalent : giveaway.start (annonce 🎉, participation par réaction, tirage AUTOMATIQUE à l\u0029échéance — jamais de tirage manuel promis) ou giveaway.drop pour un premier-arrivé-gagnant. 3) Une fois lancé : UNE phrase de statut (lots + heure de fin <t:..:R>), l\u0029embed est déjà dans le salon. 4) giveaway.reroll pour refaire un tirage sur demande explicite, giveaway.list pour l\u0029état. 5) NE touche jamais au message du giveaway avec les tools d\u0029édition : la lib le gère.',
   },
   {
+    category: 'security',
+    trigger: 'Quand on demande une vérification à l\u0029arrivée, un anti-raid, un captcha, ou de protéger le serveur',
+    rule: 'WORKFLOW SÉCURITÉ. 1) QUESTIONS : salon de vérification ? rôle attribué après vérification ? délai de kick ? 2) CONSTRUIS : security.verify.setup (enabled=true, salon, rôle, kickMinutes 5 par défaut) — le message + captcha math + kick automatique sont gérés par le bot. 3) COMPLÈTE avec lockdown (urgence), member.trust avant chaque sanction, temp.sanction pour les temporaires, snipe pour l\u0029investigation. 4) Rapporte la config en UNE ligne.',
+  },
+  {
+    category: 'invites',
+    trigger: 'Quand on demande les invitations d\u0029un membre, le top inviteurs, ou de corriger un compteur',
+    rule: 'INVITES. invites.show (membre ou soi-même), invites.leaderboard en [PANEL], invites.add pour corriger (staff). Le comptage démarre à l\u0029activation : les joins passés ne sont pas comptés (le dire honnêtement).',
+  },
+  {
+    category: 'levels',
+    trigger: 'Quand on demande d\u0029activer les niveaux/XP, de voir son niveau ou le classement',
+    rule: 'LEVELS. Activation : config levels.enabled=true (levels.xpPerMessage 15 par défaut, cooldown 60s). Requêtes : member.level (progression), server.levels en [PANEL], levels.addXp pour corriger. Rôles-récompenses : config levels.roleRewards [{level, roleId}]. Annonce de level-up automatique dans le salon courant (ou levels.announceChannelId).',
+  },
+  {
     category: 'movies',
     trigger: 'Quand on demande de conseiller un film, une série, ou de parler de cinéma',
     rule: 'RECO CINÉ. 1) getMemberMemory : goûts déjà exprimés (genres, titres aimés/détestés). 2) searchInternet pour les sorties récentes (sources citées). 3) Propose 2-3 titres adaptés AU MEMBRE avec une ligne de pitch chacun, sans spoiler. 4) AFFINE avec une question (« plutôt thriller ou comédie ? »). 5) Option humour : une reco poubelle assumée (« si tu veux pleurer... de rire ») pour les films cultes nuls. 6) Mémorise ce qu\u0027il a regardé et aimé.',

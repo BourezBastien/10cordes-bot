@@ -369,6 +369,24 @@ export class AssistantService {
     if (!channelMaybe || !channelMaybe.isTextBased() || channelMaybe.partial) return;
     const channel = channelMaybe as import('discord.js').TextChannel;
 
+    // Coalescing : si l'auteur a renvoyé un message PLUS RÉCENT dans le même
+    // salon pendant la mise en file, on traite le plus récent (l'ancien reste
+    // dans le transcript) — une seule réponse globale au lieu de deux à la suite.
+    try {
+      const recent = await channel.messages.fetch({ limit: 5 }).catch(() => null);
+      const newer = [...(recent?.values() ?? [])]
+        .filter((m) => m.author.id === request.userId && !m.author.bot)
+        .sort((a, b) => b.createdTimestamp - a.createdTimestamp)[0];
+      if (newer && newer.id !== request.messageId && newer.createdTimestamp > (request.createdAtMs ?? 0)) {
+        log.info(`[FLOW] coalescing : demande plus récente du même auteur, traitement fusionné [${request.messageId} → ${newer.id}]`);
+        request.content = newer.content;
+        request.messageId = newer.id;
+        request.createdAtMs = newer.createdTimestamp;
+      }
+    } catch {
+      // Le coalescing est best-effort : en cas d'échec, on traite la demande d'origine.
+    }
+
     const guildConfig = await this.config.get(guild.id);
 
     // Salon dédié configuré ailleurs → redirection polie (portail éphémère).

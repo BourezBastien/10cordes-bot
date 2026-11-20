@@ -253,15 +253,18 @@ export class TicketCloseHandler {
       const logChannel = await guild.channels.fetch(config.tickets.logChannelId).catch(() => null);
       if (logChannel?.isTextBased() && !logChannel.partial) {
         const { AttachmentBuilder } = await import('discord.js');
-        const file = new AttachmentBuilder(Buffer.from(closed.transcript, 'utf8'), {
+        const textFile = new AttachmentBuilder(Buffer.from(closed.transcript, 'utf8'), {
           name: `ticket-${closed.number}-transcript.txt`,
+        });
+        const htmlFile = new AttachmentBuilder(Buffer.from(closed.html, 'utf8'), {
+          name: `ticket-${closed.number}-transcript.html`,
         });
         const container = panel({
           title: `## 📄 Ticket #${closed.number} fermé`,
-          lines: [`Ouvert par <@${closed.userId}> · Fermé par <@${interaction.user.id}>`, 'Transcript joint.'],
+          lines: [`Ouvert par <@${closed.userId}> · Fermé par <@${interaction.user.id}>`, 'Transcripts joint (txt + HTML).'],
         });
         await logChannel
-          .send({ flags: MessageFlags.IsComponentsV2, components: [container], files: [file] })
+          .send({ flags: MessageFlags.IsComponentsV2, components: [container], files: [textFile, htmlFile] })
           .catch(() => {});
       }
     }

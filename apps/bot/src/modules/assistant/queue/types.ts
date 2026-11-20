@@ -14,6 +14,8 @@ export interface AgentRequest {
   messageId: string;
   /** Vrai si le message répond à un message du bot (continuité de conversation). */
   repliesToBot: boolean;
+  /** Timestamp du message source (ms) — sert au coalescing des demandes rapprochées. */
+  createdAtMs?: number;
 }
 
 export type AgentJobData = { request: AgentRequest };
@@ -38,5 +40,6 @@ export function snapshotFromMessage(message: Message, repliesToBot: boolean): Ag
     content: message.content,
     messageId: message.id,
     repliesToBot,
+    createdAtMs: message.createdTimestamp,
   };
 }

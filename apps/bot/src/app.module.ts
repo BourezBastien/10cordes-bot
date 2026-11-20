@@ -31,6 +31,8 @@ import { PollsModule } from './modules/polls/polls.module';
 import { GiveawaysModule } from './modules/giveaways/giveaways.module';
 import { ServerlifeModule } from './modules/serverlife/serverlife.module';
 import { SecurityModule } from './modules/security/security.module';
+import { InvitesModule } from './modules/invites/invites.module';
+import { LevelsModule } from './modules/levels/levels.module';
 
 // Règle framework : @HttpClientModule et @Module sur LA MÊME classe (AppModule) —
 // un second module HTTP serait ignoré silencieusement.
@@ -62,6 +64,8 @@ import { SecurityModule } from './modules/security/security.module';
     GiveawaysModule,
     ServerlifeModule,
     SecurityModule,
+    InvitesModule,
+    LevelsModule,
     AutomationsModule,
     AgentModule,
     AssistantModule,

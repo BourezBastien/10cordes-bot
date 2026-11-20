@@ -34,6 +34,7 @@ model Guild {
   tempSanctions     TempSanction[]
   memberActivities  MemberActivity[]
   toolNodes         ToolNode[]
+  inviteStats       InviteStat[]
   agentPlans        AgentPlan[]
   ticketCounter     TicketCounter?
   tickets           Ticket[]
@@ -494,4 +495,17 @@ model ToolNode {
 
   @@unique([guildId, targetId, tool])
   @@map("tool_nodes")
+}
+
+// ── Invitations : compteur par inviteur (diff de cache au memberAdd) ──
+
+model InviteStat {
+  id      String @id @default(cuid())
+  guildId String
+  userId  String
+  count   Int    @default(0)
+  guild   Guild  @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, userId])
+  @@map("invite_stats")
 }
