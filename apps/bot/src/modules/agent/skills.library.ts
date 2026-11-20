@@ -76,7 +76,17 @@ export const SKILL_LIBRARY: LibrarySkill[] = [
   {
     category: 'faq',
     trigger: 'Quand on demande de créer une FAQ ou des mémos consultables par le serveur',
-    rule: 'WORKFLOW FAQ. 1) QUESTIONS : thèmes ? qui peut les modifier ? 2) CONSTRUIS : chaque entrée = saveServerMemory (kind fact, préfixé FAQ:). 3) Explique : n\u0027importe qui demande « montre la FAQ sur X » → tu réponds depuis la mémoire. 4) Propose un salon FAQ figé si demandé (sendMessage du récap).',
+    rule: 'WORKFLOW FAQ (store typé). 1) QUESTIONS : thèmes ? qui peut les modifier ? 2) CONSTRUIS : chaque entrée = records.create dans la collection « faq » ({ question, answer }). 3) Consultation : records.list/search sur « faq ». 4) Explique : n\u0027importe qui demande « montre la FAQ sur X » → records.search. 5) Propose un salon FAQ figé si demandé (sendMessage du récap).',
+  },
+  {
+    category: 'suggestions',
+    trigger: 'Quand on demande de mettre en place des suggestions avec validation staff',
+    rule: 'WORKFLOW SUGGESTIONS. 1) QUESTIONS : salon des suggestions ? rôle staff ? 2) CONSTRUIS : sendPanel « Suggestions » (bouton reply avec les règles) + automatisation message.created (salon suggestions) → sendDm au staff avec {{user.mention}} et le texte. 3) LA SAISIE EN DB : quand le staff dit « approuve/rejette la suggestion de X », tu fais records.create/update dans « suggestions » ({ userId, text, status, reason }). 4) Rapporte : panel, workflow staff en UNE ligne.',
+  },
+  {
+    category: 'reminders',
+    trigger: 'Quand un membre demande un rappel (« rappelle-moi de... », « rappelle-nous dans X »)',
+    rule: 'REMINDERS. 1) records.create collection « reminders » { userId, text, dueAtIso } (convertis la date naturelle en ISO). 2) jobs.schedule kind=once à dueAtIso avec action sendMessage dans le salon actuel : « ⏰ Rappel pour <@userId> : text ». 3) Confirmation en UNE ligne avec l\u0029heure.',
   },
   {
     category: 'raid',

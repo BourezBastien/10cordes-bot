@@ -28,6 +28,7 @@ model Guild {
   agentSkills       AgentSkill[]
   agentAutomations  AgentAutomation[]
   agentPanels       AgentPanel[]
+  scheduledJobs     ScheduledJob[]
   birthdays         MemberBirthday[]
   stickyRoles       StickyRole[]
   afkStatuses       AfkStatus[]
@@ -35,6 +36,7 @@ model Guild {
   memberActivities  MemberActivity[]
   toolNodes         ToolNode[]
   inviteStats       InviteStat[]
+  agentRecords      AgentRecord[]
   agentPlans        AgentPlan[]
   ticketCounter     TicketCounter?
   tickets           Ticket[]
@@ -508,4 +510,43 @@ model InviteStat {
 
   @@unique([guildId, userId])
   @@map("invite_stats")
+}
+
+// ── Jobs planifiés génériques (once / cron / interval) ──
+
+model ScheduledJob {
+  id        String   @id @default(cuid())
+  guildId   String
+  name      String
+  kind      String // 'once' | 'cron' | 'interval'
+  runAt     DateTime?
+  cron      String?
+  tz        String   @default("Europe/Paris")
+  intervalMinutes Int?
+  actions   String // JSON (même schéma d'actions que les automatisations)
+  enabled   Boolean  @default(true)
+  lastRunAt DateTime?
+  lastError String?
+  createdAt DateTime @default(now())
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, name])
+  @@index([guildId, enabled])
+  @@map("scheduled_jobs")
+}
+
+// ── Store générique typé : collections déclarées en code (registre Zod) ──
+
+model AgentRecord {
+  id         String   @id @default(cuid())
+  guildId    String
+  collection String
+  data       String // JSON validé par le registre Zod de la collection (versionné)
+  createdBy  String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  guild      Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@index([guildId, collection, createdAt])
+  @@map("agent_records")
 }

@@ -33,6 +33,9 @@ import { ServerlifeModule } from './modules/serverlife/serverlife.module';
 import { SecurityModule } from './modules/security/security.module';
 import { InvitesModule } from './modules/invites/invites.module';
 import { LevelsModule } from './modules/levels/levels.module';
+import { JobsModule } from './modules/jobs/jobs.module';
+import { RecordsModule } from './modules/records/records.module';
+import { UtilityModule } from './modules/utility/utility.module';
 
 // Règle framework : @HttpClientModule et @Module sur LA MÊME classe (AppModule) —
 // un second module HTTP serait ignoré silencieusement.
@@ -66,6 +69,9 @@ import { LevelsModule } from './modules/levels/levels.module';
     SecurityModule,
     InvitesModule,
     LevelsModule,
+    JobsModule,
+    RecordsModule,
+    UtilityModule,
     AutomationsModule,
     AgentModule,
     AssistantModule,

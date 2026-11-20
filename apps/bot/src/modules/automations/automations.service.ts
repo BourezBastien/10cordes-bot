@@ -28,7 +28,7 @@ const TriggerFilterSchema = z
   })
   .strict();
 
-const ActionSchema = z.discriminatedUnion('type', [
+export const ActionSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('sendMessage'),
     channelId: z.string(),
@@ -144,11 +144,16 @@ export class AutomationsService implements SpraxiumOnBoot {
 
     const me = guild.members.me;
     const member = ctx.member ?? (ctx.userId ? await guild.members.fetch(ctx.userId).catch(() => null) : null);
+    // Vocabulaire de templates UNIFIÉ ({{user.mention}} etc., comme welcome)
+    // + les clés courtes historiques conservées pour compat des automatisations existantes.
     const vars = {
       user: ctx.userId ? `<@${ctx.userId}>` : '',
       'user.name': member?.displayName ?? '',
+      'user.mention': ctx.userId ? `<@${ctx.userId}>` : '',
       server: guild.name,
+      'server.name': guild.name,
       count: String(guild.memberCount),
+      'member.count': String(guild.memberCount),
     };
     const render = (text: string): string => renderTemplate(text, vars);
 

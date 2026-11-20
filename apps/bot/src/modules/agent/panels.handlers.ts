@@ -1,13 +1,31 @@
 import { Ctx } from '@spraxium/common';
-import { Button, ButtonHandler, StringSelect, StringSelectHandler } from '@spraxium/components';
+import { Button, ButtonHandler, ButtonParams, DynamicButtonHandler, StringSelect, StringSelectHandler } from '@spraxium/components';
 import { MessageFlags, type ButtonInteraction, type StringSelectMenuInteraction } from 'discord.js';
-import { PanelsService } from './panels.service';
+import { PanelsService, PanelActionButton } from './panels.service';
 
 /**
- * Handlers des panels de l'agent : un customId fixe par type ('panel:select'
- * pour tous les sélecteurs, 'panel:btn:0..4' par index de bouton), le panel
- * est résolu par messageId en DB (définition persistée).
+ * Handlers des panels de l'agent : customIds hérités ('panel:btn:0..4',
+ * 'panel:select') pour les définitions déjà postées, + bouton dynamique
+ * natif ('panel:action', params inline r/b) pour les rangées arbitraires
+ * du nouveau layout. Le panel est résolu par messageId en DB.
  */
+
+@DynamicButtonHandler(PanelActionButton)
+export class PanelActionButtonHandler {
+  constructor(private readonly panels: PanelsService) {}
+
+  async handle(
+    @Ctx() interaction: ButtonInteraction,
+    @ButtonParams() params: { r: number; b: number },
+  ): Promise<void> {
+    await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+    const member = interaction.member as import('discord.js').GuildMember;
+    const result = await this.panels
+      .handleLayoutButton(interaction.message.id, params.r, params.b, member, interaction)
+      .catch((error: unknown) => `Échec : ${error instanceof Error ? error.message.slice(0, 150) : 'erreur'}`);
+    await interaction.editReply({ content: result }).catch(() => {});
+  }
+}
 
 @Button({ customId: 'panel:btn:0', label: 'Option 1', style: 'primary' })
 export class PanelButton0 {}

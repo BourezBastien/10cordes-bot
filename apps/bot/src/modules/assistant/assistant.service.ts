@@ -122,6 +122,92 @@ class LiveStatus {
   }
 }
 
+/** Noyau TOUJOURS injecté : structure du serveur, narration, rollback, sécurité. */
+const TOOL_CORE_NAMES = new Set([
+  'getServerInfo',
+  'getChannels',
+  'getRoles',
+  'getMembers',
+  'getMemberInfo',
+  'getServerStyle',
+  'readMessages',
+  'sendMessage',
+  'createChannel',
+  'createCategory',
+  'renameChannel',
+  'deleteChannel',
+  'moveChannel',
+  'setChannelTopic',
+  'setChannelOverwrite',
+  'createRole',
+  'deleteRole',
+  'renameRole',
+  'addRoleToMember',
+  'removeRoleFromMember',
+  'muteMember',
+  'kickMember',
+  'banMember',
+  'purgeMessages',
+  'getAuditLogs',
+  'getLastSnapshot',
+  'announceStep',
+  'analyzeActivity',
+  'sendPanel',
+  'components.edit',
+  'components.delete',
+  'records.collections',
+  'records.create',
+  'records.list',
+  'records.search',
+  'jobs.schedule',
+  'jobs.list',
+  'security.verify.setup',
+  'security.verify.status',
+  'node.set',
+  'node.list',
+  'saveServerMemory',
+  'saveMemberMemory',
+  'getMemberMemory',
+  'ticket.stats',
+  'member.trust',
+  'member.rank',
+  'server.top',
+]);
+
+const MAX_INJECTED_TOOLS = 70;
+
+/**
+ * Sélection par pertinence : noyau structurel TOUJOURS inclus + les tools
+ * dont nom/description/catégorie partagent des mots avec la demande.
+ * Objectif : réduire la surface injectée (over-tooled agent = chute de
+ * précision de sélection) sans jamais priver le modèle d'un tool critique.
+ */
+export function selectRelevantTools(content: string, tools: BotTool[]): BotTool[] {
+  const words = new Set(
+    content
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .split(' ')
+      .filter((word) => word.length > 3),
+  );
+  const scored = tools.map((tool) => {
+    if (TOOL_CORE_NAMES.has(tool.name)) return { tool, score: 1000 };
+    const haystack = `${tool.name} ${tool.description} ${tool.category}`.toLowerCase();
+    let score = 0;
+    for (const word of words) if (haystack.includes(word)) score += 1;
+    return { tool, score };
+  });
+  const kept = scored
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_INJECTED_TOOLS)
+    .map((entry) => entry.tool);
+  for (const tool of tools) {
+    if (TOOL_CORE_NAMES.has(tool.name) && !kept.includes(tool)) kept.push(tool);
+  }
+  return kept.length > 0 ? kept : tools;
+}
+
 export function buildSystemPrompt(
   locale: string,
   guildName: string,
@@ -191,6 +277,8 @@ export function buildSystemPrompt(
     'Read-before-write : toujours lire l\u0027état actuel avant de modifier.',
     'Ne devine jamais un ID : résous les noms via les tools de liste.',
     'Chaîne tes appels : tu peux enchaîner plusieurs tools avant de répondre (jusqu\u0027à 8 étapes).',
+    'OUTILS FILTRÉS : seuls les tools pertinents pour la demande en cours t\u0029ont été injectés. Si la demande évolue vers autre chose en cours de route et qu\u0029un tool te manque, DIS-LE honnêtement et demande à l\u0029utilisateur de reformuler dans une nouvelle demande.',
+    'HARMONIE MODULE/UTILITAIRES : pour un système DEMANDÉ qui correspond à un module éprouvé (tickets, sondages, giveaways, vérification), utilise le module. Pour toute variante ou système SANS module, COMPOSE avec les utilitaires génériques : sendPanel (composants à actions typées), records.* (store typé : reminders, suggestions, faq, quotes, counters, notes), jobs.* (once/cron/interval), components.* — l\u0029assemblage des primitives construit des systèmes complets sur mesure.',
     'PROGRESSION VISIBLE : pour tout montage multi-étapes (tickets, panels, catégories, rôles, automatisations) ou analyse longue (scan de salons, membres, rôles), appelle announceStep à CHAQUE phase avec des compteurs concrets (« création des 3 catégories... », « salons analysés : 24/57... »). L\u0027utilisateur doit voir ce que tu fais en direct, jamais un silence de 2 minutes suivi du résultat final.',
     'INFO MANQUANTE = RECHERCHE : si la demande touche un sujet que tu ne maîtrises pas assez (actualité, personne, jeu, événement), cherche d\u0029abord via searchInternet / getNews avant de répondre. Vérifie la cohérence entre plusieurs sources fiables ; ne cite PAS les sources dans ta réponse (sauf demande explicite). Ne télécharge JAMAIS rien sur la machine : lecture web uniquement.',
     'DEMANDE EXPLICITE = EXÉCUTION IMMÉDIATE : quand l\u0027utilisateur nomme l\u0027action et la cible (ex: « renomme X en Y », « mets un slowmode de 5s »), appelle le tool tout de suite, sans question préalable, sans proposer d\u0027alternative, sans demander confirmation. Ne pose une question QUE si un paramètre essentiel manque réellement (aucun nom donné, cible inexistante).',
@@ -566,7 +654,18 @@ export class AssistantService {
     status.arm();
 
     const tools = await this.registry.listForGuild(guild.id);
-    const openAiTools: OpenAiTool[] = tools.map(toolToOpenAiTool);
+    // Sélection par pertinence (over-tooled agent) : au-delà de ~40 tools
+    // injectés, la précision de sélection du modèle chute nettement. On
+    // garde le noyau structurel + les tools les plus proches du message.
+    const relevant = selectRelevantTools(request.content, tools);
+    const openAiTools: OpenAiTool[] = relevant.map(toolToOpenAiTool);
+    this.audit.record({
+      guildId: guild.id,
+      source: 'agent',
+      action: 'tools.selected',
+      actorId: request.userId,
+      metadata: { requestId, kept: relevant.length, total: tools.length },
+    });
     // Tool réservé au silence demandé — géré par la boucle, pas dans le registry.
     openAiTools.push({
       type: 'function',
