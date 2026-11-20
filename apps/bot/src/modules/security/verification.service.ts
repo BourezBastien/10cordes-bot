@@ -1,7 +1,7 @@
 import { Injectable } from '@spraxium/common';
 import { Logger } from '@spraxium/logger';
 import { randomInt } from 'node:crypto';
-import { PermissionFlagsBits, type Client, type GuildMember } from 'discord.js';
+import { Client, PermissionFlagsBits, type GuildMember } from 'discord.js';
 import { PrismaService } from '../database/prisma.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 
