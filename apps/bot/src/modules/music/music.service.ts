@@ -97,26 +97,49 @@ export class MusicService implements SpraxiumOnBoot {
             await ctx.progress?.(message);
           };
 
-          const created = await safeFetch(`${API_BASE}/jobs/createTask`, {
-            timeoutMs: 30_000,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-            body: JSON.stringify({
-              model: 'ai-music-api/generate',
-              input: {
-                custom_mode: true,
-                model: this.env.KIE_MODEL || 'V6_MINI',
-                title,
-                style,
-                prompt: instrumental ? undefined : prompt,
-                instrumental: instrumental ?? false,
-                // Valable uniquement en custom_mode + V6/V6_MINI/V6_WILD (doc kie.ai).
-                duration: duration ?? 60,
-              },
-            }),
-          });
-          const createdData = (await created.json().catch(() => ({}))) as { code?: number; data?: { taskId?: string }; msg?: string };
-          if (createdData.code !== 200 || !createdData.data?.taskId) {
+          // Suno refuse les tags contenant un NOM D'ARTISTE ("Your tags contain
+          // artist name booba") : on extrait le nom fautif du message d'erreur,
+          // on le retire du style ET des paroles, puis on relance une fois.
+          let effectiveStyle = style;
+          let effectivePrompt = prompt;
+          let createdData: { code?: number; data?: { taskId?: string }; msg?: string } = {};
+          for (let attempt = 1; attempt <= 2; attempt += 1) {
+            const created = await safeFetch(`${API_BASE}/jobs/createTask`, {
+              timeoutMs: 30_000,
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+              body: JSON.stringify({
+                model: 'ai-music-api/generate',
+                input: {
+                  custom_mode: true,
+                  model: this.env.KIE_MODEL || 'V6_MINI',
+                  title,
+                  style: effectiveStyle,
+                  prompt: instrumental ? undefined : effectivePrompt,
+                  instrumental: instrumental ?? false,
+                  // Valable uniquement en custom_mode + V6/V6_MINI/V6_WILD (doc kie.ai).
+                  duration: duration ?? 60,
+                },
+              }),
+            });
+            createdData = (await created.json().catch(() => ({}))) as { code?: number; data?: { taskId?: string }; msg?: string };
+            if (createdData.code === 200 && createdData.data?.taskId) break;
+            const message = createdData.msg ?? '';
+            const artistMatch = message.match(/artist name\s+([\p{L}\p{N}'-]+)/iu);
+            if (attempt === 1 && artistMatch) {
+              const artist = artistMatch[1];
+              const strip = (text: string | undefined): string | undefined =>
+                text ? text.replace(new RegExp(artist, 'giu'), 'inspired').replace(/\s{2,}/gu, ' ').trim() : text;
+              effectiveStyle = strip(effectiveStyle) ?? effectiveStyle;
+              effectivePrompt = strip(effectivePrompt);
+              await update(`musique : nom d'artiste refusé par Suno — nouvelle tentative en style « inspired » sans le nom`);
+              continue;
+            }
+            await update('musique : génération refusée par kie.ai');
+            return { ok: false, summary: `Génération refusée par kie.ai : ${message || 'erreur inconnue'}` };
+          }
+          const taskId = createdData.data?.taskId;
+          if (!taskId) {
             await update('musique : génération refusée par kie.ai');
             return { ok: false, summary: `Génération refusée par kie.ai : ${createdData.msg ?? 'erreur inconnue'}` };
           }
@@ -130,7 +153,7 @@ export class MusicService implements SpraxiumOnBoot {
             await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
             elapsed += POLL_INTERVAL_MS / 1000;
             await update(`musique : génération en cours... ${elapsed}s`);
-            const record = await safeFetch(`${API_BASE}/jobs/recordInfo?taskId=${createdData.data.taskId}`, {
+            const record = await safeFetch(`${API_BASE}/jobs/recordInfo?taskId=${taskId}`, {
               timeoutMs: 15_000,
               headers: { Authorization: `Bearer ${key}` },
             });
@@ -159,7 +182,7 @@ export class MusicService implements SpraxiumOnBoot {
                 summary:
                   `Musique « ${track.title ?? title} » (${seconds}s) postée en pièce jointe dans le salon. ` +
                   'NE RÉPONDS RIEN : le fichier et le titre suffisent (sauf si un titre manquait, donne-le en une ligne).',
-                data: { audioUrl: track.audio_url, taskId: createdData.data.taskId, duration: seconds },
+                data: { audioUrl: track.audio_url, taskId, duration: seconds },
               };
             }
           }

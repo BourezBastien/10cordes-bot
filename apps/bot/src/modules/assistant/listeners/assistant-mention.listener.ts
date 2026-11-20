@@ -95,11 +95,45 @@ async function shouldReply(message: Message, botUsername: string, inDedicatedCha
 @Listener(Events.MessageCreate)
 export class AssistantMentionListener {
   private readonly triageCooldowns = new Map<string, number>();
+  private readonly otherBotNamesCache = new Map<string, { names: string[]; fetchedAt: number }>();
 
   constructor(
     private readonly assistant: AssistantService,
     private readonly prisma: PrismaService,
   ) {}
+
+  /**
+   * Adressé à un AUTRE bot : mention d'un autre bot (sans nous), ou nom
+   * d'un autre bot du serveur en tête de message (« JP fais ça »).
+   * Les noms des bots du serveur sont mis en cache 5 minutes par guild.
+   */
+  private async isAddressedToOtherBot(message: Message, meId: string): Promise<boolean> {
+    const guild = message.guild;
+    if (!guild) return false;
+    // Mention explicite d'un autre bot (et pas de nous) → pour lui.
+    const otherBotMention = [...message.mentions.users.values()].find(
+      (user) => user.bot && user.id !== meId,
+    );
+    if (otherBotMention) return true;
+
+    const cacheKey = guild.id;
+    const cached = this.otherBotNamesCache.get(cacheKey);
+    let names: string[];
+    if (cached && Date.now() - cached.fetchedAt < 5 * 60_000) {
+      names = cached.names;
+    } else {
+      const members = await guild.members.fetch().catch(() => null);
+      names = members
+        ? [...members.values()]
+            .filter((member) => member.user.bot && member.id !== meId)
+            .map((member) => (member.displayName ?? member.user.username).toLowerCase().trim())
+            .filter((name) => name.length >= 2)
+        : [];
+      this.otherBotNamesCache.set(cacheKey, { names, fetchedAt: Date.now() });
+    }
+    const head = message.content.trimStart().toLowerCase();
+    return names.some((name) => head.startsWith(name));
+  }
 
   @On()
   async onMessageCreate(message: Message): Promise<void> {
@@ -110,6 +144,14 @@ export class AssistantMentionListener {
     const me = message.client.user;
     if (!me) return;
 
+    // Adressé à un AUTRE bot (mention d'un autre bot, ou nom d'un autre bot
+    // en tête de message) → c'est pour lui, pas pour nous : silence total,
+    // même en salon dédié. Empêche « JP fais ça » d'être traité par nous.
+    if (await this.isAddressedToOtherBot(message, me.id)) {
+      log.info(`[GATE] adressé à un autre bot → ignoré`);
+      return;
+    }
+
     const addressed = isAddressedToBot(message, me.id);
     const inDedicatedChannel =
       (await this.assistant.dedicatedChannelId(guildId)) === message.channelId;
@@ -117,6 +159,15 @@ export class AssistantMentionListener {
       ? message.channel.messages.cache.get(message.reference.messageId)?.author.id
       : undefined;
     const repliesToBot = referencedAuthor === me.id;
+
+    // Adressé à un AUTRE bot (mention d'un autre bot, ou nom d'un autre bot
+    // en tête de message) → c'est pour lui, pas pour nous : silence total,
+    // même en salon dédié. Empêche « JP fais ça » d'être traité par nous.
+    const addressedToOtherBot = await this.isAddressedToOtherBot(message, me.id);
+    if (addressedToOtherBot) {
+      log.info(`[GATE] adressé à un autre bot → ignoré`);
+      return;
+    }
 
     log.info(
       `[GATE] salon=${message.channelId} mention=${message.mentions.users.has(me.id)} nom=${mentionsBotByName(message.content)} dédié=${inDedicatedChannel} réponse-bot=${repliesToBot}`,
