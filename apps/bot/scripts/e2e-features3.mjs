@@ -103,6 +103,23 @@ async function main() {
   }
   if (!channelId) throw new Error('aucun salon dédié IA');
 
+  // Salon de tests DÉDIÉ : les artefacts E2E (panels, messages) ne polluent
+  // plus le salon IA des membres. Créé au besoin ; les prompts y mentionnent
+  // le bot explicitement (hors salon dédié, seule la mention déclenche).
+  let testChannelId = null;
+  const allChannels = await rest(`/guilds/${guildId}/channels`);
+  const existingTest = allChannels.find((c) => c.name === 'e2e-tests' && c.type === 0);
+  if (existingTest) {
+    testChannelId = existingTest.id;
+  } else {
+    const created = await rest(`/guilds/${guildId}/channels`, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'e2e-tests', type: 0 }),
+    });
+    testChannelId = created.id;
+  }
+  channelId = testChannelId;
+
   const hooks = await rest(`/channels/${channelId}/webhooks`);
   let hook = hooks.find((h) => h.name === WEBHOOK_NAME && h.user?.id === me.id);
   if (!hook) {
@@ -111,7 +128,7 @@ async function main() {
   const send = (content) =>
     rest(`/webhooks/${hook.id}/${hook.token}?wait=true`, {
       method: 'POST',
-      body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
+      body: JSON.stringify({ content: `<@${me.id}> ${content}`, allowed_mentions: { users: [me.id] } }),
     });
 
   const results = [];
