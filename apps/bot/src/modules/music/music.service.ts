@@ -100,8 +100,10 @@ export class MusicService implements SpraxiumOnBoot {
           // Suno refuse les tags contenant un NOM D'ARTISTE ("Your tags contain
           // artist name booba") : on extrait le nom fautif du message d'erreur,
           // on le retire du style ET des paroles, puis on relance une fois.
+          // L'utilisateur est PRÉVENU dans la réponse finale (warning).
           let effectiveStyle = style;
           let effectivePrompt = prompt;
+          let artistRefused: string | null = null;
           let createdData: { code?: number; data?: { taskId?: string }; msg?: string } = {};
           for (let attempt = 1; attempt <= 2; attempt += 1) {
             const created = await safeFetch(`${API_BASE}/jobs/createTask`, {
@@ -128,6 +130,7 @@ export class MusicService implements SpraxiumOnBoot {
             const artistMatch = message.match(/artist name\s+([\p{L}\p{N}'-]+)/iu);
             if (attempt === 1 && artistMatch) {
               const artist = artistMatch[1];
+              artistRefused = artist;
               const strip = (text: string | undefined): string | undefined =>
                 text ? text.replace(new RegExp(artist, 'giu'), 'inspired').replace(/\s{2,}/gu, ' ').trim() : text;
               effectiveStyle = strip(effectiveStyle) ?? effectiveStyle;
@@ -181,8 +184,10 @@ export class MusicService implements SpraxiumOnBoot {
                 ok: true,
                 summary:
                   `Musique « ${track.title ?? title} » (${seconds}s) postée en pièce jointe dans le salon. ` +
-                  'NE RÉPONDS RIEN : le fichier et le titre suffisent (sauf si un titre manquait, donne-le en une ligne).',
-                data: { audioUrl: track.audio_url, taskId, duration: seconds },
+                  (artistRefused
+                    ? `⚠️ PRÉVENS L'UTILISATEUR : Suno refuse le nom d'artiste « ${artistRefused} » — le style a été automatiquement adapté en style inspiré sans le nom. Une seule ligne d'avertissement, puis silence.`
+                    : 'NE RÉPONDS RIEN : le fichier et le titre suffisent (sauf si un titre manquait, donne-le en une ligne).'),
+                data: { audioUrl: track.audio_url, taskId, duration: seconds, artistRefused: artistRefused ?? undefined },
               };
             }
           }
