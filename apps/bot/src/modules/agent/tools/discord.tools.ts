@@ -242,21 +242,28 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
     {
       name: 'purgeMessages',
       description:
-        "Supprime en masse les messages récents d'un salon (par lots de 100, max 1000, uniquement les moins de 14 jours).",
+        "Supprime en masse les messages récents d'un salon. Filtre obligatoire par âge (days) pour ne JAMAIS toucher les vieux messages : days=1 = aujourd'hui/hier uniquement, days=14 maximum (limite Discord du bulk delete). Les messages plus vieux que la fenêtre sont comptés et laissés en place.",
       category: 'agent',
       paramsSchema: z.object({
         channelId: z.string().min(1).optional(),
         count: z.number().int().min(1).max(1000).default(100),
+        days: z
+          .number()
+          .int()
+          .min(1)
+          .max(14)
+          .default(1)
+          .describe("Fenêtre d'âge : ne supprime que les messages de moins de N jours (1 = aujourd'hui). Discord interdit le bulk delete au-delà de 14 jours."),
       }),
       requiredModules: [],
       permissions: ['ManageMessages'],
       destructive: false,
       systemPrompt:
-        'Bulk delete, irreversible. When the user asks to wipe a whole channel, confirm the scope first, then purge in batches until done.',
+        'DESTRUCTIF mais borné : le filtre days protège les vieux messages — demande la fenêtre si l\u0029utilisateur ne la précise pas (« tout le salon » = days à demander quand même). Jamais de purge sans fenêtre d\u0029âge.',
       handler: async (input, ctx) => {
         const guild = guildOf(ctx);
         if (!guild) return noGuild();
-        const { channelId, count } = input as { channelId?: string; count?: number };
+        const { channelId, count, days } = input as { channelId?: string; count?: number; days?: number };
         const targetId = channelId || ctx.channelId || '';
         const channel = await guild.channels.fetch(targetId).catch(() => null);
         if (!channel || !channel.isTextBased()) return { ok: false, summary: 'Salon introuvable ou non textuel.' };
@@ -264,13 +271,26 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
           return { ok: false, summary: "Le bot n'a pas la permission ManageMessages." };
         }
         const budget = count ?? 100;
+        const windowMs = (days ?? 1) * 86_400_000;
+        const cutoff = Date.now() - windowMs;
         let deleted = 0;
+        let skippedOld = 0;
         for (let round = 0; round < 10 && deleted < budget; round++) {
-          const batch = await channel.bulkDelete(Math.min(100, budget - deleted), true).catch(() => null);
+          const batch = await channel.messages.fetch({ limit: 100 }).catch(() => null);
           if (!batch || batch.size === 0) break;
-          deleted += batch.size;
+          // Filtrage STRICT par âge AVANT le bulkDelete : Discord refuse le
+          // bulk au-delà de 14 jours, et l'utilisateur demande une fenêtre
+          // précise (« aujourd'hui ») — jamais toucher les vieux messages.
+          const inWindow = batch.filter((message) => message.createdTimestamp >= cutoff && !message.pinned);
+          const tooOld = batch.filter((message) => message.createdTimestamp < cutoff);
+          skippedOld += tooOld.size;
+          if (inWindow.size === 0) break;
+          const done = await channel.bulkDelete(inWindow, true).catch(() => null);
+          if (!done || done.size === 0) break;
+          deleted += done.size;
         }
-        return { ok: true, summary: `🧹 ${deleted} message(s) supprimé(s) dans <#${channel.id}>.` };
+        const note = skippedOld > 0 ? ` ${skippedOld} message(s) plus vieux que ${days ?? 1}j laissés en place.` : '';
+        return { ok: true, summary: `🧹 ${deleted} message(s) supprimé(s) dans <#${channel.id}> (fenêtre ${days ?? 1}j).${note}` };
       },
     },
     {
