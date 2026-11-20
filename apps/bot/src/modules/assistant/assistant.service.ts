@@ -608,6 +608,7 @@ export class AssistantService {
       userId: request.userId,
       locale,
       permissions,
+      roleIds: member ? [...member.roles.cache.keys()] : [],
       // Ligne de statut unique : les tools y publient leur progression au lieu
       // de poster leurs propres messages (fin du spam de lignes).
       progress: async (text) => status.detail(text),

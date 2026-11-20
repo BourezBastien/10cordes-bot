@@ -5,6 +5,7 @@ import { setPath } from '../../shared/utils/object';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import { ModuleManagerService } from '../module-manager/module-manager.service';
 import { AuditService } from '../audit/audit.service';
+import { PrismaService } from '../database/prisma.service';
 
 let registryInstance: ToolRegistryService | undefined;
 
@@ -22,11 +23,13 @@ export function getToolRegistry(): ToolRegistryService {
 @Injectable()
 export class ToolRegistryService {
   private readonly tools = new Map<string, BotTool>();
+  private readonly nodeCache = new Map<string, { nodes: Array<{ targetId: string; tool: string; effect: string }>; fetchedAt: number }>();
 
   constructor(
     private readonly modules: ModuleManagerService,
     private readonly configService: GuildConfigService,
     private readonly audit: AuditService,
+    private readonly prisma: PrismaService,
   ) {
     registryInstance = this;
     for (const tool of builtinTools(this, modules, configService, audit)) this.register(tool);
@@ -42,6 +45,47 @@ export class ToolRegistryService {
 
   list(): BotTool[] {
     return [...this.tools.values()];
+  }
+
+  /** Invalide le cache des permission nodes d'un serveur (après node.set/remove). */
+  invalidateNodes(guildId: string): void {
+    this.nodeCache.delete(guildId);
+  }
+
+  /** Nodes d'un serveur (cache 30s) : [{ targetId, tool, effect }] */
+  private async nodesFor(guildId: string): Promise<Array<{ targetId: string; tool: string; effect: string }>> {
+    const cached = this.nodeCache.get(guildId);
+    if (cached && Date.now() - cached.fetchedAt < 30_000) return cached.nodes;
+    const rows = await this.prisma.toolNode.findMany({
+      where: { guildId },
+      select: { targetId: true, tool: true, effect: true },
+    });
+    this.nodeCache.set(guildId, { nodes: rows, fetchedAt: Date.now() });
+    return rows;
+  }
+
+  /** Override deny : true si un node deny couvre ce tool pour l'appelant (user ou rôle). */
+  private async deniedByNode(guildId: string | null, toolName: string, ctx: ToolRunContext): Promise<boolean> {
+    if (!guildId) return false;
+    const nodes = await this.nodesFor(guildId);
+    return nodes.some(
+      (node) =>
+        node.tool === toolName &&
+        node.effect === 'deny' &&
+        (node.targetId === ctx.userId || (ctx.roleIds ?? []).includes(node.targetId)),
+    );
+  }
+
+  /** Override allow : true si un node allow couvre ce tool pour l'appelant (user ou rôle). */
+  private async allowedByNode(guildId: string | null, toolName: string, ctx: ToolRunContext): Promise<boolean> {
+    if (!guildId) return false;
+    const nodes = await this.nodesFor(guildId);
+    return nodes.some(
+      (node) =>
+        node.tool === toolName &&
+        node.effect === 'allow' &&
+        (node.targetId === ctx.userId || (ctx.roleIds ?? []).includes(node.targetId)),
+    );
   }
 
   /** Tools exécutables sur ce serveur : uniquement ceux dont les modules sont actifs. */
@@ -87,15 +131,29 @@ export class ToolRegistryService {
       });
     }
 
-    const missing = this.missingPermissions(tool, ctx);
-    if (missing.length > 0) {
+    // Permission nodes : un deny explicite prime sur tout (même admin).
+    if (await this.deniedByNode(ctx.guildId, name, ctx)) {
       return finish(
         {
           ok: false,
-          summary: `Permission Discord insuffisante : ${missing.join(' + ')} requise(s). Informe poliment l'utilisateur qu'il n'a pas le niveau d'accès nécessaire pour cette action.`,
+          summary: `Refusé : le staff a explicitement retiré l\u0029accès à cet outil pour toi (ou ton rôle).`,
         },
-        missing,
+        ['node-deny'],
       );
+    }
+
+    const missing = this.missingPermissions(tool, ctx);
+    if (missing.length > 0) {
+      // Un node allow peut autoriser sans les permissions Discord (couche staff).
+      if (!(await this.allowedByNode(ctx.guildId, name, ctx))) {
+        return finish(
+          {
+            ok: false,
+            summary: `Permission Discord insuffisante : ${missing.join(' + ')} requise(s). Informe poliment l'utilisateur qu'il n'a pas le niveau d'accès nécessaire pour cette action.`,
+          },
+          missing,
+        );
+      }
     }
 
     const parsed = tool.paramsSchema.safeParse(input);

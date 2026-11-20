@@ -33,6 +33,7 @@ model Guild {
   afkStatuses       AfkStatus[]
   tempSanctions     TempSanction[]
   memberActivities  MemberActivity[]
+  toolNodes         ToolNode[]
   agentPlans        AgentPlan[]
   ticketCounter     TicketCounter?
   tickets           Ticket[]
@@ -479,4 +480,18 @@ model MemberActivity {
 
   @@unique([guildId, userId])
   @@map("member_activities")
+}
+
+// ── Permission nodes : override allow/deny par tool pour un rôle ou un membre ──
+
+model ToolNode {
+  id       String @id @default(cuid())
+  guildId  String
+  targetId String // ID de rôle OU de membre
+  tool     String
+  effect   String // 'allow' | 'deny'
+  guild    Guild  @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, targetId, tool])
+  @@map("tool_nodes")
 }

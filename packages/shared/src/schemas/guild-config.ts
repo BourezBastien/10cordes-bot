@@ -92,6 +92,19 @@ export const AssistantConfigSchema = z.object({
 });
 export type AssistantConfig = z.infer<typeof AssistantConfigSchema>;
 
+/** Gate de vérification anti-raid à l'arrivée (captcha math via modal). */
+export const SecurityConfigSchema = z.object({
+  /** Gate activé : tout nouveau membre doit se vérifier sinon kick. */
+  verificationEnabled: z.boolean().default(false),
+  /** Salon où poster le message de vérification (null = le salon système). */
+  verificationChannelId: z.string().nullable().default(null),
+  /** Rôle attribué après vérification réussie. */
+  verifiedRoleId: z.string().nullable().default(null),
+  /** Kick si non vérifié après N minutes (0 = jamais kick). */
+  kickMinutes: z.number().int().min(0).max(120).default(5),
+});
+export type SecurityConfig = z.infer<typeof SecurityConfigSchema>;
+
 /**
  * Configuration d'un serveur — un seul document JSON typé (pattern single-document).
  * Tout champ manquant est comblé par les defaults Zod : l'évolution du schéma
@@ -108,6 +121,7 @@ export const GuildConfigSchema = z.object({
   levels: LevelsConfigSchema.prefault({}),
   moderation: ModerationConfigSchema.prefault({}),
   assistant: AssistantConfigSchema.prefault({}),
+  security: SecurityConfigSchema.prefault({}),
   /** Messages d'erreur personnalisés par code — template avec placeholders de l'exception. */
   errorMessages: z.record(z.string(), z.string()).default({}),
 });
@@ -139,4 +153,11 @@ export const CONFIG_KEYS: ConfigKeyDescriptor[] = [
   { path: 'tickets.staffRoleId', type: 'role', description: 'Rôle staff des tickets' },
   { path: 'tickets.logChannelId', type: 'channel', description: 'Salon des transcripts de tickets' },
   { path: 'assistant.channelId', type: 'channel', description: "Salon dédié de l'IA (vide = mention dans tous les salons)" },
+  { path: 'levels.enabled', type: 'boolean', description: 'XP et niveaux actifs sur les messages' },
+  { path: 'levels.xpPerMessage', type: 'number', description: "XP gagné par message (cooldown passé)" },
+  { path: 'levels.announceChannelId', type: 'channel', description: 'Salon des annonces de level-up (vide = salon courant)' },
+  { path: 'security.verificationEnabled', type: 'boolean', description: 'Gate de vérification à l\u0029arrivée (captcha math)' },
+  { path: 'security.verificationChannelId', type: 'channel', description: 'Salon du message de vérification' },
+  { path: 'security.verifiedRoleId', type: 'role', description: 'Rôle attribué après vérification' },
+  { path: 'security.kickMinutes', type: 'number', description: 'Kick si non vérifié après N minutes (0 = jamais)' },
 ];

@@ -26,6 +26,11 @@ export interface ToolRunContext {
    * leurs propres messages de progression.
    */
   progress?: (text: string) => Promise<void>;
+  /**
+   * IDs des rôles de l'appelant (pour les permission nodes allow/deny par
+   * tool, résolus côté serveur — jamais choisis par le modèle). Optionnel.
+   */
+  roleIds?: string[];
 }
 
 export interface ToolResult {

@@ -150,6 +150,10 @@ export class ServerlifeService implements SpraxiumOnBoot {
           const member = await guild.members.fetch(sanction.userId).catch(() => null);
           if (sanction.type === 'ban') {
             await guild.members.unban(sanction.userId, 'sanction temporaire expirée').catch(() => {});
+          } else if (sanction.type === 'kick') {
+            // Gate de vérification : kick AT revokeAt (le timer a pu mourir avec un crash).
+            const pendingMember = await guild.members.fetch(sanction.userId).catch(() => null);
+            if (pendingMember) await pendingMember.kick('non vérifié à temps (gate de vérification)').catch(() => {});
           } else if (sanction.type === 'role' && member) {
             const payload = JSON.parse(sanction.payload || '{}') as { roleId?: string };
             if (payload.roleId) await member.roles.remove(payload.roleId, 'sanction temporaire expirée').catch(() => {});
