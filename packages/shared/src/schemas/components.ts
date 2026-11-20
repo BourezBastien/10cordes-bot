@@ -27,6 +27,12 @@ export const ComponentButtonActionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('counter'), name: z.string().min(1).max(60) }),
   /** Révèle un contenu caché en éphémère (spoiler/texte d'info). */
   z.object({ type: z.literal('reveal'), message: z.string().min(1).max(1000) }),
+  /**
+   * Enregistre un clic pour un choix donné (sondage, RSVP, inscription...) :
+   * un enregistrement par membre par message (le re-cliquer change le choix).
+   * Dépouillement via tally.votes. Générique : sert à tout collecteur de clics.
+   */
+  z.object({ type: z.literal('vote'), choice: z.string().min(1).max(80) }),
 ]);
 export type ComponentButtonAction = z.infer<typeof ComponentButtonActionSchema>;
 

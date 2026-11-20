@@ -9,6 +9,20 @@ import { getToolRegistry } from '../tool-registry/tool-registry.service';
 import { renderTemplate, type BotTool } from '@10cordes/shared';
 
 /**
+ * Schéma d'actions propre aux jobs : les 4 actions d'automatisations +
+ * runTool (exécute N'IMPORTE QUEL tool du registry à l'échéance — c'est ce
+ * qui rend les jobs universels, ex : tally.votes pour clôturer un sondage).
+ */
+const JobActionSchema = z.discriminatedUnion('type', [
+  ...ActionSchema.options,
+  z.object({
+    type: z.literal('runTool'),
+    name: z.string().min(3).max(40),
+    input: z.record(z.string(), z.unknown()).default({}),
+  }),
+]);
+
+/**
  * Moteur de jobs planifiés GÉNÉRIQUES (unifie le pattern "due-date en DB +
  * timer + sweep au boot" dupliqué par polls/sanctions/vérification) :
  * - once à T (ex : rappel, suppression différée)
@@ -110,9 +124,9 @@ export class JobsService implements SpraxiumOnBoot {
   private async executeJob(jobId: string, guildId: string, name: string, actionsJson: string): Promise<void> {
     const guild = this.client.guilds.cache.get(guildId);
     if (!guild) return;
-    let actions: Array<z.infer<typeof ActionSchema>> = [];
+    let actions: Array<z.infer<typeof JobActionSchema>> = [];
     try {
-      actions = z.array(ActionSchema).min(1).max(5).parse(JSON.parse(actionsJson || '[]'));
+      actions = z.array(JobActionSchema).min(1).max(5).parse(JSON.parse(actionsJson || '[]'));
     } catch {
       await this.prisma.scheduledJob.update({ where: { id: jobId }, data: { lastError: 'actions invalides' } });
       return;
@@ -141,6 +155,18 @@ export class JobsService implements SpraxiumOnBoot {
         } else if (action.type === 'addRole' || action.type === 'removeRole') {
           // Sans membre cible, les actions de rôle ne s'appliquent pas aux jobs.
           void action;
+        } else if (action.type === 'runTool') {
+          // Primitive universelle : exécute n'importe quel tool du registry
+          // avec les permissions du bot (audité par le registry).
+          const result = await getToolRegistry().run(action.name, action.input, {
+            guildId,
+            channelId: null,
+            userId: this.client.user?.id ?? 'jobs',
+            locale: 'fr',
+            permissions: ['Administrator'],
+            reply: async () => {},
+          });
+          if (!result.ok) throw new Error(result.summary);
         }
       } catch (error) {
         lastError = (error as Error).message.slice(0, 160);
@@ -172,6 +198,11 @@ export class JobsService implements SpraxiumOnBoot {
                 z.object({ type: z.literal('sendMessage'), channelId: z.string(), content: z.string().min(1).max(1500) }),
                 z.object({ type: z.literal('addRole'), roleId: z.string() }),
                 z.object({ type: z.literal('removeRole'), roleId: z.string() }),
+                z.object({
+                  type: z.literal('runTool'),
+                  name: z.string().min(3).max(40),
+                  input: z.record(z.string(), z.unknown()).default({}).describe('Paramètres du tool (ex tally.votes : { messageId, close: true })'),
+                }),
               ]),
             )
             .min(1)

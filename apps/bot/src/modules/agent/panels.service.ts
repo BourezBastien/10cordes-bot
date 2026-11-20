@@ -495,6 +495,7 @@ export class PanelsService implements SpraxiumOnBoot {
       member,
       messageId: row.id,
       label: button.label,
+      userId: interaction.user.id,
     });
   }
 
@@ -523,6 +524,7 @@ export class PanelsService implements SpraxiumOnBoot {
       member,
       messageId: row.id,
       label: option.label,
+      userId: interaction.user.id,
     });
   }
 

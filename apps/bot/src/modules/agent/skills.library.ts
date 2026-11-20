@@ -26,7 +26,7 @@ export const SKILL_LIBRARY: LibrarySkill[] = [
   {
     category: 'polls-legacy',
     trigger: 'Quand on demande un vote par réactions emojis avec clôture manuelle par le staff',
-    rule: 'SONDAGE RÉACTIONS (variante héritée, rarement demandée) : si et seulement si l\u0029utilisateur veut EXPLICITEMENT des réactions emojis avec clôture manuelle par le staff, construis-le avec sendMessage + reaction.add, et pose un rappel jobs.schedule pour la clôture. Dans tous les AUTRES cas de sondage, utilise le WORKFLOW SONDAGE moderne (createPoll à clôture automatique).',
+    rule: 'WORKFLOW SONDAGE (COMPOSITION avec les utilitaires). 1) Le plus souvent AUCUNE question nécessaire : question + options lisibles en tête. Si l\u0027utilisateur précise une durée (« dans 30 secondes », « dans 10 minutes »), convertis en SECONDES. 2) CONSTRUIS : sendPanel (titre « 📊 question », description « Un vote par personne, modifiable. Résultats automatiques à <t:epoch:R> », rangée de boutons — CHAQUE bouton = une option avec action { type: vote, choice: « label » }). 3) CLÔTURE AUTO : jobs.schedule kind=once à l\u0029échéance, actions [{ type: runTool, name: tally.votes, input: { messageId: <id renvoyé par sendPanel>, close: true } }] — dépouille et publie les résultats tout seul. 4) Une fois posté : UNE phrase de statut max (« résultats dans 10 min ») — NE répète NI la question NI les options NI l\u0027ID, et NE modifie JAMAIS le message ensuite (tally.votes est le seul à l\u0029éditer).',
   },
   {
     category: 'bienvenue',
@@ -147,11 +147,6 @@ export const SKILL_LIBRARY: LibrarySkill[] = [
     category: 'business',
     trigger: 'Quand on demande une idée de business, un plan de revenus, ou une analyse de marché',
     rule: 'WORKFLOW BUSINESS. 1) QUESTIONS OBLIGATOIRES : domaine/compétences de la personne, temps disponible, budget de départ, objectif de revenus mensuels. 2) RECHERCHE : searchInternet + getNews pour les tendances actuelles, cross-check 2+ sources, cite-les. 3) RÉCAP du contexte avant le plan. 4) PROPOSE un plan concret en étapes (semaine 1-4), avec des chiffres réalistes sourcés (pas de promesses de revenus invérifiables), et une option drôle si l\u0027ambiance s\u0029y prête (ex: le plan « vendre des pierres pets »). 5) Retiens le projet du membre en mémoire pour suivre son avancement.',
-  },
-  {
-    category: 'polls',
-    trigger: 'Quand on demande de créer un sondage, un vote, ou de demander l\u0027avis du serveur avec des options',
-    rule: 'WORKFLOW SONDAGE. 1) Le plus souvent AUCUNE question nécessaire : question + options lisibles en tête. Si l\u0027utilisateur précise une durée (« dans 30 secondes », « dans 10 minutes »), convertis en SECONDES (durationSeconds, minimum 30 s). 2) createPoll : channelId = salon actuel (ctx), options 2-6 DISTINCTES (labels courts, emoji si l\u0029ambiance s\u0029y prête), durationSeconds = la durée demandée. 3) La clôture est AUTOMATIQUE à l\u0029échéance avec résultats (compteurs, pourcentages, gagnant) édités dans le message : ne promets JAMAIS de clôturer à la main, ne propose pas de bouton de clôture. 4) Une fois posté : UNE phrase de statut max (« résultats dans 10 min ») — NE répète NI la question NI les options NI l\u0027ID du message, l\u0027utilisateur le voit.',
   },
   {
     category: 'giveaways',

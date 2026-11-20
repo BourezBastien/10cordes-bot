@@ -19,6 +19,8 @@ export interface ComponentActionContext {
   messageId: string;
   /** Label du bouton/option déclencheur (pour les tickets : nom du salon). */
   label?: string;
+  /** ID Discord du membre qui a cliqué (l'exécution des actions est attribuée). */
+  userId?: string;
 }
 
 type ActionExecutor = (action: ComponentButtonAction, ctx: ComponentActionContext) => Promise<string>;
