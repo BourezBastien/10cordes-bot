@@ -24,9 +24,9 @@ export const SKILL_LIBRARY: LibrarySkill[] = [
     rule: 'WORKFLOW TICKETS. 0) NARRATION OBLIGATOIRE : avant CHAQUE phase, annonceStep (ex : « je crée les 3 catégories... », « je configure les permissions staff... », « je poste le panel... ») — l\u0027utilisateur doit voir la construction en direct. 1) QUESTIONS si info manquante : types de tickets (sinon propose Commercial / Technique / Autres) ? rôle staff existant ? salon du panneau ? 2) RÉCAP compact en liste AVANT de construire. 3) CONSTRUIS : pour CHAQUE type, une catégorie dédiée (createCategory position adaptée) ; patch config tickets.staffRoleId avec le rôle staff EXISTANT demandé ; puis sendPanel dans le salon du panneau : selectMenu dont CHAQUE option porte label du type + description + categoryId de sa catégorie + welcomeMessage. 4) Le message du panel EST un embed moderne (titre + description + composants V2) : respecte le format demandé (si l\u0027utilisateur demande des BOUTONS précis dans le panel comme claim/fermer/aide, utilise buttons plutôt que selectMenu et dis-le). 5) Chaque ticket ouvert reçoit AUTOMATIQUEMENT les boutons Claim / Fermer / Demander de l\u0027aide (built-in) : mentions-le dans le récap. Staff gère (claim/close), les membres ne voient QUE leur ticket (overwrites déjà posés). 6) Rapporte : panel id, catégories créées, où est le panel, comment tester (clic → salon + 3 boutons).',
   },
   {
-    category: 'sondages',
-    trigger: 'Quand on demande de créer un sondage ou un vote',
-    rule: 'WORKFLOW SONDAGE. 1) QUESTIONS si manquant : salon ? question exacte ? choix (2 à 10) ? boutons ou emojis ? durée et qui clôture ? 2) RÉCAP. 3) CONSTRUIS : envoie l\u0027embed du sondage dans le salon voulu avec les boutons d\u0027options (customId vote:<id>:<choix>) via les tools, note les votes par réaction si emojis. 4) AUTOMATISE si durée : createAutomation impossible pour les timers → dis-le honnêtement et propose la clôture manuelle via deleteMessages/clear messages du sondage. 5) Rapporte l\u0027ID du message de sondage.',
+    category: 'polls-legacy',
+    trigger: 'Quand on demande un vote par réactions emojis avec clôture manuelle par le staff',
+    rule: 'SONDAGE RÉACTIONS (variante héritée, rarement demandée) : si et seulement si l\u0029utilisateur veut EXPLICITEMENT des réactions emojis avec clôture manuelle par le staff, construis-le avec sendMessage + reaction.add, et pose un rappel jobs.schedule pour la clôture. Dans tous les AUTRES cas de sondage, utilise le WORKFLOW SONDAGE moderne (createPoll à clôture automatique).',
   },
   {
     category: 'bienvenue',
@@ -151,7 +151,7 @@ export const SKILL_LIBRARY: LibrarySkill[] = [
   {
     category: 'polls',
     trigger: 'Quand on demande de créer un sondage, un vote, ou de demander l\u0027avis du serveur avec des options',
-    rule: 'WORKFLOW SONDAGE. 1) Le plus souvent AUCUNE question nécessaire : question + options lisibles en tête. Si l\u0027utilisateur précise une durée (« dans 10 minutes »), convertis en minutes. 2) createPoll : channelId = salon actuel (ctx), options 2-6 DISTINCTES (labels courts, emoji si l\u0029ambiance s\u0029y prête), durationMinutes = la durée demandée. 3) La clôture est AUTOMATIQUE à l\u0029échéance avec résultats (compteurs, pourcentages, gagnant) édités dans le message : ne promets JAMAIS de clôturer à la main, ne propose pas de bouton de clôture. 4) Une fois posté : UNE phrase de statut max (« résultats dans 10 min ») — NE répète NI la question NI les options NI l\u0027ID du message, l\u0027utilisateur le voit.',
+    rule: 'WORKFLOW SONDAGE. 1) Le plus souvent AUCUNE question nécessaire : question + options lisibles en tête. Si l\u0027utilisateur précise une durée (« dans 30 secondes », « dans 10 minutes »), convertis en SECONDES (durationSeconds, minimum 30 s). 2) createPoll : channelId = salon actuel (ctx), options 2-6 DISTINCTES (labels courts, emoji si l\u0029ambiance s\u0029y prête), durationSeconds = la durée demandée. 3) La clôture est AUTOMATIQUE à l\u0029échéance avec résultats (compteurs, pourcentages, gagnant) édités dans le message : ne promets JAMAIS de clôturer à la main, ne propose pas de bouton de clôture. 4) Une fois posté : UNE phrase de statut max (« résultats dans 10 min ») — NE répète NI la question NI les options NI l\u0027ID du message, l\u0027utilisateur le voit.',
   },
   {
     category: 'giveaways',

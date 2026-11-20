@@ -30,7 +30,7 @@ const MAX_OPTIONS = 6;
 const PollDefinitionSchema = z.object({
   question: z.string().min(3).max(300),
   options: z.array(z.object({ label: z.string().min(1).max(80), emoji: z.string().max(16).optional() })).min(2).max(MAX_OPTIONS),
-  durationMinutes: z.number().int().min(1).max(1440),
+  durationSeconds: z.number().int().min(30).max(86_400),
   closeAt: z.string(),
   votes: z.record(z.string(), z.number().int().min(0).max(MAX_OPTIONS - 1)).default({}),
   closed: z.boolean().default(false),
@@ -102,7 +102,13 @@ export class PollsService implements SpraxiumOnBoot {
           .array(z.object({ label: z.string().min(1).max(80), emoji: z.string().max(16).optional() }))
           .min(2)
           .max(MAX_OPTIONS),
-        durationMinutes: z.number().int().min(1).max(1440).default(10).describe('Durée en minutes (1-1440). « dans 10 minutes » → 10'),
+        durationSeconds: z
+          .number()
+          .int()
+          .min(30)
+          .max(86_400)
+          .default(300)
+          .describe('Durée en SECONDES (30 s à 24 h). « dans 30 secondes » → 30 ; « dans 10 minutes » → 600'),
       }),
       requiredModules: [],
       permissions: ['ManageGuild'],
@@ -113,11 +119,11 @@ export class PollsService implements SpraxiumOnBoot {
         if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
         const guild = this.client.guilds.cache.get(ctx.guildId);
         if (!guild) return { ok: false, summary: 'Serveur introuvable.' };
-        const { channelId, question, options, durationMinutes } = input as {
+        const { channelId, question, options, durationSeconds } = input as {
           channelId: string;
           question: string;
           options: Array<{ label: string; emoji?: string }>;
-          durationMinutes?: number;
+          durationSeconds?: number;
         };
         if (new Set(options.map((option) => option.label.toLowerCase())).size !== options.length) {
           return { ok: false, summary: 'Options en double : chaque option doit être distincte.' };
@@ -130,22 +136,28 @@ export class PollsService implements SpraxiumOnBoot {
           return { ok: false, summary: "Le bot n'a pas la permission SendMessages sur ce serveur." };
         }
 
-        const duration = durationMinutes ?? 10;
-        const closeAt = new Date(Date.now() + duration * 60_000);
+        const duration = durationSeconds ?? 300;
+        const closeAt = new Date(Date.now() + duration * 1_000);
         const definition: PollDefinition = {
           question,
           options,
-          durationMinutes: duration,
+          durationSeconds: duration,
           closeAt: closeAt.toISOString(),
           votes: {},
           closed: false,
         };
 
+        const humanDuration =
+          duration < 60
+            ? `**${duration} secondes**`
+            : duration % 60 === 0
+              ? `**${duration / 60} min**`
+              : `**${Math.floor(duration / 60)} min ${duration % 60} s**`;
         const container = new ContainerBuilder().setAccentColor(0xd9_59_26);
         container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`## 📊 ${question}`));
         container.addTextDisplayComponents(
           new TextDisplayBuilder().setContent(
-            `Un vote par personne, modifiable jusqu\u0029à la clôture. ⏱️ Résultats automatiques dans **${duration} min** (<t:${Math.floor(closeAt.getTime() / 1000)}:R>).`,
+            `Un vote par personne, modifiable jusqu\u0027à la clôture. ⏱️ Résultats automatiques dans ${humanDuration} (<t:${Math.floor(closeAt.getTime() / 1000)}:R>).`,
           ),
         );
         // 5 boutons max par rangée Discord : 6 options → 2 rangées.
@@ -181,7 +193,7 @@ export class PollsService implements SpraxiumOnBoot {
           source: 'agent',
           action: 'poll.created',
           actorId: ctx.userId,
-          metadata: { panelId: rowRow.id, question: question.slice(0, 100), options: options.length, durationMinutes: duration },
+          metadata: { panelId: rowRow.id, question: question.slice(0, 100), options: options.length, durationSeconds: duration },
         });
         return {
           ok: true,
