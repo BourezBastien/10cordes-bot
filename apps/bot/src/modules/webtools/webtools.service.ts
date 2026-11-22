@@ -74,8 +74,8 @@ export class WebToolsService implements SpraxiumOnBoot {
    * et postée en pièce jointe (Discord n'accepte pas de PJ sur un edit).
    */
   private async kieImage(prompt: string, ctx: ToolRunContext, label: string, aspectRatio: string): Promise<ToolResult> {
-    const key = this.env.KIE_API_KEY;
-    if (!key) return { ok: false, summary: 'Génération d\u0027image désactivée : KIE_API_KEY absente de la configuration.' };
+    const key = '';
+    if (!key) return { ok: false, summary: 'Génération d\u0027image désactivée : intégration kie.ai via le bot.' };
     if (!ctx.channelId) return { ok: false, summary: 'Salon de la demande introuvable.' };
     const channel = await this.client.channels.fetch(ctx.channelId).catch(() => null);
     if (!channel?.isTextBased() || !('send' in channel)) {

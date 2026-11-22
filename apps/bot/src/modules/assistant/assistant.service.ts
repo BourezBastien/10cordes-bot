@@ -436,8 +436,9 @@ export class AssistantService {
       const member = await guild.members.fetch(request.userId).catch(() => null);
       const displayName = member?.displayName ?? request.authorName;
       const staff = guild.ownerId === request.userId || (member?.permissions.has(PermissionFlagsBits.ManageGuild) ?? false);
-      const locale = detectLocale(request.content);
+      const botName = this.client.user?.username ?? '10cordes';
       const introData: IntroData = {
+        botName,
         displayName,
         staff,
         avatarUrl: this.client.user?.displayAvatarURL({ size: 128 }) ?? '',
@@ -455,12 +456,12 @@ export class AssistantService {
           ? [
               '- `configure les logs dans #logs` · `crée un salon annonces`',
               '- `bannis ce trouble-maker` (je demande confirmation) · `présente le serveur`',
-              '- Le bouton **Panneau de configuration** ci-dessous · `/help` pour tout',
+              '- Le bouton **Panneau de configuration** ci-dessous · ',
             ].join('\n')
           : [
               '- `mon rang` · `le classement` · `montre-moi le tag règles`',
               '- Partage tes préférences : ma mémoire les retient',
-              '- `/help` pour tout',
+              '- ',
             ].join('\n'),
         memoryLine:
           'Mémoire persistante · permissions vérifiées · confirmation humaine sur le destructeur',

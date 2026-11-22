@@ -228,11 +228,11 @@ export class LlmService implements SpraxiumOnBoot {
   }
 
   get configured(): boolean {
-    return Boolean(this.runtime?.apiKey || this.env.DEEPSEEK_API_KEY);
+    return Boolean(this.runtime?.apiKey || this.env.LLM_API_KEY);
   }
 
   get model(): string {
-    return this.runtime?.model || this.env.DEEPSEEK_MODEL;
+    return this.runtime?.model || this.env.LLM_MODEL || '';
   }
 
   /** Statut masqué (clé tronquée) pour /setup agent status et les tools. */
@@ -246,13 +246,13 @@ export class LlmService implements SpraxiumOnBoot {
         maskedKey: maskKey(this.runtime.apiKey),
       };
     }
-    if (this.env.DEEPSEEK_API_KEY) {
+    if (this.env.LLM_API_KEY && this.env.LLM_API_URL) {
       return {
         source: 'env',
-        provider: 'deepseek',
-        baseUrl: 'https://api.deepseek.com',
-        model: this.env.DEEPSEEK_MODEL,
-        maskedKey: maskKey(this.env.DEEPSEEK_API_KEY),
+        provider: 'env',
+        baseUrl: this.env.LLM_API_URL ?? null,
+        model: this.env.LLM_MODEL ?? null,
+        maskedKey: this.env.LLM_API_KEY ? maskKey(this.env.LLM_API_KEY) : null,
       };
     }
     return { source: 'none', provider: null, baseUrl: null, model: null, maskedKey: null };
@@ -307,8 +307,8 @@ export class LlmService implements SpraxiumOnBoot {
     if (!this.configured) {
       throw new Error('Le module IA n\'est pas configuré (aucune clé API).');
     }
-    const baseUrl = this.runtime?.baseUrl ?? 'https://api.deepseek.com';
-    const apiKey = this.runtime?.apiKey ?? this.env.DEEPSEEK_API_KEY;
+    const baseUrl = this.runtime?.baseUrl ?? null;
+    const apiKey = this.runtime?.apiKey ?? this.env.LLM_API_KEY;
     const apiTools = tools.map((tool) => ({
       ...tool,
       function: { ...tool.function, name: toApiToolName(tool.function.name) },
@@ -340,7 +340,7 @@ export class LlmService implements SpraxiumOnBoot {
             content: typeof message.content === 'string' ? stripLoneSurrogates(message.content) : message.content,
           })),
           user_id: options.guildId ?? options.userId,
-          reasoning_effort: this.env.DEEPSEEK_EFFORT || 'low',
+          reasoning_effort: this.env.LLM_EFFORT,
           ...(apiTools.length > 0 ? { tools: apiTools, tool_choice: mergedOptions.toolChoice ?? 'auto' } : {}),
         }),
       });
@@ -442,8 +442,8 @@ export class LlmService implements SpraxiumOnBoot {
     tools: OpenAiTool[],
     options: ChatOptions,
   ): Promise<ChatCompletionResult> {
-    const baseUrl = this.runtime?.baseUrl ?? 'https://api.deepseek.com';
-    const apiKey = this.runtime?.apiKey ?? this.env.DEEPSEEK_API_KEY;
+    const baseUrl = this.runtime?.baseUrl ?? null;
+    const apiKey = this.runtime?.apiKey ?? this.env.LLM_API_KEY;
     const model = this.model;
 
     const apiTools = tools.map((tool) => ({
@@ -466,7 +466,7 @@ export class LlmService implements SpraxiumOnBoot {
           content: typeof message.content === 'string' ? stripLoneSurrogates(message.content) : message.content,
         })),
         user_id: options.guildId ?? options.userId,
-        reasoning_effort: this.env.DEEPSEEK_EFFORT || 'low',
+        reasoning_effort: this.env.LLM_EFFORT,
         ...(apiTools.length > 0 ? { tools: apiTools, tool_choice: options.toolChoice ?? 'auto' } : {}),
       }),
     });

@@ -17,7 +17,7 @@ interface PixfluxResponse {
 /**
  * PixelLab API v2 - génération pixel art (icônes, émojis, sprites).
  * Clé : modale owner (table IntegrationConfig, effet immédiat) sinon env
- * PIXELLAB_API_KEY. Sans clé, les tools répondent fail-closed avec la marche à suivre.
+ * intégration (modal Discord). Sans clé, les tools répondent fail-closed.
  */
 @Injectable()
 export class ImagelabService implements SpraxiumOnBoot {
@@ -40,7 +40,7 @@ export class ImagelabService implements SpraxiumOnBoot {
   }
 
   get configured(): boolean {
-    return Boolean(this.runtimeKey || this.env.PIXELLAB_API_KEY);
+    return Boolean(this.runtimeKey || '');
   }
 
   /** Branche la clé PixelLab saisie via la modale (effet immédiat). */
@@ -70,7 +70,7 @@ export class ImagelabService implements SpraxiumOnBoot {
     size: number,
     opts: { transparent: boolean; palette?: string[] },
   ): Promise<{ base64: string; costUsd?: number }> {
-    const apiKey = this.runtimeKey ?? this.env.PIXELLAB_API_KEY;
+    const apiKey = this.runtimeKey ?? '';
     const response = await safeFetch(`${API_BASE}/create-image-pixflux`, {
       method: "POST",
       headers: {

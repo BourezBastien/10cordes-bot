@@ -94,6 +94,22 @@ async function main(): Promise<void> {
 
   logger.info('Starting application...');
   await app.listen();
+
+  // R1c : PURGE des slash commands résiduelles. Le framework n'inscrit rien
+  // avec 0 commande mais ne purge JAMAIS les anciennes inscrites côté
+  // Discord — on vide explicitement (global + chaque guild), idempotent.
+  const client = (app as unknown as { state?: { client?: import('discord.js').Client } }).state?.client;
+  if (client?.application) {
+    try {
+      await client.application.commands.set([]);
+      for (const guild of client.guilds.cache.values()) {
+        await guild.commands.set([]).catch(() => {});
+      }
+      logger.info('Slash commands purgées (global + guilds) : aucune commande, tout par conversation.');
+    } catch (error) {
+      logger.warn(`Purge slash commands : ${(error as Error).message.slice(0, 100)}`);
+    }
+  }
 }
 
 main().catch((error) => {

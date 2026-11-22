@@ -4,6 +4,7 @@ import { ToolsNextButton, ToolsPrevButton } from './tools-nav-buttons';
 // ── Panneau d'identité (mention nue / salutation) ────────────
 
 export interface IntroData {
+  botName: string;
   displayName: string;
   staff: boolean;
   avatarUrl: string;
@@ -16,7 +17,7 @@ export interface IntroData {
 
 @V2Container({ accentColor: 0xd95926 })
 export class IntroContainer {
-  @V2Text((data: IntroData) => desc().h2(`10cordes, agent Discord délégué`))
+  @V2Text((data: IntroData) => desc().h2(`${data.botName}, ton agent Discord`))
   title!: never;
 
   @V2Section({

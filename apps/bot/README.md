@@ -1,112 +1,134 @@
-# 10cordes-bot · apps/bot
+# 10cordes-bot
 
-The Spraxium bot: an agentic Discord administrator with **zero slash commands**,
-technical modules, a REST API and Discord OAuth (better-auth) for the web
-dashboard.
+Un agent Discord conversationnel : **zéro commande slash**, tout par le
+langage naturel. Mentionne le bot, il agit.
 
-## Run
+## Démarrage rapide
 
 ```bash
-pnpm dev      # from the repo root: builds @10cordes/shared then starts spraxium dev
-pnpm build    # production bundle -> .spraxium/dist/src/main.mjs
-pnpm start    # production: `spraxium start` (ConfigLoader reads .spraxium/dist/spraxium.config.js)
+# 1. Cloner et installer
+pnpm install
+
+# 2. Configurer l'environnement (une seule variable requise)
+cp apps/bot/.env.example apps/bot/.env
+# Édite .env : DISCORD_TOKEN=...
+
+# 3. Activer le MESSAGE CONTENT privileged intent sur le portail développeur Discord
+
+# 4. Lancer
+pnpm dev          # développement (hot reload)
+pnpm build        # build production -> .spraxium/dist
+pnpm start        # production
 ```
 
-**Never** start `node .spraxium/dist/src/main.mjs` directly: the ConfigLoader
-re-reads `spraxium.config.ts` and the bare ESM import fails.
+**Jamais** `node .spraxium/dist/src/main.mjs` directement : le ConfigLoader
+relit `spraxium.config.ts` et l'import ESM nu échoue.
 
-Environment lives in `.env` (see `.env.example`). Required: `DISCORD_TOKEN`.
-Optional: `DEEPSEEK_API_KEY` / `DEEPSEEK_MODEL` / `DEEPSEEK_EFFORT` (agent
-brain), `PIXELLAB_API_KEY`, `REDIS_URL` (BullMQ durable queue; in-memory
-fallback), `HTTP_API_KEY` (set `HTTP_HOST=0.0.0.0` in Docker),
-`BETTER_AUTH_SECRET` + `DISCORD_CLIENT_SECRET` (dashboard),
-`DISCORD_BOT_NAME` (plain-text name trigger), `E2E_ENABLED` + `E2E_GUILD_ID`
-+ `E2E_STAFF_WEBHOOK_IDS` (dev-only test rig; ONLY these webhooks pass the
-gate).
+## Variables d'environnement
 
-Enable the **MESSAGE CONTENT** privileged intent in the Discord developer portal.
+| Variable | Requise | Défaut | Description |
+|---|---|---|---|
+| `DISCORD_TOKEN` | **OUI** | — | Token du bot (portail développeur) |
+| `DATABASE_URL` | non | `file:../data/bot.db` | SQLite local ou PostgreSQL |
+| `REDIS_URL` | non | (vide = mémoire) | Queue durable + cache temps réel. `redis://redis:6379` en prod |
+| `PORT` | non | `3000` | Port du serveur HTTP |
+| `HTTP_HOST` | non | `127.0.0.1` | Bind HTTP. `0.0.0.0` en Docker |
+| `DASHBOARD_ORIGIN` | non | `http://localhost:5173` | Origine CORS du dashboard |
+| `HTTP_API_KEY` | non | — | Clé API header `x-api-key` |
+| `BETTER_AUTH_SECRET` | non | — | Min 32 chars, requis pour le dashboard |
+| `DISCORD_CLIENT_SECRET` | non | — | OAuth Discord pour le login dashboard |
+| `ENCRYPTION_SECRET` | non | dérivé | Chiffrement AES-256-GCM des clés en DB |
+| `LLM_API_URL` | non | — | Base URL compatible OpenAI (bootstrap) |
+| `LLM_API_KEY` | non | — | Clé API du fournisseur LLM (bootstrap) |
+| `LLM_MODEL` | non | — | Nom du modèle (bootstrap) |
+| `LLM_EFFORT` | non | (vide) | Effort de raisonnement : low/medium/high |
+| `E2E_ENABLED` | non | `false` | Active les rigs de test (développement) |
 
-## How the agent works
+### Connecter le fournisseur IA
 
-- **Triggers (gate refondue 22/11)**: real mention, bot name typed as plain
-  text (whole word), verified reply to one of its messages, or any human
-  message in the dedicated AI channel. Webhooks must be allowlisted
-  (`E2E_STAFF_WEBHOOK_IDS`); messages mentioning another bot are ignored.
-  No passive LLM triage anymore.
-- **Direct execution**: no plans, no confirmation panels. Each destructive tool
-  re-checks the requester's Discord permission and the bot's, archives before
-  deleting, and audits everything (`agent.action.direct` / `agent.action.denied`).
-- **Replies are plain text** in the request channel. No DMs, no portals.
-  Silence on request (`skipReply` tool + deterministic regex). `[PANEL]` prefix
-  renders a V2 panel for structured data.
-- **Memory**: consolidated profiles per member and per server
-  (`member_memory_profiles` / `guild_memory_profiles`, LLM curator with
-  budget/anti-wipe/attribution guards in
-  `src/modules/memory/memory-curator.service.ts`); raw journal kept in
-  `member_memories` / `guild_memories`. Mentioning a user injects their profile.
-- **Skills**: official library seeded per server at boot
-  (`src/modules/agent/skills.library.ts`, 25 skills) plus member-created ones
-  (`createSkill`/`openSkill`/`listSkills`/`deleteSkills`). Triggers render in
-  every prompt (one line each, data zone); rules prime over style, never over
-  security.
-- **Automations**: `createAutomation` (Discord event -> 1-5 actions with
-  template vars), executed by listeners in `src/modules/automations/`.
-- **Web tools** (all no-auth, rate limits documented in descriptions):
-  searchInternet, news RSS (Le Monde/France24), Wikipedia, jokes FR/EN, memes,
-  facts, quotes, trivia, holidays (Nager.Date), currency (Frankfurter),
-  countries, dictionary, lyrics, IP lookup, color schemes, PDF generation
-  (pdfkit), GitHub repo/profile + gitdiagram links, disdex index, PixelLab.
-- **Costs**: response cache (identical question in a guild within 30 min =
-  cached reply, `llm.cache.hit` audited), token accounting per call
-  (`llm.usage` with cause reply/web/consolidation/triage), provider errors
-  typed (402 quota / 401 auth / 5xx) with honest user notices.
+**Deux façons** (la seconde prime sur la première) :
+1. **Bootstrap par env** : remplis `LLM_API_URL`, `LLM_API_KEY`, `LLM_MODEL`
+   dans `.env` — n'importe quel fournisseur compatible OpenAI marche.
+2. **Depuis Discord** : parle au bot sans clé configurée, un bouton
+   « Connecter l'IA » apparaît ; clique, remplis la modale (URL + clé +
+   modèle), test de connexion immédiat.
 
-## What is inside
+Les autres intégrations (PixelLab, kie.ai...) se connectent de la même
+façon depuis Discord.
+
+## Comment ça marche
+
+- **Gate** : le bot répond uniquement s'il est mentionné (`@bot`), si on
+  répond à un de ses messages, ou dans le salon dédié IA. Les règles du
+  serveur (`rules.set` par l'agent) ajoutent des zones libres (réponse sans
+  mention) et la confirmation des actions destructives (boutons ✅/❌).
+- **Exécution directe** : pas de plans ni de panneaux de confirmation.
+  Chaque tool destructif re-vérifie les permissions, archive l'état
+  d'origine, audite tout.
+- **Réponses** : texte simple dans le salon de la demande, en réponse au
+  message d'origine. Streaming progressif (édition à 1,8 s minimum).
+- **Mémoire** : fiches consolidées par membre et par serveur (curator LLM
+  avec gardes anti-wipe). « Oublie-moi » purge tout et pose un opt-out.
+- **Règles serveur** (`GuildRule`) : zones libres, mention stricte ailleurs,
+  ton sérieux, confirmation des destructifs, instructions libres — le tout
+  en langage naturel via l'agent, appliqué en code ET dans le prompt.
+- **Surfaces interactives** : `surface.create` construit n'importe quelle
+  interface (boutons, menus, modals) avec état persistant, timers
+  conditionnels (rattrapage garanti après reboot), et re-render automatique.
+- **Routing des tools** : noyau petit + `search_tools` qui élargit le
+  toolset à la volée (pattern Anthropic).
+
+## Logging local (diagnostic)
+
+Tout est enregistré en JSONL structuré :
+- `logs/bot-YYYY-MM-DD.jsonl` : chaque événement (gate, tools, surfaces,
+  triggers, intégrations, erreurs) avec horodatage et données.
+- `logs/llm.jsonl` : chaque appel LLM (cause, tokens, latence, succès).
+
+```bash
+node scripts/diagnose.mjs        # résumé du jour : top erreurs, p95 LLM,
+node scripts/diagnose.mjs 7      # 7 derniers jours
+```
+
+## Rigs de test (développement)
+
+```bash
+E2E_ENABLED=true dans .env, puis :
+node scripts/e2e-gate.mjs         # gate : 5 scénarios (webhook, mention, etc.)
+node scripts/e2e-features4.mjs    # primitives : vote, counter, audit
+node scripts/tool-evals.mjs       # 8 prompts canoniques
+node scripts/e2e-surface.mjs      # cas pivot : reboot pendant timer
+```
+
+Les webhooks de test sont créés par le bot lui-même (nommés
+`agent-e2e-guardian`) et auto-reconnus quand `E2E_ENABLED=true`.
+
+## Structure
 
 ```
-src/
-  main.ts                  entry: console mirror to bot-out.log, exit/signal tracers
-  app.module.ts            module tree (infra modules are @Global)
-  app.env.ts               typed env (@Env decorators, secrets masked)
-  auth/                    better-auth instance, session/guild guards, validated-env accessor
+apps/bot/src/
+  main.ts              bootstrap + purge slash commands
+  app.module.ts        arbre des modules
+  app.env.ts           env typée (variables génériques)
+  auth/                better-auth + guards
   modules/
-    agent/                 direct-execution tools, skills service + library, whitelist
-    assistant/             conversational agent: triggers, BullMQ queue, LLM loop,
-                           reply cache, web agent (dashboard), response delivery
-    automations/           event -> actions engine built by the agent
-    health/                /healthz + HealthMonitor (state-change alerts)
-    webtools/              no-auth web API tools (search, fun, data, files)
-    api/                   /api/v1 guild endpoints (config, modules, audit, stats, chat)
-    tool-registry/         shared registry: permission gates, audit
-    memory/                journal + consolidated profiles + curator
-    logging/ tickets/ roles/ welcome/ moderation/   technical event modules
-    database/ guild-config/ module-manager/ audit/ locale-* removed (skills-first)
-  shared/                  UI helpers (Components V2), template engine, safe-fetch
-scripts/
-  guardian.mjs             health check + auto-relaunch + /healthz probe (silent)
-  e2e-write.mjs            write-tool battery (dev server only, self-healing webhook)
+    assistant/         agent conversationnel (gate, boucle LLM, streaming)
+    surface/           moteur générique (surfaces, triggers, événements)
+    rules/             règles serveur (GuildRule)
+    agent/             tools discord.*, skills
+    records/           store typé (collections Zod)
+    memory/            fiches + curator + opt-out
+    moderation/ logging/ tickets/ ...   modules techniques
+  shared/              UI V2, cache temps réel, safe-fetch, crypto
+packages/shared/       schémas Zod, contrats BotTool, SkillBlueprint
+apps/dashboard/        dashboard web (React 19, Vite 8)
 ```
 
-## Technical modules (what remains)
+## Docker
 
-logging (event logs), tickets (button-driven ticket system), roles (reaction
-role menu), welcome (templates), moderation (cases), plus infra: database,
-audit, guild-config, module-manager, tool-registry, imagelab, automations,
-assistant, agent, health, webtools. Removed as superseded: levels, setup,
-tags, locale, i18n.
+```bash
+docker compose up -d
+```
 
-## Module contract
-
-1. Scaffold `src/modules/<feature>/`, export `<feature>.module.ts`
-2. Register in `app.module.ts` (technical/event modules only - behavior goes
-   in skills)
-3. Agent tools: implement `SpraxiumOnBoot`, register `BotTool`s in
-   `ToolRegistryService` with `permissions[]` and `scope` (`guild` or `user`)
-4. Status tools follow the `get<Feature>Setup` naming and the shared
-   `makeStatusTool` factory
-
-Gotchas: infra modules must be `@Global()`; `@Listener` classes need `@On()`;
-`import type` for DI-injected classes turns the token into `Object` (import
-values); tool names must be slug-safe for the LLM API (`.` gets encoded);
-Prisma in scripts needs `DATABASE_URL` from process.env; `pnpm start
---force-unlock` daemonizes without stdio (hence the bot-out.log mirror).
+Le `Dockerfile` build le bundle Spraxium, copie la config, et lance
+`.spraxium/dist/src/main.mjs`. `HTTP_HOST=0.0.0.0` est posé par le compose.

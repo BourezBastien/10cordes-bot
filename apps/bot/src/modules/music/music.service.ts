@@ -8,7 +8,7 @@ import { AppEnv } from '../../app.env';
 import { getToolRegistry } from '../tool-registry/tool-registry.service';
 
 /**
- * Génération musicale via kie.ai (Suno, V6). Clé KIE_API_KEY requise.
+ * Génération musicale via kie.ai (Suno, V6). Clé via intégration (modal Discord).
  * Asynchrone : createTask renvoie un taskId, le tool sonde recordInfo puis
  * livre l'audio. Pattern UX demandé : UN message de progression mis à jour
  * à chaque étape (vérif → requête envoyée → génération → prêt), le fichier
@@ -36,15 +36,14 @@ export class MusicService implements SpraxiumOnBoot {
   ) {}
 
   onBoot(): void {
-    this.log.info(
-      this.env.KIE_API_KEY ? `Music enabled (kie.ai, model ${this.env.KIE_MODEL}).` : 'Music disabled: KIE_API_KEY absent.',
-    );
+    this.log.info('Music disabled: connectez l\u0027intégration kie.ai via le bot (R2).');
     const registry = getToolRegistry();
     for (const tool of this.buildTools()) registry.register(tool);
   }
 
   private apiKey(): string | null {
-    return this.env.KIE_API_KEY || null;
+    // R2 branchera IntegrationService ; en attendant fail-closed propre.
+    return null;
   }
 
   private buildTools(): BotTool[] {
@@ -79,7 +78,7 @@ export class MusicService implements SpraxiumOnBoot {
         handler: async (input, ctx) => {
           if (!guildOnly(ctx)) return { ok: false, summary: 'Contexte de serveur requis.' };
           const key = this.apiKey();
-          if (!key) return { ok: false, summary: 'Génération musicale désactivée : KIE_API_KEY absente de la configuration.' };
+          if (!key) return { ok: false, summary: 'Génération musicale désactivée : connectez l\u0027intégration kie.ai via le bot.' };
           const { title, style, prompt, instrumental, duration } = input as {
             title: string;
             style: string;
@@ -114,7 +113,7 @@ export class MusicService implements SpraxiumOnBoot {
                 model: 'ai-music-api/generate',
                 input: {
                   custom_mode: true,
-                  model: this.env.KIE_MODEL || 'V6_MINI',
+                  model: 'V6_MINI',
                   title,
                   style: effectiveStyle,
                   prompt: instrumental ? undefined : effectivePrompt,
@@ -147,7 +146,7 @@ export class MusicService implements SpraxiumOnBoot {
             return { ok: false, summary: `Génération refusée par kie.ai : ${createdData.msg ?? 'erreur inconnue'}` };
           }
 
-          await update(`musique : génération lancée (Suno ${this.env.KIE_MODEL || 'V6_MINI'}, cible ${duration ?? 90}s)`);
+          await update(`musique : génération lancée (Suno ${'V6_MINI'}, cible ${duration ?? 90}s)`);
 
           // Poll jusqu'à complétion.
           const deadline = Date.now() + POLL_MAX_MS;
