@@ -191,8 +191,24 @@ async function main() {
   // de dev : E2E_ENABLED=true.
   try {
     const headers = env.HTTP_API_KEY ? { 'X-Api-Key': env.HTTP_API_KEY } : {};
-    const res = await fetch('http://127.0.0.1:3000/healthz', { headers, signal: AbortSignal.timeout(10_000) });
-    const health = await res.json();
+    // Le boot complet du bot (login gateway + modules + HTTP) peut prendre
+    // ~60 s : la sonde retente jusqu'à 90 s avant de déclarer FAIL.
+    const deadline = Date.now() + 90_000;
+    let res = null;
+    let health = null;
+    let lastError = null;
+    while (Date.now() < deadline) {
+      try {
+        res = await fetch('http://127.0.0.1:3000/healthz', { headers, signal: AbortSignal.timeout(10_000) });
+        health = await res.json();
+        break;
+      }
+      catch (error) {
+        lastError = error;
+        await new Promise((resolve) => setTimeout(resolve, 10_000));
+      }
+    }
+    if (!res || !health) throw lastError ?? new Error('healthz injoignable après 90 s');
     say(
       'PROBE',
       `healthz : ok=${health.ok} db=${health.db} gateway=${health.gatewayReady} driver=${health.driver} queue=${JSON.stringify(health.queue)} uptime=${health.uptimeSec}s.`,

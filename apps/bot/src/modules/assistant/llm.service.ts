@@ -1,7 +1,7 @@
 import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
 import type { BotTool } from '@10cordes/shared';
 import { z } from 'zod';
-import { safeFetch } from '../../shared/utils/safe-fetch';
+import { safeFetch, assertSafeUrl } from '../../shared/utils/safe-fetch';
 import { AppEnv } from '../../app.env';
 import { PrismaService } from '../database/prisma.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
@@ -61,6 +61,10 @@ export class QuotaExhaustedError extends Error {
     this.name = 'QuotaExhaustedError';
   }
 }
+
+/** Streaming : watchdog d'inactivité (30 s sans delta) et durée totale max. */
+const STREAM_INACTIVITY_MS = 30_000;
+const STREAM_HARD_CAP_MS = 180_000;
 
 /** Clé/API invalide ou révoquée : configuration à corriger (401/403). */
 export class ProviderAuthError extends Error {
@@ -248,6 +252,143 @@ export class LlmService implements SpraxiumOnBoot {
       throw new Error('Le module IA n\'est pas configuré (aucune clé API).');
     }
     return Promise.race([this.doChat(messages, tools, options), this.timeoutGuard()]);
+  }
+
+  /**
+   * Chat en STREAMING SSE (Phase 2.2) : les deltas de texte sont poussés au
+   * callback au fil de l'eau ; le résultat COMPLET (contenu + tool_calls
+   * réassemblés par index + usage) est retourné à la fin.
+   * Watchdog : AbortController RÉEL qui annule le fetch après 30 s sans
+   * delta (réarmé à chaque événement) et 180 s de durée totale — le fetch
+   * résiduel ne consomme plus rien.
+   */
+  async chatStream(
+    messages: ChatMessage[],
+    tools: OpenAiTool[],
+    options: ChatOptions,
+    callbacks: { onDelta?: (text: string) => void } = {},
+  ): Promise<ChatCompletionResult> {
+    if (!this.configured) {
+      throw new Error('Le module IA n\'est pas configuré (aucune clé API).');
+    }
+    const baseUrl = this.runtime?.baseUrl ?? 'https://api.deepseek.com';
+    const apiKey = this.runtime?.apiKey ?? this.env.DEEPSEEK_API_KEY;
+    const apiTools = tools.map((tool) => ({
+      ...tool,
+      function: { ...tool.function, name: toApiToolName(tool.function.name) },
+    }));
+
+    const controller = new AbortController();
+    let inactivityTimer: NodeJS.Timeout | null = null;
+    const armInactivityWatchdog = () => {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(() => controller.abort(), STREAM_INACTIVITY_MS);
+      inactivityTimer.unref?.();
+    };
+    const hardCap = setTimeout(() => controller.abort(), STREAM_HARD_CAP_MS);
+    hardCap.unref?.();
+
+    let response: Response;
+    try {
+      armInactivityWatchdog();
+      response = await fetch(assertSafeUrl(`${baseUrl}/chat/completions`), {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: this.model,
+          stream: true,
+          stream_options: { include_usage: true },
+          messages: messages.map((message) => ({
+            ...message,
+            content: typeof message.content === 'string' ? stripLoneSurrogates(message.content) : message.content,
+          })),
+          user_id: options.guildId ?? options.userId,
+          reasoning_effort: this.env.DEEPSEEK_EFFORT || 'low',
+          ...(apiTools.length > 0 ? { tools: apiTools, tool_choice: 'auto' } : {}),
+        }),
+      });
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '');
+        if (response.status === 402 || detail.includes('insufficient_balance')) throw new QuotaExhaustedError();
+        if (response.status === 401 || response.status === 403) throw new ProviderAuthError();
+        if (response.status >= 500) throw new ProviderUnavailableError();
+        throw new Error(`LLM ${response.status}: ${detail.slice(0, 200)}`);
+      }
+      if (!response.body) throw new Error('Streaming non supporté par le fournisseur (body absent).');
+
+      // Accumulation : contenu + tool_calls FRAGMENTÉS par index.
+      let content = '';
+      let reasoning = '';
+      const toolAcc = new Map<number, { id: string; name: string; arguments: string }>();
+      let usage: { promptTokens: number; completionTokens: number } | undefined;
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        armInactivityWatchdog();
+        buffer += decoder.decode(value, { stream: true });
+        let newlineIndex: number;
+        while ((newlineIndex = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, newlineIndex).trim();
+          buffer = buffer.slice(newlineIndex + 1);
+          if (!line.startsWith('data:')) continue;
+          const payload = line.slice(5).trim();
+          if (payload === '[DONE]') continue;
+          try {
+            const chunk = JSON.parse(payload) as {
+              choices?: Array<{
+                delta?: {
+                  content?: string | null;
+                  reasoning_content?: string | null;
+                  tool_calls?: Array<{ index?: number; id?: string; function?: { name?: string; arguments?: string } }>;
+                };
+              }>;
+              usage?: { prompt_tokens?: number; completion_tokens?: number };
+            };
+            if (chunk.usage) {
+              usage = { promptTokens: chunk.usage.prompt_tokens ?? 0, completionTokens: chunk.usage.completion_tokens ?? 0 };
+            }
+            const delta = chunk.choices?.[0]?.delta;
+            if (!delta) continue;
+            if (delta.content) {
+              content += delta.content;
+              callbacks.onDelta?.(delta.content);
+            }
+            if (delta.reasoning_content) reasoning += delta.reasoning_content;
+            for (const call of delta.tool_calls ?? []) {
+              const index = call.index ?? 0;
+              const acc = toolAcc.get(index) ?? { id: '', name: '', arguments: '' };
+              if (call.id) acc.id = call.id;
+              if (call.function?.name) acc.name += call.function.name;
+              if (call.function?.arguments) acc.arguments += call.function.arguments;
+              toolAcc.set(index, acc);
+            }
+          } catch {
+            /* chunk non-JSON : ignoré */
+          }
+        }
+      }
+      return {
+        content: content || null,
+        reasoningContent: reasoning || null,
+        toolCalls: [...toolAcc.entries()]
+          .sort((a, b) => a[0] - b[0])
+          .map(([, acc]) => ({ id: acc.id, name: fromApiToolName(acc.name), arguments: acc.arguments })),
+        usage,
+      };
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error('Le modèle IA a cessé d\u2019émettre (30 s sans donnée) : connexion annulée.');
+      }
+      throw error;
+    } finally {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      clearTimeout(hardCap);
+    }
   }
 
   private timeoutGuard(): Promise<never> {

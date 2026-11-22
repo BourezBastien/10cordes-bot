@@ -7,6 +7,7 @@ import { IaConfigureButtonHandler, IaConfigureModalSubmitHandler } from './handl
 import { ToolsNextHandler, ToolsPrevHandler } from './handlers/tools-page.handlers';
 import { AssistantMentionListener } from './listeners/assistant-mention.listener';
 import { AssistantQueue } from './assistant.queue';
+import { AgentLoopService } from './agent-loop.service';
 import { AssistantService } from './assistant.service';
 import { LlmService } from './llm.service';
 
@@ -24,7 +25,7 @@ import { BootRecoveryService } from './boot-recovery.service';
   imports: [AuditModule, GuildConfigModule, ImagelabModule, ToolRegistryModule],
   listeners: [AssistantMentionListener],
   handlers: [IaConfigureButtonHandler, IaConfigureModalSubmitHandler, ToolsPrevHandler, ToolsNextHandler],
-  providers: [AssistantQueue, AssistantService, LlmService, WebAgentService, ResponseCacheService, BootRecoveryService],
+  providers: [AssistantQueue, AgentLoopService, AssistantService, LlmService, WebAgentService, ResponseCacheService, BootRecoveryService],
   exports: [LlmService, AssistantQueue, WebAgentService, ResponseCacheService],
 })
 export class AssistantModule {}

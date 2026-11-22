@@ -1,17 +1,17 @@
 import { Injectable } from '@spraxium/common';
 import { Logger } from '@spraxium/logger';
-import { Client, PermissionFlagsBits, type Guild, type TextChannel } from 'discord.js';
+import { Client, type Guild, type TextChannel } from 'discord.js';
 import { AuditService } from '../audit/audit.service';
 import { MemoryService } from '../memory/memory.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
-import { LlmService, QuotaExhaustedError, toApiToolName, type ChatMessage, type OpenAiTool } from './llm.service';
+import { LlmService, type ChatMessage, type OpenAiTool } from './llm.service';
 import { buildSystemPrompt, fetchRecentActions, sanitizeTranscriptLine, toolToOpenAiTool } from './assistant.service';
+import { AgentLoopService } from './agent-loop.service';
 import { getSkillTriggers } from '../agent/skill.service';
 import { type ToolRunContext } from '@10cordes/shared';
 import { PrismaService } from '../database/prisma.service';
 
-const MAX_ITERATIONS = 8;
 const RATE_LIMIT_MS = 4_000;
 const MAX_MESSAGE_LENGTH = 2_000;
 const TRANSCRIPT_SIZE = 12;
@@ -25,8 +25,8 @@ interface WebChatResult {
 /**
  * Le même agent que Discord, exposé au dashboard web : mêmes tools, mêmes
  * gates de permissions (celles du MEMBRE Discord correspondant à l'utilisateur
- * connecté), même mémoire. Les demandes destructives créent des plans dont le
- * panneau s'affiche dans le salon dédié IA de Discord (confirmation par boutons).
+ * connecté), même mémoire. Boucle LLM partagée via AgentLoopService (avec
+ * comptabilité llm.usage, alignée sur le canal Discord).
  */
 @Injectable()
 export class WebAgentService {
@@ -36,6 +36,7 @@ export class WebAgentService {
   constructor(
     private readonly llm: LlmService,
     private readonly registry: ToolRegistryService,
+    private readonly loop: AgentLoopService,
     private readonly memory: MemoryService,
     private readonly config: GuildConfigService,
     private readonly audit: AuditService,
@@ -131,58 +132,41 @@ export class WebAgentService {
     };
 
     const executed: WebChatResult['tools'] = [];
-    let silent = false;
-
-    for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-      const completion = await this.llm.chat(messages, openAiTools, { userId: discordUserId, guildId, cause: 'web' }).catch((error: unknown) => {
-        if (error instanceof QuotaExhaustedError) {
-          return { content: 'IA désactivée : crédits DeepSeek épuisés. Recharge le compte API.', toolCalls: [], reasoningContent: null, usage: undefined };
-        }
+    const outcome = await this.loop
+      .run(messages, openAiTools, ctx, { userId: discordUserId, guildId }, {
+        cause: 'web',
+        quotaExhaustedMessage: 'IA désactivée : crédits DeepSeek épuisés. Recharge le compte API.',
+        onToolResult: (name, result) => {
+          executed.push({ name, ok: result.ok, summary: result.summary.slice(0, 200) });
+        },
+      })
+      .catch((error: unknown) => {
         this.log.warn(`chat web erreur : ${error instanceof Error ? error.message : String(error)}`);
         return null;
       });
-      if (!completion) break;
 
-      if (completion.toolCalls.length > 0) {
-        messages.push({
-          role: 'assistant',
-          content: completion.content ?? '',
-          reasoning_content: completion.reasoningContent ?? '',
-          tool_calls: completion.toolCalls.map((call) => ({
-            id: call.id,
-            type: 'function' as const,
-            function: { name: toApiToolName(call.name), arguments: call.arguments },
-          })),
-        });
-        for (const call of completion.toolCalls) {
-          let input: unknown = {};
-          try {
-            input = call.arguments ? JSON.parse(call.arguments) : {};
-          } catch {
-            input = {};
-          }
-          const result = await this.registry.run(call.name, input, ctx);
-          executed.push({ name: call.name, ok: result.ok, summary: result.summary.slice(0, 200) });
-          messages.push({
-            role: 'tool',
-            tool_call_id: call.id,
-            content: JSON.stringify(result).slice(0, 4000),
-          });
-        }
-        continue;
-      }
-
-      if (completion.content) {
-        return { reply: completion.content, silent, tools: executed };
-      }
-      break;
+    // Comptabilité IA alignée sur le canal Discord (elle manquait côté web).
+    if (outcome && outcome.usage.promptTokens + outcome.usage.completionTokens > 0) {
+      this.audit.record({
+        guildId,
+        source: 'agent',
+        action: 'llm.usage',
+        actorId: discordUserId,
+        metadata: {
+          cause: 'web',
+          promptTokens: outcome.usage.promptTokens,
+          completionTokens: outcome.usage.completionTokens,
+        },
+      });
     }
 
-    void silent;
+    if (outcome?.finalText) {
+      return { reply: outcome.finalText, silent: false, tools: executed };
+    }
     const summary =
       executed.length > 0
-        ? "Actions exécutées, vérifie les résultats ci-dessus."
+        ? 'Actions exécutées, vérifie les résultats ci-dessus.'
         : "Je n'ai pas réussi à produire une réponse : réessaie.";
-    return { reply: summary, silent, tools: executed };
+    return { reply: summary, silent: false, tools: executed };
   }
 }
