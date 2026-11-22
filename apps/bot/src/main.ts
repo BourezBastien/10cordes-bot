@@ -63,6 +63,10 @@ async function main(): Promise<void> {
     GatewayIntentBits.AutoModerationExecution,
   ]);
 
+  // Partials : les EventTrigger (réactions, suppressions) doivent fonctionner
+  // sur des messages/canaux antérieurs au reboot (hors cache gateway).
+  app.partials('Message', 'Channel', 'Reaction');
+
   // Promesses rejetées sans catch (ex: écritures audit void) : visibles en console.
   process.on('unhandledRejection', (reason) => {
     logger.error(`Unhandled rejection: ${reason instanceof Error ? `${reason.message}\n${reason.stack}` : String(reason)}`);

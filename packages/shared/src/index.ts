@@ -15,3 +15,4 @@ export type {
   SkillParamType,
   ResolvedSkillExecution,
 } from './skills/blueprint.js';
+export * from './schemas/surface.js';

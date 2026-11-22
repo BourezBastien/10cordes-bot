@@ -5,6 +5,7 @@ import { AuthController } from './auth/auth.controller';
 import { SessionGuard } from './auth/guards/session.guard';
 import { GuildAccessGuard } from './auth/guards/guild-access.guard';
 import { AgentModule } from './modules/agent/agent.module';
+import { SurfaceModule } from './modules/surface/surface.module';
 import { AssistantModule } from './modules/assistant/assistant.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AutomationsModule } from './modules/automations/automations.module';
@@ -72,6 +73,7 @@ import { UtilityModule } from './modules/utility/utility.module';
     UtilityModule,
     AutomationsModule,
     AgentModule,
+    SurfaceModule,
     AssistantModule,
     WelcomeModule,
   ],

@@ -35,6 +35,9 @@ model Guild {
   toolNodes         ToolNode[]
   inviteStats       InviteStat[]
   agentRecords      AgentRecord[]
+  surfaces          InteractiveSurface[]
+  scheduledTriggers ScheduledTrigger[]
+  eventTriggers     EventTrigger[]
   ticketCounter     TicketCounter?
   tickets           Ticket[]
   userLevels        UserLevel[]
@@ -492,4 +495,65 @@ model AgentRecord {
   @@index([guildId, collection, createdAt])
   @@index([guildId, collection, messageId])
   @@map("agent_records")
+}
+
+// ── MOTEUR GÉNÉRIQUE (2.4) : surfaces interactives persistantes ──
+
+model InteractiveSurface {
+  id         String   @id @default(cuid())
+  guildId    String
+  channelId  String
+  messageId  String? // null jusqu'au premier rendu (et après suppression du message)
+  kind       String   @default("custom")
+  definition String // JSON SurfaceDefinition (schéma Zod partagé, re-rendu déterministe)
+  state      String   @default("{}") // JSON libre versionné (compteurs, propriétaire, grilles)
+  createdBy  String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  guild      Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, messageId])
+  @@index([guildId, kind])
+  @@map("interactive_surfaces")
+}
+
+model ScheduledTrigger {
+  id          String    @id @default(cuid())
+  guildId     String
+  surfaceId   String?
+  cancelKey   String? // clé d'annulation (trigger.cancelByKey) — unique par serveur
+  kind        String // 'once' | 'cron' | 'interval'
+  runAt       DateTime?
+  cron        String?
+  intervalSec Int?
+  tz          String    @default("Europe/Paris")
+  condition   String? // JSON ConditionSpec évaluée À L'ÉCHÉANCE (pas avant)
+  steps       String // JSON ActionPipeline
+  status      String    @default("armed") // 'armed' | 'done' | 'cancelled'
+  lastRunAt   DateTime?
+  lastError   String?
+  createdAt   DateTime  @default(now())
+  guild       Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, cancelKey])
+  @@index([guildId, status, runAt])
+  @@map("scheduled_triggers")
+}
+
+model EventTrigger {
+  id         String   @id @default(cuid())
+  guildId    String
+  surfaceId  String?
+  name       String
+  event      String // 'message.create' | 'message.delete' | 'reaction.add' | 'reaction.remove' | 'member.join' | 'member.leave' | 'member.update' | 'voice.update' | 'channel.create' | 'channel.delete'
+  filter     String   @default("{}") // JSON {channelId?, contains?, roleId?, hasAttachments?, minMentions?...}
+  condition  String? // JSON ConditionSpec sur le contexte/état de la surface
+  steps      String // JSON ActionPipeline
+  enabled    Boolean  @default(true)
+  createdBy  String
+  createdAt  DateTime @default(now())
+  guild      Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@index([guildId, event, enabled])
+  @@map("event_triggers")
 }
