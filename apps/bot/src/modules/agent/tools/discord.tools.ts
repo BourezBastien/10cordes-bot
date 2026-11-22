@@ -2,7 +2,7 @@ import { PermissionFlagsBits, type Client, type Guild } from 'discord.js';
 import { z } from 'zod';
 import type { AdminOp, BotTool, ToolResult, ToolRunContext } from '@10cordes/shared';
 import { getToolRegistry } from '../../tool-registry/tool-registry.service';
-import { AgentService } from '../agent.service';
+import type { AgentService } from '../agent.service';
 import { discordExtraTools } from './discord.tools.extra';
 
 /**

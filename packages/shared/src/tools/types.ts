@@ -74,3 +74,21 @@ export interface BotTool {
   systemPrompt?: string;
   handler: (input: unknown, ctx: ToolRunContext) => Promise<ToolResult>;
 }
+
+/**
+ * Factory typée pour déclarer un tool SANS cast `input as` : le handler
+ * reçoit l'input déjà typé `z.infer<T>`. La validation reste faite par le
+ * registry (safeParse avec refus actionnable) AVANT l'appel — le narrowing
+ * interne est donc sûr par construction, et le cast n'existe plus qu'ICI.
+ */
+export function defineTool<T extends z.ZodType>(
+  def: Omit<BotTool, 'handler' | 'paramsSchema'> & {
+    paramsSchema: T;
+    handler: (input: z.infer<T>, ctx: ToolRunContext) => Promise<ToolResult>;
+  },
+): BotTool {
+  return {
+    ...def,
+    handler: (input: unknown, ctx: ToolRunContext) => def.handler(input as z.infer<T>, ctx),
+  };
+}

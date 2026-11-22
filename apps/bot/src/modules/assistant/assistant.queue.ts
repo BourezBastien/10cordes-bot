@@ -115,8 +115,4 @@ export class AssistantQueue {
   get driverName(): string {
     return this.driver.name;
   }
-
-  async recentFailures(limit: number): Promise<Array<{ userId: string; content: string; error: string; at: string }>> {
-    return this.driver.recentFailures(limit);
-  }
 }

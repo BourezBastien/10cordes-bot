@@ -6,7 +6,6 @@ import type { BotTool } from '@10cordes/shared';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
-import { ModuleChannelException } from '../module-manager/module-channel.exception';
 import { getToolRegistry } from '../tool-registry/tool-registry.service';
 
 export type ModAction =

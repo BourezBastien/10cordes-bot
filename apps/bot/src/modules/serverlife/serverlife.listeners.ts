@@ -62,10 +62,7 @@ export class ServerlifeMessageListener {
 
 @Listener(Events.GuildMemberAdd)
 export class StickyRolesListener {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly serverlife: ServerlifeService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   @On()
   async onMemberAdd(member: GuildMember | PartialGuildMember): Promise<void> {
@@ -79,7 +76,6 @@ export class StickyRolesListener {
       if (!member.manageable) continue;
       await member.roles.add(role, 'sticky role (retour du membre)').catch(() => {});
     }
-    void this.serverlife;
   }
 }
 

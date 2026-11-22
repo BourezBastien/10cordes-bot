@@ -17,7 +17,7 @@ import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 const CACHE_TTL_MS = 30 * 60_000;
 const MAX_ENTRIES = 200;
 
-export function cacheKey(guildId: string, content: string): string {
+function cacheKey(guildId: string, content: string): string {
   const normalized = content.toLowerCase().replace(/\s+/gu, ' ').trim();
   return createHash('sha256').update(`${guildId}:${normalized}`).digest('hex').slice(0, 32);
 }

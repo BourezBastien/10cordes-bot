@@ -1,6 +1,6 @@
 import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
 import { Logger } from '@spraxium/logger';
-import { Client, PermissionFlagsBits, type Message } from 'discord.js';
+import { Client, type Message } from 'discord.js';
 import { z } from 'zod';
 import type { BotTool } from '@10cordes/shared';
 import { getToolRegistry } from '../tool-registry/tool-registry.service';
@@ -24,7 +24,6 @@ const XP_COOLDOWN_MS = 60_000;
 export class LevelsService implements SpraxiumOnBoot {
   private readonly log = new Logger('Levels');
   private readonly cooldowns = new Map<string, number>();
-  private readonly pending = new Map<string, { xp: number; levels: number }>(); // buffer level-ups pour annonce
 
   constructor(
     private readonly prisma: PrismaService,
@@ -168,14 +167,5 @@ export class LevelsService implements SpraxiumOnBoot {
         },
       },
     ];
-  }
-
-  // Utilisé par le listener pour l'annonce (gère les permissions du salon).
-  canAnnounce(channelId: string | null, required = PermissionFlagsBits.SendMessages): boolean {
-    if (!channelId) return false;
-    const channel = this.client.channels.cache.get(channelId);
-    if (!channel || channel.isDMBased() || !channel.isTextBased()) return false;
-    const me = this.client.guilds.cache.get(channel.guildId)?.members.me;
-    return me ? channel.permissionsFor(me).has(required) : false;
   }
 }

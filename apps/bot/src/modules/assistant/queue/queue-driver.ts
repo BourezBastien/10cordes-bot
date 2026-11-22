@@ -15,7 +15,5 @@ export interface QueueDriver {
   process(handler: (job: AgentJobData) => Promise<void>): Promise<void>;
   /** Compteurs d'état pour l'observabilité. */
   counts(): Promise<QueueCounts>;
-  /** Derniers échecs (résumés) pour les tools staff. */
-  recentFailures(limit: number): Promise<Array<{ userId: string; content: string; error: string; at: string }>>;
   close(): Promise<void>;
 }

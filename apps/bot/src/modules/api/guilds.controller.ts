@@ -131,10 +131,10 @@ export class GuildsController {
     @HttpBody() body: ModuleToggleBody,
   ): Promise<unknown> {
     if (body.enabled) {
-      const enabled = await this.modules.enableModule('guild', guildId, moduleId);
+      const enabled = await this.modules.enableModule(guildId, moduleId);
       return { applied: true, enabled };
     }
-    return this.modules.disableModule('guild', guildId, moduleId, body.confirm ?? false);
+    return this.modules.disableModule(guildId, moduleId, body.confirm ?? false);
   }
 
   /** Salons du serveur : inputs channel de l'éditeur de config. */

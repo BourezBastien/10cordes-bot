@@ -261,7 +261,7 @@ function builtinTools(
       handler: async (input, ctx) => {
         if (!guildOnly(ctx)) return { ok: false, summary: 'Guild context required.' };
         const { moduleId } = input as { moduleId: string };
-        const enabled = await modules.enableModule('guild', ctx.guildId, moduleId);
+        const enabled = await modules.enableModule(ctx.guildId, moduleId);
         return { ok: true, summary: `Enabled: ${enabled.join(', ')}.` };
       },
     },
@@ -278,7 +278,7 @@ function builtinTools(
       handler: async (input, ctx) => {
         if (!guildOnly(ctx)) return { ok: false, summary: 'Guild context required.' };
         const { moduleId, confirm } = input as { moduleId: string; confirm: boolean };
-        const result = await modules.disableModule('guild', ctx.guildId, moduleId, confirm);
+        const result = await modules.disableModule(ctx.guildId, moduleId, confirm);
         if (!result.applied && result.cascade) {
           return {
             ok: false,

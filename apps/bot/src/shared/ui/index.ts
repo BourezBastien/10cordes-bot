@@ -1,6 +1,5 @@
 import {
   ContainerBuilder,
-  FileBuilder,
   MessageFlags,
   SeparatorBuilder,
   SeparatorSpacingSize,

@@ -94,12 +94,6 @@ export interface LlmStatus {
   maskedKey: string | null;
 }
 
-/** Presets par fournisseur — la modale pré-remplit via le placeholder. */
-export const LLM_PRESETS: Record<string, { baseUrl: string; model: string }> = {
-  deepseek: { baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash' },
-  openrouter: { baseUrl: 'https://openrouter.ai/api/v1', model: '' },
-};
-
 function normalizeBaseUrl(raw: string): string {
   return raw.trim().replace(/\/+$/, '');
 }
@@ -242,12 +236,6 @@ export class LlmService implements SpraxiumOnBoot {
       update: row,
     });
     this.runtime = row;
-  }
-
-  /** Rebranche sur l'env (supprime la config modale). */
-  async clearConfig(): Promise<void> {
-    await this.prisma.integrationConfig.deleteMany({ where: { id: 'llm' } });
-    this.runtime = null;
   }
 
   /**

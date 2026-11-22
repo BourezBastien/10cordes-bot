@@ -9,7 +9,6 @@ export class BullMqDriver implements QueueDriver {
   private readonly connection: Redis;
   private readonly queue: Queue<AgentJobData>;
   private worker: Worker<AgentJobData> | null = null;
-  private readonly recent: Array<{ userId: string; content: string; error: string; at: string }> = [];
 
   constructor(
     redisUrl: string,
@@ -44,15 +43,7 @@ export class BullMqDriver implements QueueDriver {
     );
     this.worker.on('failed', (job, error) => {
       if (job && job.attemptsMade >= (job.opts.attempts ?? 1)) {
-        const data = job.data;
-        this.onFailure(data, error.message);
-        this.recent.unshift({
-          userId: data.request.userId,
-          content: data.request.content.slice(0, 80),
-          error: error.message.slice(0, 160),
-          at: new Date().toISOString(),
-        });
-        if (this.recent.length > 20) this.recent.pop();
+        this.onFailure(job.data, error.message);
       }
     });
     await this.worker.waitUntilReady();
@@ -66,10 +57,6 @@ export class BullMqDriver implements QueueDriver {
       completed: counts.completed ?? 0,
       failed: counts.failed ?? 0,
     };
-  }
-
-  async recentFailures(limit: number): Promise<Array<{ userId: string; content: string; error: string; at: string }>> {
-    return this.recent.slice(0, limit);
   }
 
   async close(): Promise<void> {

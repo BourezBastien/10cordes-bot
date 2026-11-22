@@ -1,7 +1,7 @@
 import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
 import { Logger } from '@spraxium/logger';
 import { z } from 'zod';
-import type { BotTool, ToolResult } from '@10cordes/shared';
+import type { BotTool } from '@10cordes/shared';
 import { getToolRegistry } from '../tool-registry/tool-registry.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import { PrismaService } from '../database/prisma.service';

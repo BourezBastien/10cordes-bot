@@ -18,7 +18,7 @@ import { MemoryService } from '../memory/memory.service';
 import { AssistantQueue } from './assistant.queue';
 import { IntroContainer, type IntroData, ToolsListContainer, type ToolsData, TOOLS_PER_PAGE } from './v2.containers';
 import { storeToolsPanel } from './tools.panel';
-import { type AgentRequest, type AgentJobData } from './queue/types';
+import { type AgentRequest } from './queue/types';
 import { AppEnv } from '../../app.env';
 import { PrismaService } from '../database/prisma.service';
 
@@ -760,13 +760,8 @@ export class AssistantService {
     ];
 
     let finalText: string | null = null;
-    let userScoped = false;
     // Filet déterministe : la demande textuelle qui exige le silence force le flag.
     let silent = SILENCE_REQUEST_RE.test(request.content);
-    let actionRan = false;
-    let planProposed = false;
-    // Refus de permissions (demandeur OU bot) : la réponse partira en éphémère.
-    let permissionRefused = false;
     const usage = { promptTokens: 0, completionTokens: 0 };
     const executed: string[] = [];
     const loopState: { error: Error | null } = { error: null };
@@ -779,7 +774,10 @@ export class AssistantService {
       if (cachedReply) {
         log.info(`[FLOW] cache HIT pour ${request.authorName} [${requestId}]`);
         await status.done();
-        await channel.send({ content: cachedReply }).catch(() => {});
+        // Réponse adressée comme les réponses fraîches (P1.11).
+        await channel
+          .send({ content: cachedReply, reply: { messageReference: request.messageId, failIfNotExists: false } })
+          .catch(() => channel.send({ content: cachedReply }).catch(() => {}));
         this.audit.record({
           guildId: guild.id,
           source: 'agent',
@@ -865,22 +863,12 @@ export class AssistantService {
           }
           const result = await this.registry.run(call.name, input, ctx);
           executed.push(call.name);
-          if (result.ok && (tool?.destructive || (tool?.permissions?.length ?? 0) > 0)) actionRan = true;
-          if (!result.ok && /permission|whitelist/i.test(result.summary)) permissionRefused = true;
-          // planProposed = un PLAN attend une confirmation. Un destructif
-          // exécuté immédiatement (data.immediate) est une action normale.
-          const resultData = result.data as { immediate?: boolean } | undefined;
-          if (result.ok && (call.name === 'proposePlan' || (tool?.destructive && resultData?.immediate !== true))) {
-            planProposed = true;
-          }
-          if (result.ok && tool?.scope === 'user') {
-            userScoped = true;
-          }
           messages.push({
             role: 'tool',
             tool_call_id: call.id,
             content: JSON.stringify(result).slice(0, 4000),
           });
+          const resultData = result.data as { preState?: Record<string, unknown> } | undefined;
           this.audit.record({
             guildId: guild.id,
             source: 'agent',

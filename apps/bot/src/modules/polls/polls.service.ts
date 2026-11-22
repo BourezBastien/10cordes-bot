@@ -40,54 +40,7 @@ export class PollsService implements SpraxiumOnBoot {
       if (!ctx.channelId || !ctx.member) return 'Membre ou salon introuvable.';
       return this.recordVote({ guildId: ctx.guildId, channelId: ctx.channelId, userId, messageId: ctx.messageId }, action.choice);
     });
-    // Sweep hérité : les sondages pré-composition (definition closeAt) closent
-    // encore automatiquement au boot s'ils ont échus pendant un arrêt.
-    void this.sweepLegacyPolls();
-    this.log.info('Polls ready (tally.votes + executor vote + sweep hérité).');
-  }
-
-  /** Sondages hérités échus au boot : clôture (definition closeAt). */
-  private async sweepLegacyPolls(): Promise<void> {
-    try {
-      const polls = await this.prisma.agentPanel.findMany({ where: { kind: 'poll' } });
-      for (const row of polls) {
-        let poll: { closed?: boolean; closeAt?: string } | null = null;
-        try {
-          poll = JSON.parse(row.definition) as { closed?: boolean; closeAt?: string };
-        } catch {
-          continue;
-        }
-        if (!poll || poll.closed) continue;
-        const closeAt = poll.closeAt ? Date.parse(poll.closeAt) : Number.NaN;
-        if (Number.isNaN(closeAt)) continue;
-        if (closeAt <= Date.now()) await this.closeLegacyPoll(row.id).catch(() => {});
-      }
-    } catch {
-      // Table pas encore migrée au tout premier boot.
-    }
-  }
-
-  /** Clôture d'un sondage hérité : publication des résultats enregistrés. */
-  private async closeLegacyPoll(panelId: string): Promise<void> {
-    const row = await this.prisma.agentPanel.findUnique({ where: { id: panelId } });
-    if (!row) return;
-    let definition: { title?: string; description?: string } = {};
-    try {
-      definition = JSON.parse(row.definition) as { title?: string; description?: string };
-    } catch {
-      /* définition illisible : on publie quand même un message de clôture */
-    }
-    const container = new ContainerBuilder().setAccentColor(0x57_f2_87);
-    container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`## 📊 ${definition.title ?? 'Sondage terminé'}`),
-    );
-    container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent('🏁 Ce sondage (ancien format) est terminé. Les votes détaillés ne sont pas disponibles pour ce format.'),
-    );
-    const channel = await this.client.channels.fetch(row.channelId).catch(() => null);
-    if (channel?.isTextBased() && !channel.isDMBased()) {
-      await channel.messages.edit(row.messageId, { components: [container] }).catch(() => {});
-    }
+    this.log.info('Polls ready (tally.votes + executor vote).');
   }
 
   private tallyVotesTool(): BotTool {

@@ -59,32 +59,4 @@ export class GuildConfigService {
     });
     return merged;
   }
-
-  /** Export brut du document de configuration (transfert vers un autre serveur). */
-  async exportConfig(guildId: string): Promise<string> {
-    const config = await this.get(guildId);
-    return JSON.stringify(config, null, 2);
-  }
-
-  /** Remplace intégralement la configuration (validée) — import depuis un export. */
-  async importConfig(guildId: string, json: string): Promise<GuildConfig> {
-    const parsed = GuildConfigSchema.parse(JSON.parse(json));
-    await this.prisma.guild.upsert({
-      where: { id: guildId },
-      update: { settings: JSON.stringify(parsed) },
-      create: { id: guildId, settings: JSON.stringify(parsed) },
-    });
-    this.cache.set(guildId, parsed);
-    this.audit.record({
-      guildId,
-      source: 'discord',
-      action: 'config.import',
-      metadata: { keys: Object.keys(parsed) },
-    });
-    return parsed;
-  }
-
-  invalidate(guildId: string): void {
-    this.cache.delete(guildId);
-  }
 }

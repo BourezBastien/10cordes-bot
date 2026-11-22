@@ -152,6 +152,3 @@ export class InvitesService implements SpraxiumOnBoot {
     ];
   }
 }
-
-// Re-export du type pour les listeners (évite un import circulaire).
-export type { CachedInvite };

@@ -52,7 +52,6 @@ function renderPdf(title: string, content: string): Promise<Buffer> {
 @Injectable()
 export class WebToolsService implements SpraxiumOnBoot {
   private readonly log = new Logger('WebTools');
-  private readonly xmlParser = new XMLParser({ ignoreAttributes: false });
 
   constructor(
     private readonly registry: ToolRegistryService,

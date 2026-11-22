@@ -1,7 +1,7 @@
 import { Button, ModalComponent, ModalInput } from '@spraxium/components';
 
 export const IA_CONFIG_BUTTON_ID = 'ia-config-open';
-export const IA_CONFIG_MODAL_ID = 'ia-config';
+const IA_CONFIG_MODAL_ID = 'ia-config';
 
 @Button({ customId: IA_CONFIG_BUTTON_ID, label: "🔑 Connecter l'IA", style: 'primary' })
 export class IaConfigureButton {}

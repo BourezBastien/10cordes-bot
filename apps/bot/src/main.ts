@@ -6,7 +6,6 @@ import { EnvValidator } from '@spraxium/env';
 import { Logger } from '@spraxium/logger';
 import { AppEnv } from './app.env';
 import { AppModule } from './app.module';
-import { ModuleEnabledGuard } from './modules/module-manager/module-enabled.guard';
 
 async function main(): Promise<void> {
   const logger = new Logger('Main');
@@ -44,7 +43,8 @@ async function main(): Promise<void> {
 
   app.useModule(AppModule);
   app.provide(AppEnv, environment);
-  app.useGlobalGuards(ModuleEnabledGuard);
+  // (22/11) plus de guard global ModuleEnabledGuard : pipeline d'accès
+  // supprimé avec le refactor module-manager (toggles par serveur conservés).
   // Audite complet : tous les events non privilégiés + MessageContent.
   // GuildMembers est privilégié ET requis (audit joins/leaves, welcome,
   // trust score) : à activer dans le portail développeur.

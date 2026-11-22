@@ -23,8 +23,6 @@ model Guild {
   modCases          ModCase[]
   modCounter        ModCounter?
   roleBackups       RoleBackup[]
-  tags              Tag[]
-  adminWhitelist    AdminWhitelist[]
   agentSkills       AgentSkill[]
   agentAutomations  AgentAutomation[]
   agentPanels       AgentPanel[]
@@ -37,7 +35,6 @@ model Guild {
   toolNodes         ToolNode[]
   inviteStats       InviteStat[]
   agentRecords      AgentRecord[]
-  agentPlans        AgentPlan[]
   ticketCounter     TicketCounter?
   tickets           Ticket[]
   userLevels        UserLevel[]
@@ -59,15 +56,6 @@ model GuildModuleState {
 
   @@unique([guildId, moduleId])
   @@map("guild_module_states")
-}
-
-model UserLocale {
-  userId    String   @id
-  locale    String
-  source    String   @default("auto")
-  updatedAt DateTime @updatedAt
-
-  @@map("user_locales")
 }
 
 // ── better-auth (générées conformément au schéma officiel — CLI `@better-auth/cli generate`) ──
@@ -188,37 +176,6 @@ model RoleBackup {
   @@map("role_backups")
 }
 
-// ── Tags (1.4) ───────────────────────────────────────────────
-
-model Tag {
-  id        String   @id @default(cuid())
-  guildId   String
-  name      String
-  content   String
-  createdBy String
-  uses      Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
-
-  @@unique([guildId, name])
-  @@map("tags")
-}
-
-// ── Agent Admin (P2) ─────────────────────────────────────────
-
-model AdminWhitelist {
-  id        String   @id @default(cuid())
-  guildId   String
-  userId    String
-  addedBy   String
-  createdAt DateTime @default(now())
-  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
-
-  @@unique([guildId, userId])
-  @@map("admin_whitelist")
-}
-
 // ── Skills : règles de comportement durables (trigger + règle), par serveur ──
 
 model AgentSkill {
@@ -278,25 +235,6 @@ model AgentPanel {
 
   @@index([guildId, messageId])
   @@map("agent_panels")
-}
-
-model AgentPlan {
-  id             String   @id @default(cuid())
-  guildId        String
-  channelId      String
-  requesterId    String
-  title          String
-  ops            String
-  status         String   @default("pending")
-  results        String?
-  approvedBy     String?
-  panelMessageId String?
-  createdAt      DateTime @default(now())
-  expiresAt      DateTime
-  guild          Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
-
-  @@index([guildId, status])
-  @@map("agent_plans")
 }
 
 // ── Tickets (P2) ─────────────────────────────────────────────
