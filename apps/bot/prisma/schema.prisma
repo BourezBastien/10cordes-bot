@@ -306,10 +306,12 @@ model UserLevel {
 // ── Intégrations configurables au runtime (modale owner, sans restart) ──
 
 model IntegrationConfig {
-  id        String   @id // 'llm' | 'imagelab'
+  id        String   @id // 'llm' | 'pixellab' | 'kie' (catalogue en code)
+  kind      String   @default("tool") // 'llm' | 'image' | 'music' | 'tool'
+  label     String   @default("")
   provider  String   @default("custom")
-  baseUrl   String
-  apiKey    String
+  baseUrl   String   @default("")
+  apiKey    String // CHIFFRÉE AES-256-GCM (v1:<iv>:<tag>:<data>)
   model     String   @default("")
   updatedAt DateTime @updatedAt
 }

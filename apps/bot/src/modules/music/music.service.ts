@@ -3,6 +3,7 @@ import { Logger } from '@spraxium/logger';
 import { Client } from 'discord.js';
 import { z } from 'zod';
 import type { BotTool, ToolResult, ToolRunContext } from '@10cordes/shared';
+import type { IntegrationService } from '../integrations/integration.service';
 import { safeFetch } from '../../shared/utils/safe-fetch';
 import { AppEnv } from '../../app.env';
 import { getToolRegistry } from '../tool-registry/tool-registry.service';
@@ -32,6 +33,7 @@ export class MusicService implements SpraxiumOnBoot {
 
   constructor(
     private readonly env: AppEnv,
+    private readonly integrations: import('../integrations/integration.service').IntegrationService,
     private readonly client: Client,
   ) {}
 
@@ -41,9 +43,9 @@ export class MusicService implements SpraxiumOnBoot {
     for (const tool of this.buildTools()) registry.register(tool);
   }
 
-  private apiKey(): string | null {
-    // R2 branchera IntegrationService ; en attendant fail-closed propre.
-    return null;
+  private async apiKey(): Promise<string | null> {
+    const resolved = await this.integrations.get('kie').catch(() => null);
+    return resolved?.config.apiKey ?? null;
   }
 
   private buildTools(): BotTool[] {

@@ -6,6 +6,7 @@ import { AppEnv } from '../../app.env';
 import { PrismaService } from '../database/prisma.service';
 import type { BotTool, ToolResult } from '@10cordes/shared';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
+import type { IntegrationService } from '../integrations/integration.service';
 
 const API_BASE = "https://api.pixellab.ai/v2";
 
@@ -27,15 +28,12 @@ export class ImagelabService implements SpraxiumOnBoot {
     private readonly env: AppEnv,
     private readonly prisma: PrismaService,
     private readonly registry: ToolRegistryService,
+    private readonly integrations: IntegrationService,
   ) {}
 
   async onBoot(): Promise<void> {
-    try {
-      const row = await this.prisma.integrationConfig.findUnique({ where: { id: 'imagelab' } });
-      if (row) this.runtimeKey = row.apiKey;
-    } catch {
-      // Table pas encore migrée au tout premier boot.
-    }
+    const resolved = await this.integrations.get('pixellab').catch(() => null);
+    if (resolved?.config.apiKey) this.runtimeKey = resolved.config.apiKey;
     for (const tool of this.buildTools()) this.registry.register(tool);
   }
 
@@ -45,12 +43,7 @@ export class ImagelabService implements SpraxiumOnBoot {
 
   /** Branche la clé PixelLab saisie via la modale (effet immédiat). */
   async setPixellabKey(apiKey: string): Promise<void> {
-    const row = { provider: 'pixellab', baseUrl: API_BASE, apiKey, model: '' };
-    await this.prisma.integrationConfig.upsert({
-      where: { id: 'imagelab' },
-      create: { id: 'imagelab', ...row },
-      update: row,
-    });
+    await this.integrations.upsert('pixellab', { apiKey }, 'modal');
     this.runtimeKey = apiKey;
   }
 

@@ -129,6 +129,7 @@ export class LlmService implements SpraxiumOnBoot {
     private readonly registry: ToolRegistryService,
     private readonly imagelab: ImagelabService,
     private readonly config: GuildConfigService,
+    private readonly integrations: import('../integrations/integration.service').IntegrationService,
   ) {}
 
   async onBoot(): Promise<void> {
@@ -268,13 +269,8 @@ export class LlmService implements SpraxiumOnBoot {
       const detail = await response.text().catch(() => '');
       throw new Error(`Connexion échouée (${response.status}) : ${detail.slice(0, 160) || 'vérifie la clé et la base URL'}`);
     }
-    const row = { provider, baseUrl: cleanBase, apiKey, model: model.trim() };
-    await this.prisma.integrationConfig.upsert({
-      where: { id: 'llm' },
-      create: { id: 'llm', ...row },
-      update: row,
-    });
-    this.runtime = row;
+    this.runtime = { provider, baseUrl: cleanBase, apiKey, model: model.trim() };
+    await this.integrations.upsert('llm', { baseUrl: cleanBase, apiKey, model: model.trim() }, 'modal').catch(() => {});
   }
 
   /**

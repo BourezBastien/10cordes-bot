@@ -7,6 +7,7 @@ import { GuildAccessGuard } from './auth/guards/guild-access.guard';
 import { AgentModule } from './modules/agent/agent.module';
 import { SurfaceModule } from './modules/surface/surface.module';
 import { GuildRulesModule } from './modules/rules/guild-rules.module';
+import { IntegrationModule } from './modules/integrations/integration.module';
 import { AssistantModule } from './modules/assistant/assistant.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AutomationsModule } from './modules/automations/automations.module';
@@ -76,6 +77,7 @@ import { UtilityModule } from './modules/utility/utility.module';
     AgentModule,
     SurfaceModule,
     GuildRulesModule,
+    IntegrationModule,
     AssistantModule,
     WelcomeModule,
   ],

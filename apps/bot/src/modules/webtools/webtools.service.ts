@@ -7,6 +7,7 @@ import PDFDocument from 'pdfkit';
 import { XMLParser } from 'fast-xml-parser';
 import { GameDig } from 'gamedig';
 import type { BotTool, ToolResult, ToolRunContext } from '@10cordes/shared';
+import type { IntegrationService } from '../integrations/integration.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { safeFetch } from '../../shared/utils/safe-fetch';
 import { AppEnv } from '../../app.env';
@@ -58,6 +59,7 @@ export class WebToolsService implements SpraxiumOnBoot {
   constructor(
     private readonly registry: ToolRegistryService,
     private readonly env: AppEnv,
+    private readonly integrations: IntegrationService,
     private readonly client: Client,
   ) {}
 

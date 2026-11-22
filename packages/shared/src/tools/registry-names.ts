@@ -127,6 +127,8 @@ export const REGISTERED_TOOL_NAMES = [
   'removeRoleFromMember',
   'renameChannel',
   'renameRole',
+  'rules.list',
+  'rules.set',
   'saveMemberMemory',
   'saveServerMemory',
   'searchInternet',
