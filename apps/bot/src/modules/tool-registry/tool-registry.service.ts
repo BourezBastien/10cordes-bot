@@ -196,6 +196,51 @@ function builtinTools(
 
   return [
     {
+      name: 'search_tools',
+      description:
+        'Search the tool catalog by keywords: returns the matching tools (name, description, usage guidance). The tools found become CALLABLE in your next steps — call this whenever the current request needs a tool that is not in your active toolset.',
+      category: 'tool-registry',
+      paramsSchema: z.object({
+        query: z.string().min(2).max(120).describe('Keywords of the capability you need (ex: "transcript html", "vocal move member")'),
+        limit: z.number().int().min(1).max(15).default(8).optional(),
+      }),
+      requiredModules: [],
+      permissions: [],
+      destructive: false,
+      systemPrompt:
+        'Tool routing (Anthropic pattern): your active toolset is intentionally SMALL. When a request needs a capability you do not have, search_tools FIRST, read the guidance of the tools found, then call the right one directly.',
+      handler: async (input) => {
+        const { query, limit } = input as { query: string; limit?: number };
+        const words = query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((word) => word.length > 1);
+        const scored = registry
+          .list()
+          .map((tool) => {
+            const haystack = `${tool.name} ${tool.description} ${tool.category}`.toLowerCase();
+            const score = words.reduce((sum, word) => sum + (haystack.includes(word) ? 1 : 0), 0);
+            return { tool, score };
+          })
+          .filter((entry) => entry.score > 0)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, limit ?? 8);
+        if (scored.length === 0) {
+          return { ok: true, summary: `Aucun tool ne correspond à « ${query} » : cette capacité n'existe pas. Dis-le honnêtement à l'utilisateur.`, data: { tools: [] } };
+        }
+        const cards = scored.map(({ tool }) => ({
+          name: tool.name,
+          description: tool.description.slice(0, 220),
+          category: tool.category,
+          guidance: tool.systemPrompt?.slice(0, 400) ?? null,
+          destructive: tool.destructive ?? false,
+        }));
+        const lines = cards.map((card) => `- **${card.name}** (${card.category})${card.destructive ? ' [destructif]' : ''} : ${card.description}${card.guidance ? ` | Consigne : ${card.guidance}` : ''}`);
+        return {
+          ok: true,
+          summary: `${cards.length} tool(s) trouvé(s), désormais appelables :\n${lines.join('\n')}`,
+          data: { tools: cards },
+        };
+      },
+    },
+    {
       name: 'getAvailableTools',
       description: 'List the tools the CALLER can use right now, filtered by their Discord permissions and active modules.',
       category: 'tool-registry',

@@ -95,6 +95,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
         topic: z.string().max(1024).optional(),
         categoryId: z.string().min(1).optional(),
         position: z.number().int().min(1).max(100).optional(),
+        userLimit: z.number().int().min(1).max(99).optional().describe('kind=voice : limite de places (générateurs "Duo"=2, "Squad"=5...)'),
       }),
       requiredModules: [],
       permissions: ['ManageChannels'],
@@ -104,12 +105,13 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       handler: async (input, ctx) => {
         const guild = guildOf(ctx);
         if (!guild) return noGuild();
-        const { name, kind, topic, categoryId, position } = input as {
+        const { name, kind, topic, categoryId, position, userLimit } = input as {
           name: string;
           kind: 'text' | 'voice' | 'category';
           topic?: string;
           categoryId?: string;
           position?: number;
+          userLimit?: number;
         };
         if (!guild.members.me?.permissions.has(PermissionFlagsBits.ManageChannels)) {
           return { ok: false, summary: "Le bot n'a pas la permission ManageChannels." };
@@ -119,6 +121,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
           type: kind === 'voice' ? 2 : kind === 'category' ? 4 : 0,
           topic,
           parent: categoryId,
+          ...(kind === 'voice' && userLimit ? { userLimit } : {}),
           reason: `agent tool (by <@${ctx.userId}>)`,
         });
         if (position !== undefined) {
@@ -130,6 +133,30 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
           summary: `Salon **${name}** créé${placed} → <#${created.id}>`,
           data: { channelId: created.id },
         };
+      },
+    },
+    {
+      name: 'setChannelPosition',
+      description: 'Déplace un salon dans la liste (position 1 = tout en haut) — la primitive « remonte le salon urgent en haut de la catégorie ».',
+      category: 'agent',
+      paramsSchema: z.object({ channelId: z.string().min(1), position: z.number().int().min(1).max(500) }),
+      requiredModules: [],
+      permissions: ['ManageChannels'],
+      destructive: false,
+      systemPrompt: 'Tier 2 (reversible). Position = slot dans la liste, 1 = sommet. Rate-limit Discord : regroupe les déplacements.',
+      handler: async (input, ctx) => {
+        const guild = guildOf(ctx);
+        if (!guild) return noGuild();
+        const { channelId, position } = input as { channelId: string; position: number };
+        const channel = await guild.channels.fetch(channelId).catch(() => null);
+        if (!channel || !('setPosition' in channel)) return { ok: false, summary: 'Salon introuvable.' };
+        const moved = await channel
+          .setPosition(position, { reason: `agent tool (by <@${ctx.userId}>)` })
+          .then(() => true)
+          .catch(() => false);
+        return moved
+          ? { ok: true, summary: `Salon <#${channelId}> déplacé à la position ${position}.` }
+          : { ok: false, summary: 'Déplacement impossible (permissions ou rate-limit).' };
       },
     },
     {
@@ -255,6 +282,8 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
           .max(14)
           .default(1)
           .describe("Fenêtre d'âge : ne supprime que les messages de moins de N jours (1 = aujourd'hui). Discord interdit le bulk delete au-delà de 14 jours."),
+        onlyWithAttachments: z.boolean().default(false).optional().describe('Ne cibler que les messages avec pièces jointes/images'),
+        onlyWithLinks: z.boolean().default(false).optional().describe('Ne cibler que les messages contenant un lien http(s)'),
       }),
       requiredModules: [],
       permissions: ['ManageMessages'],
@@ -264,7 +293,13 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       handler: async (input, ctx) => {
         const guild = guildOf(ctx);
         if (!guild) return noGuild();
-        const { channelId, count, days } = input as { channelId?: string; count?: number; days?: number };
+        const { channelId, count, days, onlyWithAttachments, onlyWithLinks } = input as {
+          channelId?: string;
+          count?: number;
+          days?: number;
+          onlyWithAttachments?: boolean;
+          onlyWithLinks?: boolean;
+        };
         const targetId = channelId || ctx.channelId || '';
         const channel = await guild.channels.fetch(targetId).catch(() => null);
         if (!channel || !channel.isTextBased()) return { ok: false, summary: 'Salon introuvable ou non textuel.' };
@@ -282,7 +317,14 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
           // Filtrage STRICT par âge AVANT le bulkDelete : Discord refuse le
           // bulk au-delà de 14 jours, et l'utilisateur demande une fenêtre
           // précise (« aujourd'hui ») — jamais toucher les vieux messages.
-          const inWindowAll = batch.filter((message) => message.createdTimestamp >= cutoff && !message.pinned);
+          // Filtres optionnels de CONTENU : pièces jointes / liens.
+          const inWindowAll = batch.filter(
+            (message) =>
+              message.createdTimestamp >= cutoff &&
+              !message.pinned &&
+              (!onlyWithAttachments || message.attachments.size > 0) &&
+              (!onlyWithLinks || /https?:\/\//iu.test(message.content)),
+          );
           const tooOld = batch.filter((message) => message.createdTimestamp < cutoff);
           skippedOld += tooOld.size;
           if (inWindowAll.size === 0) break;

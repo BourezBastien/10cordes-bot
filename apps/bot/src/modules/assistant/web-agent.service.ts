@@ -6,7 +6,7 @@ import { MemoryService } from '../memory/memory.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import { LlmService, type ChatMessage, type OpenAiTool } from './llm.service';
-import { buildSystemPrompt, fetchRecentActions, sanitizeTranscriptLine, toolToOpenAiTool } from './assistant.service';
+import { buildSystemPrompt, fetchRecentActions, sanitizeTranscriptLine, selectRelevantTools, toolToOpenAiTool } from './assistant.service';
 import { AgentLoopService } from './agent-loop.service';
 import { getSkillTriggers } from '../agent/skill.service';
 import { type ToolRunContext } from '@10cordes/shared';
@@ -71,7 +71,12 @@ export class WebAgentService {
 
     const locale = 'fr';
     const tools = await this.registry.listForGuild(guildId);
-    const openAiTools: OpenAiTool[] = tools.map(toolToOpenAiTool);
+    // Même routing que Discord : noyau + pertinents, catalogue joignable via
+    // search_tools (expansion dynamique dans AgentLoop).
+    const relevant = selectRelevantTools(trimmed, tools);
+    const byName = new Map<string, OpenAiTool>(tools.map((tool) => [tool.name, toolToOpenAiTool(tool)]));
+    const openAiTools: OpenAiTool[] = relevant.map((tool) => byName.get(tool.name)!);
+    const toolset = { active: openAiTools, byName };
 
     const [guildProfile, memberProfile, recentActions, skillTriggers] = await Promise.all([
       this.memory.getGuildProfile(guildId).catch(() => null),
@@ -109,7 +114,7 @@ export class WebAgentService {
     const messages: ChatMessage[] = [
       {
         role: 'system',
-        content: buildSystemPrompt(locale, guild.name, channel?.name ?? 'web', tools.map((tool) => tool.name), permissions, {
+        content: buildSystemPrompt(locale, guild.name, channel?.name ?? 'web', [...openAiTools.map((tool) => tool.function.name), 'search_tools'], permissions, {
           guildMemories,
           memberMemories,
         }, recentActions, skillTriggers),
@@ -133,7 +138,7 @@ export class WebAgentService {
 
     const executed: WebChatResult['tools'] = [];
     const outcome = await this.loop
-      .run(messages, openAiTools, ctx, { userId: discordUserId, guildId }, {
+      .run(messages, toolset, ctx, { userId: discordUserId, guildId }, {
         cause: 'web',
         quotaExhaustedMessage: 'IA désactivée : crédits DeepSeek épuisés. Recharge le compte API.',
         onToolResult: (name, result) => {

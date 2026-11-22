@@ -11,6 +11,7 @@ import {
   type VoiceState,
 } from 'discord.js';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import type { BotTool, ToolResult } from '@10cordes/shared';
 import { getToolRegistry } from '../tool-registry/tool-registry.service';
 import { PrismaService } from '../database/prisma.service';
@@ -667,6 +668,85 @@ export class ServerlifeService implements SpraxiumOnBoot {
           if (rows.length === 0) return { ok: true, summary: 'Aucune activité enregistrée pour le moment.' };
           const lines = rows.map((row, index) => `${index + 1}. <@${row.userId}> — ${row.messages} msg, ${row.voiceMinutes} min vocal`);
           return { ok: true, summary: `Top activité : ${lines.join(' | ')}` };
+        },
+      },
+      {
+        name: 'activity.summary',
+        description:
+          "Résumé d'activité du serveur en SQL pur (rapide) : volume de messages/jour, joins/leaves, top membres, avec coverageSince (date du plus ancien événement compté — indique la profondeur de données réelle). Pour les rapports hebdo et les moyennes/jour.",
+        category: 'serverlife',
+        paramsSchema: z.object({
+          days: z.number().int().min(1).max(90).default(7).describe('Fenêtre en jours (défaut 7)'),
+        }),
+        requiredModules: [],
+        permissions: [],
+        destructive: false,
+        systemPrompt:
+          "Read-only et rapide (SQL agrégé, pas de scan Discord). Cite TOUJOURS coverageSince dans ton rapport : une moyenne/jour n'a de sens que sur la profondeur réelle des données.",
+        handler: async (input, ctx) => {
+          if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
+          const days = (input as { days?: number }).days ?? 7;
+          const since = new Date(Date.now() - days * 86_400_000);
+
+          // SQL 100% PARAMÉTRÉ (Prisma.sql, jamais de concaténation).
+          const [perDay, coverage, joins, topMembers] = await Promise.all([
+            this.prisma.$queryRaw<Array<{ day: string; messages: bigint }>>(
+              Prisma.sql`SELECT strftime('%Y-%m-%d', "createdAt") AS day, COUNT(*) AS messages
+                         FROM "audit_logs"
+                         WHERE "guildId" = ${ctx.guildId} AND "action" = ${'message.created'} AND "createdAt" >= ${since}
+                         GROUP BY day ORDER BY day ASC LIMIT 90`,
+            ),
+            this.prisma.$queryRaw<Array<{ since: Date | null }>>(
+              Prisma.sql`SELECT MIN("createdAt") AS since FROM "audit_logs"
+                         WHERE "guildId" = ${ctx.guildId} AND "action" = ${'message.created'}`,
+            ),
+            this.prisma.$queryRaw<Array<{ joined: bigint; left: bigint }>>(
+              Prisma.sql`SELECT
+                 SUM(CASE WHEN "action" = ${'member.joined'} THEN 1 ELSE 0 END) AS joined,
+                 SUM(CASE WHEN "action" = ${'member.left'} THEN 1 ELSE 0 END) AS left
+                 FROM "audit_logs"
+                 WHERE "guildId" = ${ctx.guildId} AND "action" IN (${'member.joined'}, ${'member.left'}) AND "createdAt" >= ${since}`,
+            ),
+            this.prisma.memberActivity.findMany({
+              where: { guildId: ctx.guildId },
+              orderBy: { messages: 'desc' },
+              take: 5,
+              select: { userId: true, messages: true, voiceMinutes: true },
+            }),
+          ]);
+
+          const totalMessages = perDay.reduce((sum, row) => sum + Number(row.messages), 0);
+          const coverageSince = coverage[0]?.since ?? null;
+          const effectiveDays = coverageSince
+            ? Math.min(days, Math.max(1, Math.ceil((Date.now() - new Date(coverageSince).getTime()) / 86_400_000)))
+            : 0;
+          const perDayLines = perDay.map((row) => `${row.day}: ${Number(row.messages)} msg`);
+          const topLines = topMembers.map((row, index) => `${index + 1}. <@${row.userId}> (${row.messages} msg, ${row.voiceMinutes} min vocal)`);
+          const summary = [
+            `${totalMessages} message(s) humain(s) sur ${perDay.length} jour(s) (moyenne ${perDay.length > 0 ? Math.round(totalMessages / effectiveDays) : 0}/jour sur la fenêtre effective).`,
+            `Arrivées: ${Number(joins[0]?.joined ?? 0)}, départs: ${Number(joins[0]?.left ?? 0)}.`,
+            perDayLines.length > 0 ? `Par jour : ${perDayLines.join(' | ')}` : '',
+            topLines.length > 0 ? `Top membres : ${topLines.join(' | ')}` : 'Aucune activité membre enregistrée.',
+            coverageSince
+              ? `coverageSince: ${new Date(coverageSince).toISOString().slice(0, 10)} (${effectiveDays} jour(s) de profondeur réelle).`
+              : 'coverageSince: aucune donnée.',
+          ]
+            .filter(Boolean)
+            .join('\n');
+          return {
+            ok: true,
+            summary,
+            data: {
+              days,
+              totalMessages,
+              coverageSince: coverageSince ? new Date(coverageSince).toISOString() : null,
+              effectiveDays,
+              joined: Number(joins[0]?.joined ?? 0),
+              left: Number(joins[0]?.left ?? 0),
+              perDay: perDay.map((row) => ({ day: row.day, messages: Number(row.messages) })),
+              topMembers,
+            },
+          };
         },
       },
     ];

@@ -129,59 +129,27 @@ class LiveStatus {
   }
 }
 
-/** Noyau TOUJOURS injecté : structure du serveur, narration, rollback, sécurité. */
+/** Noyau TOUJOURS injecté (routing Anthropic : volontairement PETIT — le
+ * reste du catalogue est joignable via search_tools, qui élève le tool
+ * trouvé dans le toolset actif à la volée). */
 const TOOL_CORE_NAMES = new Set([
   'getServerInfo',
   'getChannels',
-  'getRoles',
   'getMembers',
   'getMemberInfo',
-  'getServerStyle',
-  'readMessages',
   'sendMessage',
-  'createChannel',
-  'createCategory',
-  'renameChannel',
-  'deleteChannel',
-  'moveChannel',
-  'setChannelTopic',
-  'setChannelOverwrite',
-  'createRole',
-  'deleteRole',
-  'renameRole',
-  'addRoleToMember',
-  'removeRoleFromMember',
-  'muteMember',
-  'kickMember',
-  'banMember',
-  'purgeMessages',
-  'getAuditLogs',
-  'getLastSnapshot',
+  'readMessages',
   'announceStep',
-  'analyzeActivity',
-  'sendPanel',
-  'components.edit',
-  'components.delete',
-  'records.collections',
-  'records.create',
-  'records.list',
-  'records.search',
-  'jobs.schedule',
-  'jobs.list',
-  'security.verify.setup',
-  'security.verify.status',
-  'node.set',
-  'node.list',
+  'search_tools',
+  'getAvailableTools',
+  'searchInternet',
+  'searchWikipedia',
   'saveServerMemory',
   'saveMemberMemory',
   'getMemberMemory',
-  'ticket.stats',
-  'member.trust',
-  'member.rank',
-  'server.top',
 ]);
 
-const MAX_INJECTED_TOOLS = 70;
+const MAX_INJECTED_TOOLS = 24;
 
 /**
  * Sélection par pertinence : noyau structurel TOUJOURS inclus + les tools
@@ -539,11 +507,12 @@ export class AssistantService {
     status.arm();
 
     const tools = await this.registry.listForGuild(guild.id);
-    // Sélection par pertinence (over-tooled agent) : au-delà de ~40 tools
-    // injectés, la précision de sélection du modèle chute nettement. On
-    // garde le noyau structurel + les tools les plus proches du message.
+    // TOOL ROUTING (pattern Anthropic) : noyau volontairement PETIT +
+    // pertinents forts ; le catalogue complet reste joignable via le tool
+    // search_tools, qui ÉLARGIT le toolset actif à la volée (AgentLoop).
     const relevant = selectRelevantTools(request.content, tools);
-    const openAiTools: OpenAiTool[] = relevant.map(toolToOpenAiTool);
+    const byName = new Map<string, OpenAiTool>(tools.map((tool) => [tool.name, toolToOpenAiTool(tool)]));
+    const openAiTools: OpenAiTool[] = relevant.map((tool) => byName.get(tool.name)!);
     this.audit.record({
       guildId: guild.id,
       source: 'agent',
@@ -552,7 +521,7 @@ export class AssistantService {
       metadata: { requestId, kept: relevant.length, total: tools.length },
     });
     // Tool réservé au silence demandé — géré par la boucle, pas dans le registry.
-    openAiTools.push({
+    const skipReplyTool: OpenAiTool = {
       type: 'function',
       function: {
         name: 'skipReply',
@@ -560,7 +529,10 @@ export class AssistantService {
           "Ne rien répondre du tout. À appeler quand l'utilisateur demande explicitement d'agir sans réponse (ex: « purge les messages sans me répondre »).",
         parameters: { type: 'object', properties: {}, additionalProperties: false },
       },
-    });
+    };
+    openAiTools.push(skipReplyTool);
+    byName.set('skipReply', skipReplyTool);
+    const toolset = { active: openAiTools, byName };
 
     const history = await channel.messages.fetch({ limit: TRANSCRIPT_SIZE, before: request.messageId });
     const transcript = [...history.values()]
@@ -633,7 +605,7 @@ export class AssistantService {
     const messages: ChatMessage[] = [
       {
         role: 'system',
-        content: buildSystemPrompt(locale, guild.name, channel.name, tools.map((tool) => tool.name), permissions, {
+        content: buildSystemPrompt(locale, guild.name, channel.name, [...openAiTools.map((tool) => tool.function.name), 'search_tools'], permissions, {
           guildMemories,
           memberMemories,
         }, recentActions, skillTriggers),
@@ -682,7 +654,7 @@ export class AssistantService {
 
     // Boucle LLM + tools partagée avec le canal web (Template Method).
     const outcome = await this.loop
-      .run(messages, openAiTools, ctx, { userId: request.userId, guildId: guild.id }, {
+      .run(messages, toolset, ctx, { userId: request.userId, guildId: guild.id }, {
         cause: 'reply',
         quotaExhaustedMessage: 'IA désactivée : crédits DeepSeek épuisés. Recharge le compte API, je reprends dès que c\u0027est réglé.',
         onIterationStart: (iteration) => {

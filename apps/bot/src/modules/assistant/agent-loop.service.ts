@@ -38,12 +38,21 @@ export interface AgentLoopOutcome {
   quotaExhausted?: boolean;
 }
 
+export interface AgentLoopToolset {
+  /** Tools injectés à l'API LLM au départ (noyau + pertinents). */
+  active: OpenAiTool[];
+  /** Catalogue COMPLET pour l'expansion dynamique après search_tools. */
+  byName: Map<string, OpenAiTool>;
+}
+
 /**
  * AgentLoop (Template Method, Phase 2.2) : LA boucle LLM + tools unique,
  * consommée par les deux canaux (Discord via AssistantService, dashboard via
  * WebAgentService). Le canal branche ses hooks (progression, snapshots,
- * audit, livraison) ; la mécanique d'itération, le streaming SSE et la
- * réassemblage des tool_calls vivent ICI.
+ * audit, livraison) ; la mécanique d'itération, le streaming SSE, la
+ * réassemblage des tool_calls et l'EXPANSION DYNAMIQUE du toolset (pattern
+ * routing Anthropic : search_tools rend les tools trouvés appelables)
+ * vivent ICI.
  */
 @Injectable()
 export class AgentLoopService {
@@ -54,13 +63,14 @@ export class AgentLoopService {
 
   async run(
     messages: ChatMessage[],
-    openAiTools: OpenAiTool[],
+    toolset: AgentLoopToolset,
     ctx: ToolRunContext,
     options: { userId: string; guildId: string | null },
     hooks: AgentLoopHooks,
   ): Promise<AgentLoopOutcome> {
     const usage = { promptTokens: 0, completionTokens: 0 };
     const executed: string[] = [];
+    const openAiTools = [...toolset.active];
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
       await hooks.onIterationStart?.(iteration, messages);
@@ -106,6 +116,17 @@ export class AgentLoopService {
           } else {
             result = await this.registry.run(call.name, input, ctx);
             executed.push(call.name);
+          }
+          // Tool routing : search_tools élargit le toolset ACTIF avec les
+          // tools trouvés — ils deviennent appelables à l'itération suivante.
+          if (call.name === 'search_tools') {
+            const found = (result.data?.tools as Array<{ name: string }> | undefined) ?? [];
+            for (const card of found) {
+              const openAiTool = toolset.byName.get(card.name);
+              if (openAiTool && !openAiTools.some((tool) => tool.function.name === openAiTool.function.name)) {
+                openAiTools.push(openAiTool);
+              }
+            }
           }
           await hooks.onToolResult?.(call.name, result, input, iteration);
           messages.push({

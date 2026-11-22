@@ -141,6 +141,39 @@ export class LlmService implements SpraxiumOnBoot {
     }
     this.registry.register(this.statusTool());
     this.registry.register(this.dedicatedChannelTool());
+    this.registry.register(this.translateTool());
+  }
+
+  /** Tool translate : réutilise le LLM configuré (aucune API externe en plus). */
+  private translateTool(): BotTool {
+    return {
+      name: 'translate',
+      description: 'Traduit un texte vers la langue cible (réutilise le modèle IA configuré).',
+      category: 'assistant',
+      paramsSchema: z.object({
+        text: z.string().min(1).max(4000),
+        target: z.string().min(2).max(30).default('français').describe('Langue cible (ex: français, english, español)'),
+      }),
+      requiredModules: [],
+      permissions: [],
+      destructive: false,
+      systemPrompt:
+        'Renvoie UNIQUEMENT la traduction, sans commentaire ni guillemets ajoutés. Préserve le ton, les noms propres et le markdown.',
+      handler: async (input) => {
+        if (!this.configured) return { ok: false, summary: 'Le module IA n\u0027est pas configuré.' };
+        const { text, target } = input as { text: string; target?: string };
+        const completion = await this.chat(
+          [
+            { role: 'system', content: `Traduis le texte suivant en ${target ?? 'français'}. Réponds UNIQUEMENT avec la traduction.` },
+            { role: 'user', content: text },
+          ],
+          [],
+          { userId: 'translate', guildId: null, cause: 'consolidation' },
+        ).catch(() => null);
+        if (!completion?.content) return { ok: false, summary: 'Traduction impossible (fournisseur IA injoignable).' };
+        return { ok: true, summary: completion.content };
+      },
+    };
   }
 
   /** Tool setDedicatedChannel : désigne le salon où l'agent engage sans mention. */

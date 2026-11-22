@@ -8,6 +8,7 @@ import {
   type GuildMember,
 } from 'discord.js';
 import { z } from 'zod';
+import { generateFromMessages, ExportReturnType } from 'discord-html-transcripts';
 import type { BotTool, ToolResult } from '@10cordes/shared';
 import { getToolRegistry } from '../tool-registry/tool-registry.service';
 import { PrismaService } from '../database/prisma.service';
@@ -91,31 +92,43 @@ export class UtilityService implements SpraxiumOnBoot {
       },
       {
         name: 'messages.export',
-        description: 'Exporte les derniers messages d\u0029un salon en pièce jointe JSON ou CSV.',
+        description: 'Exporte les derniers messages d\u0027un salon en pièce jointe JSON, CSV ou HTML (transcript visuel complet : embeds, pièces jointes, avatars).',
         category: 'utility',
         paramsSchema: z.object({
           channelId: z.string().min(1),
-          format: z.enum(['json', 'csv']).default('json'),
+          format: z.enum(['json', 'csv', 'html']).default('json'),
           limit: z.number().int().min(1).max(500).default(100),
         }),
         requiredModules: [],
         permissions: ['ManageMessages'],
         destructive: false,
-        systemPrompt: 'Le fichier part automatiquement en pièce jointe dans le salon de la demande.',
+        systemPrompt:
+          'Le fichier part automatiquement en pièce jointe dans le salon de la demande. HTML = transcript visuel (tickets, archives) ; JSON/CSV = données brutes.',
         handler: async (input, ctx) => {
           if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
-          const { channelId, format, limit } = input as { channelId: string; format?: 'json' | 'csv'; limit?: number };
+          const { channelId, format, limit } = input as { channelId: string; format?: 'json' | 'csv' | 'html'; limit?: number };
           const channel = this.textChannel(ctx.guildId, channelId);
           if (!channel) return { ok: false, summary: 'Salon introuvable ou non textuel.' };
           const messages = await channel.messages.fetch({ limit: limit ?? 100 }).catch(() => null);
           if (!messages || messages.size === 0) return { ok: false, summary: 'Salon vide.' };
-          const rows = [...messages.values()]
-            .reverse()
-            .map((message) => ({
-              date: new Date(message.createdTimestamp).toISOString(),
-              author: message.author.username,
-              content: message.content,
-            }));
+          const ordered = [...messages.values()].reverse();
+          // HTML : discord-html-transcripts (embeds, attachments, avatars,
+          // markdown rendus — le standard discord.js pour les transcripts).
+          if ((format ?? 'json') === 'html') {
+            const attachment = await generateFromMessages(ordered, channel, { returnType: ExportReturnType.Buffer });
+            const sent = await ctx
+              .sendFile?.({ name: `transcript-${channel.name}.html`, attachment })
+              .then(() => true)
+              .catch(() => false);
+            return sent
+              ? { ok: true, summary: `Transcript HTML de ${ordered.length} message(s) envoyé en pièce jointe.` }
+              : { ok: false, summary: 'Transcript généré mais envoi impossible (surface sans fichiers).' };
+          }
+          const rows = ordered.map((message) => ({
+            date: new Date(message.createdTimestamp).toISOString(),
+            author: message.author.username,
+            content: message.content,
+          }));
           let payload: string;
           let name: string;
           if ((format ?? 'json') === 'csv') {
@@ -126,10 +139,13 @@ export class UtilityService implements SpraxiumOnBoot {
             payload = JSON.stringify(rows, null, 2);
             name = `export-${channel.name}.json`;
           }
-          await ctx
+          const sent = await ctx
             .sendFile?.({ name, attachment: Buffer.from(payload, 'utf8') })
-            .catch(() => {});
-          return { ok: true, summary: `Export de ${rows.length} message(s) envoyé en pièce jointe (${name}).` };
+            .then(() => true)
+            .catch(() => false);
+          return sent
+            ? { ok: true, summary: `Export de ${rows.length} message(s) envoyé en pièce jointe (${name}).` }
+            : { ok: false, summary: 'Export généré mais envoi impossible (surface sans fichiers).' };
         },
       },
       {
@@ -343,6 +359,50 @@ export class UtilityService implements SpraxiumOnBoot {
           return sent
             ? { ok: true, summary: 'Annonce postée via webhook.' }
             : { ok: false, summary: "Envoi via webhook échoué (permissions du salon, contenu rejeté ?)." };
+        },
+      },
+      {
+        name: 'thread.addMember',
+        description: 'Ajoute un membre à un fil (les fils PRIVÉS exigent un ajout explicite : ceci est la primitive des systèmes de tickets par threads).',
+        category: 'utility',
+        paramsSchema: z.object({ threadId: z.string().min(1), userId: z.string().min(1) }),
+        requiredModules: [],
+        permissions: [],
+        destructive: false,
+        systemPrompt: "Read-before-write : vérifie via getMembers que le membre existe. Le bot doit être membre du fil pour y ajouter quelqu'un.",
+        handler: async (input, ctx) => {
+          if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
+          const { threadId, userId } = input as { threadId: string; userId: string };
+          const thread = await this.client.channels.fetch(threadId).catch(() => null);
+          if (!thread?.isThread()) return { ok: false, summary: 'Fil introuvable.' };
+          const added = await thread.members.add(userId).then(() => true).catch(() => false);
+          return added
+            ? { ok: true, summary: `<@${userId}> ajouté au fil <#${threadId}>.` }
+            : { ok: false, summary: "Ajout impossible (membre introuvable, déjà membre, ou bot hors du fil ?)." };
+        },
+      },
+      {
+        name: 'message.crosspost',
+        description: 'Crosspost (publie) un message d\u2019un salon d\u2019annonces vers tous les serveurs qui le suivent.',
+        category: 'utility',
+        paramsSchema: z.object({ channelId: z.string().min(1), messageId: z.string().min(1) }),
+        requiredModules: [],
+        permissions: ['ManageMessages'],
+        destructive: false,
+        systemPrompt: 'Fonctionne uniquement dans un salon de type ANNONCES (NewsChannel). Sinon Discord refuse.',
+        handler: async (input, ctx) => {
+          if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
+          const { channelId, messageId } = input as { channelId: string; messageId: string };
+          const channel = this.textChannel(ctx.guildId, channelId);
+          if (!channel || channel.type !== ChannelType.GuildAnnouncement) {
+            return { ok: false, summary: 'Le crosspost exige un salon de type Annonces.' };
+          }
+          const message = await channel.messages.fetch(messageId).catch(() => null);
+          if (!message) return { ok: false, summary: 'Message introuvable.' };
+          const crossposted = await message.crosspost().then(() => true).catch(() => false);
+          return crossposted
+            ? { ok: true, summary: 'Message publié (crosspost) vers les serveurs abonnés.' }
+            : { ok: false, summary: 'Crosspost refusé (déjà publié ou rate-limit).' };
         },
       },
       {

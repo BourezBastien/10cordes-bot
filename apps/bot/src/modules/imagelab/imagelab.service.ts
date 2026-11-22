@@ -1,5 +1,6 @@
 import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
 import { z } from 'zod';
+import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { safeFetch } from '../../shared/utils/safe-fetch';
 import { AppEnv } from '../../app.env';
 import { PrismaService } from '../database/prisma.service';
@@ -176,6 +177,69 @@ export class ImagelabService implements SpraxiumOnBoot {
               : "Émoji généré mais l'envoi dans le salon a échoué — ne dis PAS qu'il est posté.",
             data: { size: 64 },
           };
+        },
+      },
+      {
+        name: 'image.compose',
+        description:
+          "Compose une CARTE visuelle en local (canvas, aucune clé requise) : titre, sous-titre, avatar optionnel — bannière de bienvenue, carte de rang, en-tête d'événement. Texte précis et fiable (contrairement à la génération IA).",
+        category: 'imagelab',
+        paramsSchema: z.object({
+          title: z.string().min(1).max(80),
+          subtitle: z.string().max(160).optional(),
+          avatarUrl: z.string().url().max(500).optional().describe('Avatar circulaire à gauche (URL)'),
+        }),
+        requiredModules: [],
+        permissions: [],
+        destructive: false,
+        systemPrompt:
+          'Bannière locale instantanée (bienvenue, niveau, événement). Fond sombre, accent orange : le style maison. Le fichier part en pièce jointe.',
+        handler: async (input, ctx) => {
+          const { title, subtitle, avatarUrl } = input as { title: string; subtitle?: string; avatarUrl?: string };
+          const W = 900;
+          const H = 280;
+          const canvas = createCanvas(W, H);
+          const c = canvas.getContext('2d');
+          // Fond sombre + accent orange (branding maison).
+          c.fillStyle = '#111114';
+          c.fillRect(0, 0, W, H);
+          c.fillStyle = '#d95926';
+          c.fillRect(0, 0, 14, H);
+          let textX = 60;
+          if (avatarUrl) {
+            const avatarBuffer = await safeFetch(avatarUrl, { timeoutMs: 10_000 })
+              .then((response) => response.arrayBuffer())
+              .catch(() => null);
+            if (avatarBuffer) {
+              const image = await loadImage(Buffer.from(avatarBuffer)).catch(() => null);
+              if (image) {
+                c.save();
+                c.beginPath();
+                c.arc(130, H / 2, 80, 0, Math.PI * 2);
+                c.closePath();
+                c.clip();
+                c.drawImage(image, 50, H / 2 - 80, 160, 160);
+                c.restore();
+                textX = 240;
+              }
+            }
+          }
+          c.fillStyle = '#f5f5f7';
+          c.font = 'bold 52px sans-serif';
+          c.fillText(title.slice(0, 24), textX, subtitle ? H / 2 - 8 : H / 2 + 18);
+          if (subtitle) {
+            c.fillStyle = '#a8a8ad';
+            c.font = '30px sans-serif';
+            c.fillText(subtitle.slice(0, 40), textX, H / 2 + 44);
+          }
+          const delivered = ctx.sendFile
+            ? await ctx.sendFile({ name: `card-${Date.now()}.png`, attachment: canvas.toBuffer('image/png') })
+                .then(() => true)
+                .catch(() => false)
+            : false;
+          return delivered
+            ? { ok: true, summary: `Carte « ${title} » envoyée en pièce jointe.`, data: { width: W, height: H } }
+            : { ok: false, summary: 'Carte générée mais envoi impossible (surface sans fichiers).' };
         },
       },
     ];

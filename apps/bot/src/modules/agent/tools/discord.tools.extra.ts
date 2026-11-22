@@ -595,7 +595,9 @@ export function discordExtraTools(
         const now = Date.now();
         const results: Array<{ name: string; id: string; days: number | null }> = [];
         let scanned = 0;
-        for (const channel of channels) {
+        // Parallélisé par LOTS DE 8 (l'audit mesurait 1-2 min en séquentiel
+        // sur les grosses guildes) : progression mise à jour à chaque lot.
+        const scanChannel = async (channel: import('discord.js').TextChannel | import('discord.js').NewsChannel) => {
           const messages = await channel.messages.fetch({ limit: 25 }).catch(() => null);
           let lastHumanDays: number | null = null;
           if (messages) {
@@ -606,11 +608,14 @@ export function discordExtraTools(
               break;
             }
           }
-          results.push({ name: channel.name, id: channel.id, days: lastHumanDays });
-          scanned += 1;
-          if (scanned % 8 === 0 || scanned === channels.length) {
-            await update(`analyse : ${scanned}/${channels.length} salons`);
-          }
+          return { name: channel.name, id: channel.id, days: lastHumanDays };
+        };
+        const BATCH = 8;
+        for (let i = 0; i < channels.length; i += BATCH) {
+          const batch = await Promise.all(channels.slice(i, i + BATCH).map(scanChannel));
+          results.push(...batch);
+          scanned += batch.length;
+          await update(`analyse : ${scanned}/${channels.length} salons`);
         }
         await update('analyse terminée');
         const dead = results.filter((r) => r.days === null || r.days >= threshold);
