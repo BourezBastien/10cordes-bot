@@ -4,51 +4,60 @@ import { Events, MessageReferenceType, type Message } from 'discord.js';
 import { AssistantService } from '../assistant.service';
 import { getValidatedEnv } from '../../../auth/env.accessor';
 import { PrismaService } from '../../database/prisma.service';
+import { GuildRulesService } from '../../rules/guild-rules.service';
 
 const log = new Logger('AssistantListener');
 
 /**
- * GATE REFONDUE (décision 22/11) : chaîne courte, ZÉRO appel LLM, zéro liste
- * de noms à maintenir. Le triage passif est SUPPRIMÉ (19 % de réponses non
- * sollicitées mesurées ; bug botParticipated ; clauses trop larges).
+ * GATE REFONDUE (22/11 + R0.1) : chaîne courte, ZÉRO appel LLM, zéro liste
+ * de noms à maintenir. Le triage passif reste SUPPRIMÉ.
  *
- * 1. Source : webhooks ALLOWLISTÉS uniquement (E2E_STAFF_WEBHOOK_IDS, rigs).
- *    Tout autre webhook est ignoré (fin des boucles bot-bot type Paul/MARK),
- *    tout vrai compte bot est ignoré.
- * 2. Mention d'un AUTRE bot sans nous → silence total (données Discord
- *    fiables, plus jamais d'alias env à maintenir).
- * 3. Salon dédié IA : tout message humain y est adressé au bot (c'est le
- *    but du salon ; boot-recovery suppose ce comportement).
- * 4. Ailleurs : uniquement mention réelle, notre nom en mot entier, ou
- *    réponse vérifiée à un de nos messages (messageReference + fetch).
+ * 1. Source : webhooks STAFF auto-reconnus uniquement (créés par le bot,
+ *    nommés agent-e2e-guardian, E2E_ENABLED) ; tout autre webhook ou vrai
+ *    compte bot est ignoré.
+ * 2. Mention d'un AUTRE bot sans nous → silence.
+ * 3. Salon dédié IA : tout message humain y est adressé au bot.
+ * 4. RÈGLES SERVEUR (GuildRule) : en zone libre (catégorie/salon listé),
+ *    le nom en texte brut déclenche aussi ; hors zone libre avec
+ *    strictMentionElsewhere, SEULE une vraie mention @ ou une réponse
+ *    directe déclenche (le nom texte est ignoré).
+ * 5. Partout : le nom en texte brut est testé sur un contenu NETTOYÉ
+ *    (URLs, blocs de code, mentions retirées) — un lien GitHub contenant
+ *    le nom du bot ne déclenche JAMAIS.
  */
 
-/** Nom du bot parsé UNE fois (l'ancien code reparseait l'env à chaque message). */
-let cachedBotName: string | null = null;
-function botName(): string {
-  cachedBotName ??= getValidatedEnv().DISCORD_BOT_NAME.trim().toLowerCase();
-  return cachedBotName;
-}
-
-/** Webhooks staff parsés une fois. */
-let cachedStaffWebhooks: string[] | null = null;
-function staffWebhookIds(): string[] {
-  cachedStaffWebhooks ??= getValidatedEnv()
-    .E2E_STAFF_WEBHOOK_IDS.split(',')
-    .map((id) => id.trim())
-    .filter((id) => id.length > 0);
-  return cachedStaffWebhooks;
+/** Webhooks staff parsés une fois (E2E : nom créé par les rigs eux-mêmes). */
+let cachedStaffWebhookNames: string[] | null = null;
+function staffWebhookNames(): string[] {
+  cachedStaffWebhookNames ??= ['agent-e2e-guardian'];
+  return cachedStaffWebhookNames;
 }
 
 /**
- * Le contenu cite le bot par son nom tapé en texte brut, en MOT ENTIER
- * (l'ancien `includes` laissait un alias court matcher un mot plus long).
+ * Contenu NETTOYÉ pour la détection du nom : URLs, blocs de code (``` et `),
+ * inline code, mentions/channels/slash-commandes retirés. Un lien
+ * github.com/x/10cordes-bot ne contient plus le mot détectable.
  */
-function mentionsBotByName(content: string): boolean {
-  const name = botName();
+function cleanForNameDetection(content: string): string {
+  return content
+    .replace(/https?:\/\/\S+/gu, ' ')
+    .replace(/```[\s\S]*?```/gu, ' ')
+    .replace(/`[^`\n]*`/gu, ' ')
+    .replace(/<\/?[a@:#]?[0-9A-Za-z_]+(:\d+>)?/gu, ' ')
+    .replace(/<[a@#]\d+>/gu, ' ')
+    .replace(/<\/?[a-z]+:\d+>/gu, ' ');
+}
+
+/**
+ * Le contenu cite le bot par son nom tapé en texte brut, en MOT ENTIER sur
+ * le contenu NETTOYÉ (l'ancien `includes` laissait un alias court matcher
+ * un mot plus long ; les URLs ne comptent plus du tout).
+ */
+function mentionsBotByName(username: string, content: string): boolean {
+  const name = username.trim().toLowerCase();
   if (name.length < 2) return false;
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu').test(content);
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu').test(cleanForNameDetection(content));
 }
 
 @Listener(Events.MessageCreate)
@@ -56,14 +65,13 @@ export class AssistantMentionListener {
   constructor(
     private readonly assistant: AssistantService,
     private readonly prisma: PrismaService,
+    private readonly rules: GuildRulesService,
   ) {}
 
   /**
    * Réponse à un de NOS messages : résolue par messageReference réel
-   * (MessageReferenceType.Default = vraie réponse, pas un forward), cache
-   * d'abord puis FETCH de secours dans un try/catch. L'ancien code ne
-   * regardait que le cache : une réponse à un message du bot plus ancien
-   * que le cache (restart) n'était jamais reconnue.
+   * (MessageReferenceType.Default = vraie réponse), cache d'abord puis
+   * FETCH de secours dans un try/catch.
    */
   private async resolvesRepliesToBot(message: Message, meId: string): Promise<boolean> {
     const ref = message.reference;
@@ -85,16 +93,18 @@ export class AssistantMentionListener {
     const guildId = message.guildId;
     if (!me || !guildId) return;
 
-    // 1. Source : seuls les webhooks allowlistés (rigs E2E) passent. Tout
-    //    autre webhook (intégrations, relais d'autres bots) est ignoré.
+    // 1. Source : seuls les webhooks auto-créés par le bot pour les rigs
+    //    passent (reconnaissance par nom + owner bot) ; E2E_ENABLED requis.
     if (message.webhookId) {
-      if (!staffWebhookIds().includes(message.webhookId)) return;
+      const e2eEnabled = getValidatedEnv().E2E_ENABLED === 'true';
+      const name = (message.author.username ?? '').toLowerCase();
+      const owned = message.webhookId.length > 0 && staffWebhookNames().includes(name) && message.author.discriminator === '0';
+      if (!(e2eEnabled && owned)) return;
     } else if (message.author.bot) {
       return;
     }
 
-    // 2. Adressé à un AUTRE bot (mention d'un bot sans nous) : silence,
-    //    même en salon dédié.
+    // 2. Adressé à un AUTRE bot (mention d'un bot sans nous) : silence.
     if (!message.mentions.users.has(me.id)) {
       const mentionsOtherBot = [...message.mentions.users.values()].some((user) => user.bot && user.id !== me.id);
       if (mentionsOtherBot) return;
@@ -102,22 +112,28 @@ export class AssistantMentionListener {
 
     const inDedicatedChannel = (await this.assistant.dedicatedChannelId(guildId)) === message.channelId;
 
-    // Watermark de reprise au boot : chaque message VU dans le salon dédié
-    // fait avancer le point de relecture (aucune demande perdue).
+    // R0.1 : zone libre (GuildRule) — catégorie parente ou salon listé.
+    const channel = message.channel;
+    const parentCategoryId = channel.isThread() ? channel.parentId : ('parentId' in channel ? channel.parentId : null);
+    const freeZone = await this.rules.isFreeZone(guildId, message.channelId, parentCategoryId);
+
+    // Watermark de reprise au boot : chaque message VU dans le salon dédié.
     if (inDedicatedChannel) {
       void this.prisma.channelWatermark
         .upsert({ where: { channelId: message.channelId }, create: { channelId: message.channelId, lastMessageId: message.id }, update: { lastMessageId: message.id } })
         .catch(() => {});
     }
 
-    // 3-4. Interpellation explicite uniquement (plus aucun triage LLM).
+    // 3-5. Interpellation : dédié = tout ; sinon mention/reply TOUJOURS,
+    // nom texte seulement en zone libre (strictMentionElsewhere par défaut).
     const repliesToBot = await this.resolvesRepliesToBot(message, me.id);
     const mentioned = message.mentions.users.has(me.id);
-    const byName = !mentioned && mentionsBotByName(message.content);
-    if (!inDedicatedChannel && !mentioned && !byName && !repliesToBot) return;
+    const byName = !mentioned && mentionsBotByName(me.username, message.content);
+    const nameAllowed = freeZone || inDedicatedChannel || !(await this.rules.get(guildId)).strictMentionElsewhere;
+    if (!inDedicatedChannel && !mentioned && !repliesToBot && !(byName && nameAllowed)) return;
 
     log.info(
-      `[GATE] accepté (dédié=${inDedicatedChannel} mention=${mentioned} nom=${byName} réponse-bot=${repliesToBot}) — ${message.author.username}`,
+      `[GATE] accepté (dédié=${inDedicatedChannel} mention=${mentioned} nom=${byName && nameAllowed} réponse-bot=${repliesToBot} zone-libre=${freeZone}) — ${message.author.username}`,
     );
     await this.assistant.enqueueMessage(message, repliesToBot);
   }

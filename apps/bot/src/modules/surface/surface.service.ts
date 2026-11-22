@@ -19,6 +19,7 @@ import { getToolRegistry } from '../tool-registry/tool-registry.service';
 import { defineTool } from '@10cordes/shared';
 import { deepMerge } from '../../shared/utils/object';
 import { SurfaceRenderer } from './surface.renderer';
+import { CacheStoreService } from '../../shared/cache/cache-store.service';
 import { SurfacePipelineService, type PipelineContext, type PipelineVars, type ToolRunner } from './surface.pipeline';
 
 /**
@@ -65,6 +66,7 @@ export class SurfaceService implements SpraxiumOnBoot {
     private readonly pipeline: SurfacePipelineService,
     private readonly buttons: ButtonService,
     private readonly client: Client,
+    private readonly cache: CacheStoreService,
   ) {}
 
   onBoot(): void {
@@ -130,10 +132,28 @@ export class SurfaceService implements SpraxiumOnBoot {
   // ── Exécution d'une interaction (appelée par les handlers) ───────
 
   async runInteraction(args: RunSurfaceInteractionArgs): Promise<{ ok: boolean; message: string }> {
+    const row = await this.prisma.interactiveSurface.findUnique({ where: { id: args.surfaceId } });
+    if (!row) return { ok: false, message: 'Surface introuvable (supprimée ?).' };
     const surface = await this.loadSurface(args.surfaceId);
-    if (!surface) return { ok: false, message: 'Surface introuvable (supprimée ?).' };
+    if (!surface) return { ok: false, message: 'Surface illisible.' };
     const binding = this.findBinding(surface.definition, args.bindingKey);
     if (!binding) return { ok: false, message: `Bouton « ${args.bindingKey} » inconnu sur cette surface.` };
+
+    // R0.4c — confirmation destructive : le clic ✅ sur une surface kind=confirm
+    // pose la clé ICacheStore (TTL 5 min) que le registry vérifie au re-run.
+    if (row.kind === 'confirm' && args.bindingKey === 'confirmer') {
+      const state = JSON.parse(row.state || '{}') as { confirmKey?: string };
+      if (state.confirmKey) {
+        await this.cache.active.set(state.confirmKey, 'ok', 300);
+        this.pipeline.auditRun(row.guildId, 'rule.confirm.accepted', args.userId, { confirmKey: state.confirmKey });
+      }
+    }
+    if (row.kind === 'confirm' && args.bindingKey === 'annuler') {
+      const state = JSON.parse(row.state || '{}') as { confirmKey?: string };
+      if (state.confirmKey) {
+        this.pipeline.auditRun(row.guildId, 'rule.confirm.denied', args.userId, { confirmKey: state.confirmKey });
+      }
+    }
 
     const vars: PipelineVars = {
       guildId: surface.guildId,
@@ -244,7 +264,7 @@ export class SurfaceService implements SpraxiumOnBoot {
       permissions: ['ManageGuild'],
       destructive: false,
       systemPrompt:
-        'Passe une definition JSON valide (schéma SurfaceDefinition). Clés de bindings kebab-case uniques. openModal uniquement en PREMIÈRE étape. Ne dépasse jamais 10 000 octets de textes. Réponds en UNE phrase après création.',
+        'Passe une definition JSON valide (schéma SurfaceDefinition) avec le VRAI contenu demandé : titre explicite, description utile, boutons réels (labels métier, pipelines complets). JAMAIS de coquille vide ni de placeholders (probe/test/ping). Clés de bindings kebab-case uniques. openModal uniquement en PREMIÈRE étape. Structure type : {"title":"...","description":"...","rows":[{"kind":"buttons","buttons":[{"key":"mon-action","label":"Mon action","pipeline":[...]}]}],"initialState":{...}}. Réponds en UNE phrase après création.',
       handler: async (input, ctx): Promise<ToolResult> => {
         if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
         const { channelId, kind, definition: raw } = input as { channelId: string; kind?: string; definition: string };
@@ -253,6 +273,16 @@ export class SurfaceService implements SpraxiumOnBoot {
           definition = SurfaceDefinitionSchema.parse(JSON.parse(raw));
         } catch (error) {
           return { ok: false, summary: `Définition invalide : ${error instanceof z.ZodError ? error.issues[0]?.message : 'JSON illisible'}` };
+        }
+        // R0.3 — STRICT : pas de surface « coquille vide » (bug Probe/ping).
+        if (!definition.title || definition.title.trim().length < 3) {
+          return { ok: false, summary: "Titre requis (min 3 caractères réels) : donne le VRAI titre du panneau, pas un placeholder." };
+        }
+        if (definition.rows.length === 0) {
+          return { ok: false, summary: 'Au moins une rangée de composants est requise : fournis les VRAIS boutons/menus avec leurs labels et pipelines, pas une coquille vide.' };
+        }
+        if (definition.rows.every((row) => (row.kind === 'buttons' ? row.buttons.every((b) => /^(probe|test|ping|placeholder|todo)$/iu.test(b.label)) : row.select.options.every((o) => /^(probe|test|ping|placeholder|todo)$/iu.test(o.label))))) {
+          return { ok: false, summary: 'Labels placeholder détectés (probe/test/ping) : fournis le VRAI contenu demandé par l\u0027utilisateur.' };
         }
         const errors = validateSurfaceDefinition(definition);
         if (errors.length > 0) return { ok: false, summary: `Définition rejetée : ${errors.join(' | ')}` };

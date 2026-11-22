@@ -25,6 +25,58 @@ export class MemoryService implements SpraxiumOnBoot {
 
   async onBoot(): Promise<void> {
     for (const tool of this.buildTools()) this.registry.register(tool);
+    this.registry.register(this.forgetTool());
+  }
+
+  /** R0.5 : le membre a-t-il demandé à être oublié (opt-out persistant) ? */
+  async hasOptedOut(guildId: string, userId: string): Promise<boolean> {
+    const row = await this.prisma.memoryOptOut.findFirst({ where: { userId, guildId } }).catch(() => null);
+    return row !== null;
+  }
+
+  /** R0.5 : purge complète + opt-out. Retourne le décompte supprimé. */
+  async forgetMember(guildId: string, userId: string): Promise<{ entries: number; profiles: number }> {
+    const entries = await this.prisma.memberMemory.deleteMany({ where: { guildId, userId } });
+    const profiles = await this.prisma.memberMemoryProfile.deleteMany({ where: { guildId, userId } }).catch(() => ({ count: 0 }));
+    await this.prisma.memoryOptOut.upsert({
+      where: { userId_guildId: { userId, guildId } },
+      create: { userId, guildId },
+      update: {},
+    }).catch(() => {
+      /* contrainte composite éventuelle : id simple */
+    });
+    return { entries: entries.count, profiles: profiles.count };
+  }
+
+  private forgetTool(): BotTool {
+    return {
+      name: 'memory.forget',
+      description:
+        "Oublie TOTALEMENT un membre : purge son journal mémoire et sa fiche consolidée, puis pose un opt-out durable (plus rien ne sera enregistré sur lui tant qu'il ne change pas d'avis). Réponds ensuite en une phrase de confirmation, sans dramatiser.",
+      category: 'memory',
+      paramsSchema: z.object({
+        userId: z.string().min(15).optional().describe('Par défaut : le demandeur lui-même'),
+      }),
+      requiredModules: [],
+      permissions: [],
+      destructive: true,
+      systemPrompt:
+        "À appeler dès qu'un membre demande en langage naturel « oublie-moi », « efface mes données », « arrête de me mémoriser » — pour LUI-MÊME par défaut (userId omis = demandeur). Purger un AUTRE membre exige la permission ManageGuild (registry). Confirme ensuite simplement.",
+      handler: async (input, ctx) => {
+        if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
+        const { userId } = (input ?? {}) as { userId?: string };
+        const target = userId ?? ctx.userId;
+        const isSelf = target === ctx.userId;
+        if (!isSelf && !ctx.permissions.includes('ManageGuild') && !ctx.permissions.includes('Administrator')) {
+          return { ok: false, summary: 'Purger la mémoire d\u0027un autre membre requiert ManageGuild.' };
+        }
+        const counts = await this.forgetMember(ctx.guildId, target);
+        return {
+          ok: true,
+          summary: `Mémoire de <@${target}> purgée (${counts.entries} entrées, ${counts.profiles} fiche(s)) et opt-out actif : plus rien ne sera retenu sur lui.`,
+        };
+      },
+    };
   }
 
   async addGuild(guildId: string, content: string, kind: string): Promise<void> {
@@ -42,6 +94,8 @@ export class MemoryService implements SpraxiumOnBoot {
   }
 
   async addMember(guildId: string, userId: string, content: string, kind: string): Promise<void> {
+    // R0.5 opt-out : le membre a demandé à être oublié → plus aucune écriture.
+    if (await this.hasOptedOut(guildId, userId)) return;
     await this.prisma.memberMemory.create({ data: { guildId, userId, kind, content } });
     const extras = await this.prisma.memberMemory.findMany({
       where: { guildId, userId },

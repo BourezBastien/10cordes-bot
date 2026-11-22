@@ -6,6 +6,8 @@ import { GuildConfigService } from '../guild-config/guild-config.service';
 import { ModuleManagerService } from '../module-manager/module-manager.service';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
+import type { GuildRulesService } from '../rules/guild-rules.service';
+import type { CacheStoreService } from '../../shared/cache/cache-store.service';
 
 let registryInstance: ToolRegistryService | undefined;
 
@@ -13,6 +15,19 @@ let registryInstance: ToolRegistryService | undefined;
 export function getToolRegistry(): ToolRegistryService {
   if (!registryInstance) throw new Error('ToolRegistryService is not initialized yet.');
   return registryInstance;
+}
+
+/** Dépendances runtime (casser les cycles DI) : règles, cache, prisma, client, rendu. */
+const runtimeDeps: {
+  rules?: GuildRulesService;
+  cache?: CacheStoreService;
+  prisma?: PrismaService;
+  client?: import('discord.js').Client;
+  renderSurface?: (surfaceId: string) => Promise<void>;
+} = {};
+
+export function bindRegistryRuntimeDeps(deps: Partial<typeof runtimeDeps>): void {
+  Object.assign(runtimeDeps, deps);
 }
 
 /**
@@ -166,6 +181,32 @@ export class ToolRegistryService {
       });
     }
 
+    // R0.4c — CONFIRMATION DESTRUCTIVE (règle serveur) : surface ✅/❌ réservée
+    // à l'auteur ; la clé ICacheStore (posée par le clic ✅, TTL 5 min) laisse
+    // passer la ré-exécution.
+    if (tool.destructive && ctx.guildId && runtimeDeps.rules && runtimeDeps.cache) {
+      const rulesOn = (await runtimeDeps.rules.get(ctx.guildId)).confirmDestructiveActions;
+      const confirmKey = `confirm:${ctx.guildId}:${name}:${stableStringify(parsed.data)}`;
+      if (rulesOn && (await runtimeDeps.cache.active.get(confirmKey)) !== 'ok') {
+        const posted = await postConfirmSurface(name, parsed.data, ctx, runtimeDeps).catch(() => false);
+        this.audit.record({
+          guildId: ctx.guildId,
+          source: 'agent',
+          action: 'rule.confirm.shown',
+          actorId: ctx.userId,
+          metadata: { tool: name, posted },
+        });
+        return finish({
+          ok: false,
+          summary: `Action destructive (${name}) bloquée par la règle du serveur : ${
+            posted
+              ? `les boutons ✅ Confirmer / ❌ Annuler viennent d\u0027être postés (réservés à <@${ctx.userId}>, valides 5 min). Informe l\u0027utilisateur, puis RE-EXÉCUTE le tool après son clic ✅.`
+              : 'confirmation par boutons requise mais impossible à afficher ici. Demande une confirmation explicite à l\u0027utilisateur puis re-exécute.'
+          }`,
+        });
+      }
+    }
+
     // try/catch : une exception handler ne remonte JAMAIS à la boucle LLM —
     // elle devient un refus explicite que le modèle reformule pour l'utilisateur
     // (fix du silence : « Missing Permissions » non rattrapé laissait la
@@ -180,6 +221,73 @@ export class ToolRegistryService {
         summary: `Tool ${name} a échoué : ${message.slice(0, 180)}`,
       });
     }
+  }
+}
+
+
+/** Hash stable d'un input (clé de confirmation indépendante de l'ordre des clés). */
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
+  return `{${entries.map(([key, val]) => `${JSON.stringify(key)}:${stableStringify(val)}`).join(',')}}`;
+}
+
+/**
+ * Surface de confirmation ✅/❌ (R0.4c) : boutons réservés à l'auteur
+ * (AccessPolicy userIds) ; le clic ✅ pose la clé ICacheStore (géré par
+ * SurfaceService quand kind=confirm), la ré-exécution du tool passe ensuite.
+ */
+async function postConfirmSurface(
+  toolName: string,
+  input: unknown,
+  ctx: ToolRunContext,
+  deps: typeof runtimeDeps,
+): Promise<boolean> {
+  if (!ctx.guildId || !deps.cache || !ctx.channelId || !deps.prisma || !deps.renderSurface) return false;
+  try {
+    const { SurfaceDefinitionSchema } = await import('@10cordes/shared');
+    const confirmKey = `confirm:${ctx.guildId}:${toolName}:${stableStringify(input)}`;
+    const definition = SurfaceDefinitionSchema.parse({
+      title: `Confirmer : ${toolName}`,
+      description: `Action destructive demandée par <@${ctx.userId}>. Confirmer exécutera le tool « ${toolName} » ; Annuler ne fera rien. Boutons réservés au demandeur, valides 5 minutes.`,
+      rows: [
+        {
+          kind: 'buttons',
+          buttons: [
+            {
+              key: 'confirmer',
+              label: '✅ Confirmer',
+              style: 'success',
+              access: { userIds: [ctx.userId] },
+              pipeline: [{ type: 'replyEphemeral', content: 'Confirmé : le bot va relancer l\u0027action, elle passera cette fois.' }],
+            },
+            {
+              key: 'annuler',
+              label: '❌ Annuler',
+              style: 'danger',
+              access: { userIds: [ctx.userId] },
+              pipeline: [{ type: 'replyEphemeral', content: 'Annulé : rien ne sera exécuté.' }],
+            },
+          ],
+        },
+      ],
+      initialState: { confirmKey, tool: toolName, input },
+    });
+    const created = await deps.prisma.interactiveSurface.create({
+      data: {
+        guildId: ctx.guildId,
+        channelId: ctx.channelId,
+        kind: 'confirm',
+        definition: JSON.stringify(definition),
+        state: JSON.stringify(definition.initialState),
+        createdBy: ctx.userId,
+      },
+    });
+    await deps.renderSurface(created.id);
+    return true;
+  } catch {
+    return false;
   }
 }
 

@@ -35,6 +35,8 @@ model Guild {
   toolNodes         ToolNode[]
   inviteStats       InviteStat[]
   agentRecords      AgentRecord[]
+  rules             GuildRule?
+  memoryOptOuts     MemoryOptOut[]
   surfaces          InteractiveSurface[]
   scheduledTriggers ScheduledTrigger[]
   eventTriggers     EventTrigger[]
@@ -495,6 +497,34 @@ model AgentRecord {
   @@index([guildId, collection, createdAt])
   @@index([guildId, collection, messageId])
   @@map("agent_records")
+}
+
+// ── Règles serveur (R0.4) : appliquées en code (gate, confirmation destructive) et en prompt ──
+
+model GuildRule {
+  guildId                 String   @id
+  freeCategoryIds         String   @default("[]") // JSON string[] : zone libre agents (réponse sans mention)
+  freeChannelIds          String   @default("[]") // JSON string[]
+  strictMentionElsewhere  Boolean  @default(true) // hors zone libre : seule une vraie @mention/reply déclenche
+  seriousOnlyElsewhere    Boolean  @default(false) // hors zone libre : ton sérieux uniquement
+  confirmDestructiveActions Boolean @default(false) // ✅/❌ avant tools destructifs
+  customInstructions      String   @default("[]") // JSON string[] : règles libres des admins
+  updatedAt               DateTime @updatedAt
+  guild                   Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@map("guild_rules")
+}
+
+// ── Opt-out mémoire (R0.5) : le membre a demandé à être oublié ──
+
+model MemoryOptOut {
+  userId    String
+  createdAt DateTime @default(now())
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  guildId   String
+
+  @@id([userId, guildId])
+  @@map("memory_opt_outs")
 }
 
 // ── MOTEUR GÉNÉRIQUE (2.4) : surfaces interactives persistantes ──

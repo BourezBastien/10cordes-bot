@@ -49,6 +49,8 @@ export interface ChatCompletionResult {
 export type ChatCause = 'reply' | 'web' | 'consolidation' | 'triage';
 
 export interface ChatOptions {
+  /** 'none' = forcer un tour final de synthèse sans tool_calls (R0.2). */
+  toolChoice?: 'auto' | 'none';
   userId: string;
   guildId: string | null;
   cause: ChatCause;
@@ -299,8 +301,9 @@ export class LlmService implements SpraxiumOnBoot {
     messages: ChatMessage[],
     tools: OpenAiTool[],
     options: ChatOptions,
-    callbacks: { onDelta?: (text: string) => void } = {},
+    callbacks: { onDelta?: (text: string) => void; toolChoice?: 'auto' | 'none' } = {},
   ): Promise<ChatCompletionResult> {
+    const mergedOptions: ChatOptions = { ...options, ...(callbacks.toolChoice ? { toolChoice: callbacks.toolChoice } : {}) };
     if (!this.configured) {
       throw new Error('Le module IA n\'est pas configuré (aucune clé API).');
     }
@@ -338,7 +341,7 @@ export class LlmService implements SpraxiumOnBoot {
           })),
           user_id: options.guildId ?? options.userId,
           reasoning_effort: this.env.DEEPSEEK_EFFORT || 'low',
-          ...(apiTools.length > 0 ? { tools: apiTools, tool_choice: 'auto' } : {}),
+          ...(apiTools.length > 0 ? { tools: apiTools, tool_choice: mergedOptions.toolChoice ?? 'auto' } : {}),
         }),
       });
       if (!response.ok) {
@@ -464,7 +467,7 @@ export class LlmService implements SpraxiumOnBoot {
         })),
         user_id: options.guildId ?? options.userId,
         reasoning_effort: this.env.DEEPSEEK_EFFORT || 'low',
-        ...(apiTools.length > 0 ? { tools: apiTools, tool_choice: 'auto' } : {}),
+        ...(apiTools.length > 0 ? { tools: apiTools, tool_choice: options.toolChoice ?? 'auto' } : {}),
       }),
     });
 

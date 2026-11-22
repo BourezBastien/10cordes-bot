@@ -3,7 +3,11 @@ import type { ToolResult, ToolRunContext } from '@10cordes/shared';
 import { LlmService, QuotaExhaustedError, toApiToolName, type ChatCause, type ChatMessage, type OpenAiTool } from './llm.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 
-const MAX_ITERATIONS = 8;
+/**
+ * R0.2 : plafond relevé à 12 pour les constructions multi-étapes (un casino
+ * complet = catégories + salons + surfaces + triggers dépasse 8 tours).
+ */
+const MAX_ITERATIONS = 12;
 
 export interface AgentLoopHooks {
   /** Avant chaque appel LLM (iteration 0-based). */
@@ -17,8 +21,14 @@ export interface AgentLoopHooks {
   interceptToolCall?(name: string, input: unknown, iteration: number): Promise<ToolResult | undefined> | ToolResult | undefined;
   /** Après l'exécution d'un tool (audit, preState). */
   onToolResult?(name: string, result: ToolResult, input: unknown, iteration: number): Promise<void> | void;
-  /** Delta de texte streamé (progressive responder du canal). */
+  /**
+   * Texte d'une itération SANS tool_calls, commis pour publication
+   * progressive (R0.2 : le texte d'une itération AVEC tool_calls n'arrive
+   * JAMAIS ici — il va à onIntermediateText pour la narration LiveStatus).
+   */
   onDelta?(text: string): void;
+  /** Texte intermédiaire d'une itération qui contient des tool_calls : narration LiveStatus uniquement, jamais publié. */
+  onIntermediateText?(text: string): void;
   /** Message à produire quand les crédits sont épuisés (402). */
   quotaExhaustedMessage: string;
   /** Étiquette de cause pour la comptabilité llm.usage. */
@@ -36,6 +46,8 @@ export interface AgentLoopOutcome {
   completed: boolean;
   /** Vrai si les crédits du fournisseur étaient épuisés (402). */
   quotaExhausted?: boolean;
+  /** Vrai si le tour final de synthèse forcé (tool_choice none) a été utilisé. */
+  forcedSummary?: boolean;
 }
 
 export interface AgentLoopToolset {
@@ -46,13 +58,14 @@ export interface AgentLoopToolset {
 }
 
 /**
- * AgentLoop (Template Method, Phase 2.2) : LA boucle LLM + tools unique,
- * consommée par les deux canaux (Discord via AssistantService, dashboard via
- * WebAgentService). Le canal branche ses hooks (progression, snapshots,
- * audit, livraison) ; la mécanique d'itération, le streaming SSE, la
- * réassemblage des tool_calls et l'EXPANSION DYNAMIQUE du toolset (pattern
- * routing Anthropic : search_tools rend les tools trouvés appelables)
- * vivent ICI.
+ * AgentLoop (Template Method) : LA boucle LLM + tools unique, consommée par
+ * les deux canaux (Discord via AssistantService, dashboard via
+ * WebAgentService). R0.2 — FIN DES PHRASES COUPÉES :
+ * - le texte d'une itération est BUFFERISÉ et ne va au responder que si
+ *   l'itération ne contient AUCUN tool_call (sinon : LiveStatus uniquement) ;
+ * - plafond 12 itérations ;
+ * - tour final de synthèse GARANTI : si le plafond est atteint, un dernier
+ *   appel avec tool_choice:'none' force le modèle à conclure proprement.
  */
 @Injectable()
 export class AgentLoopService {
@@ -75,9 +88,14 @@ export class AgentLoopService {
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
       await hooks.onIterationStart?.(iteration, messages);
       let quotaExhausted = false;
+      // R0.2 : buffer PAR itération — les deltas ne sont commis au responder
+      // qu'à la fin de l'itération, et seulement sans tool_calls.
+      let iterationText = '';
       const completion = await this.llm
         .chatStream(messages, openAiTools, { userId: options.userId, guildId: options.guildId, cause: hooks.cause }, {
-          onDelta: (text) => hooks.onDelta?.(text),
+          onDelta: (text) => {
+            iterationText += text;
+          },
         })
         .catch((error: unknown) => {
           if (error instanceof QuotaExhaustedError) {
@@ -92,6 +110,10 @@ export class AgentLoopService {
       }
 
       if (completion.toolCalls.length > 0) {
+        // Le texte de CE tour contient des tool_calls : il n'est JAMAIS
+        // publié — narration LiveStatus seulement (le récap viendra du tour
+        // final sans tool_calls).
+        if (iterationText.trim().length > 0) hooks.onIntermediateText?.(iterationText);
         messages.push({
           role: 'assistant',
           content: completion.content ?? '',
@@ -138,8 +160,11 @@ export class AgentLoopService {
         continue;
       }
 
+      // Tour sans tool_calls : le texte bufferisé est commis au responder
+      // (publication progressive) puis retourné comme texte final.
+      if (iterationText.length > 0) hooks.onDelta?.(iterationText);
       return {
-        finalText: completion.content ?? null,
+        finalText: completion.content ?? (iterationText.trim().length > 0 ? iterationText : null),
         executed,
         usage,
         error: null,
@@ -148,6 +173,32 @@ export class AgentLoopService {
       };
     }
 
-    return { finalText: null, executed, usage, error: null, completed: false };
+    // Plafond atteint : TOUR FINAL DE SYNTHÈSE FORCÉ (tool_choice none) —
+    // le modèle DOIT conclure (récapitulatif complet), sans appel d'outil.
+    await hooks.onIterationStart?.(MAX_ITERATIONS, messages);
+    const summary = await this.llm
+      .chatStream(
+        messages,
+        openAiTools,
+        { userId: options.userId, guildId: options.guildId, cause: hooks.cause },
+        {
+          toolChoice: 'none',
+          onDelta: (text) => hooks.onDelta?.(text),
+        },
+      )
+      .catch(() => null);
+    if (summary?.usage) {
+      usage.promptTokens += summary.usage.promptTokens;
+      usage.completionTokens += summary.usage.completionTokens;
+    }
+    const finalText = summary?.content ?? 'Terminé (plafond d\u2019itérations atteint) : demande-moi le récapitulatif si besoin.';
+    return {
+      finalText,
+      executed,
+      usage,
+      error: null,
+      completed: true,
+      forcedSummary: true,
+    };
   }
 }

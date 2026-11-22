@@ -94,6 +94,18 @@ class LiveStatus {
     this.timer.unref?.();
   }
 
+  /** Narration du texte intermédiaire d'une itération À tool_calls (R0.2) :
+   * jamais publié comme réponse — la ligne [TOOL] le résume en direct. */
+  async narrate(text: string): Promise<void> {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    const compact = text.replace(/\s+/gu, ' ').trim().slice(0, 90);
+    if (compact.length === 0) return;
+    await this.post(`[THINKING] ${compact}`);
+  }
+
   /** Étape visible (appel de tool) : annule le timer et met à jour. */
   async step(toolName: string): Promise<void> {
     if (this.timer) {
@@ -494,10 +506,10 @@ export class AssistantService {
     const locale = detectLocale(request.content);
     const member = await guild.members.fetch(request.userId).catch(() => null);
     let permissions: string[] = member ? (member.permissions.toArray() as string[]) : [];
-    // Rig E2E : un webhook listé dans E2E_STAFF_WEBHOOK_IDS parle avec les
-    // permissions staff (le token du webhook est la seule clé d'entrée).
-    const e2eWebhookIds = this.env.E2E_STAFF_WEBHOOK_IDS.split(',').map((id) => id.trim()).filter(Boolean);
-    if (!member && e2eWebhookIds.includes(request.userId)) {
+    // Rig E2E (R4 self-contained) : un message arrivé jusqu'ici sans membre
+    // résolvable est un webhook du bot nommé agent-e2e-guardian (la gate
+    // n'accepte QUE lui) → il parle avec les permissions staff.
+    if (!member && request.authorName.toLowerCase() === 'agent-e2e-guardian') {
       permissions = ['Administrator'];
     }
 
@@ -659,12 +671,6 @@ export class AssistantService {
         quotaExhaustedMessage: 'IA désactivée : crédits DeepSeek épuisés. Recharge le compte API, je reprends dès que c\u0027est réglé.',
         onIterationStart: (iteration) => {
           log.info(`[FLOW][${requestId}] chat #${iteration + 1} : ${messages.length} messages en entrée`);
-          // Nouvelle itération = les deltas de la précédente appartenaient à
-          // un assistant tool_calls : le draft visuel est annulé.
-          if (iteration > 0 && streamingActive) {
-            streamingActive = false;
-            void responder.abort();
-          }
         },
         interceptToolCall: async (name) => {
           if (name === 'skipReply') {
@@ -718,15 +724,19 @@ export class AssistantService {
         },
         onDelta: (text) => {
           if (!streamingActive) return;
+          // R0.2 : ce callback ne reçoit QUE le texte d'un tour SANS
+          // tool_calls (commit de fin d'itération par l'AgentLoop) — on peut
+          // le pousser au responder d'un bloc (publication progressive).
           streamedText += text;
-          // Contenu qui exige la livraison classique (transformations
-          // [PANEL] / neutralisation @everyone) : on stoppe le stream visuel.
           if (/@everyone|@here|\[PANEL/i.test(streamedText)) {
             streamingActive = false;
             void responder.abort();
             return;
           }
           responder.push(text);
+        },
+        onIntermediateText: (text) => {
+          void status.narrate(text);
         },
       })
       .catch((error: unknown) => {

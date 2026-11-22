@@ -62,18 +62,12 @@ export class AppEnv extends SpraxiumBaseEnv {
   DEEPSEEK_EFFORT!: string;
 
   /**
-   * Rig de test E2E : IDs de webhooks (séparés par des virgules) dont les
-   * messages portent les permissions staff. La seule clé d'entrée est le
-   * token du webhook : vide par défaut = désactivé.
+   * Master switch des rigs de test E2E (R4 self-contained) : true = la gate
+   * accepte les webhooks créés PAR le bot nommés agent-e2e-guardian.
    */
-  @Env('E2E_STAFF_WEBHOOK_IDS', { default: '', secret: false })
+  @Env('E2E_ENABLED', { default: 'false', secret: false })
   @IsString()
-  E2E_STAFF_WEBHOOK_IDS!: string;
-
-  /** Nom du bot, reconnu aussi tapé en texte brut (sans vraie mention Discord). */
-  @Env('DISCORD_BOT_NAME', { default: '10cordes', secret: false })
-  @IsString()
-  DISCORD_BOT_NAME!: string;
+  E2E_ENABLED!: string;
 
   /** kie.ai (génération musicale Suno) — requis pour le tool generateMusic. */
   @Env('KIE_API_KEY')

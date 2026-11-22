@@ -1,12 +1,19 @@
-import { Global, Module } from '@spraxium/common';
+import { Global, Module, type SpraxiumOnBoot } from '@spraxium/common';
 import { DatabaseModule } from '../database/database.module';
 import { AuditModule } from '../audit/audit.module';
 import { ToolRegistryModule } from '../tool-registry/tool-registry.module';
 import { SurfaceService } from './surface.service';
+
+let runtimeSurface: { render: (surfaceId: string) => Promise<void> } | null = null;
+
+/** Accès runtime au rendu de surface (registry, triggers hors DI). */
+export function getSurfaceRuntime(): { render: (surfaceId: string) => Promise<void> } | null {
+  return runtimeSurface;
+}
 import { SurfacePipelineService } from './surface.pipeline';
 import { SurfaceTriggersService } from './surface.triggers.service';
 import { EventRouterService } from './surface.event-router';
-import { CacheStoreService } from '../../shared/cache/cache-store.service';
+import { CacheModule } from '../../shared/cache/cache.module';
 import {
   SurfaceActHandler,
   SurfaceSelectHandler,
@@ -33,9 +40,8 @@ import {
  */
 @Global()
 @Module({
-  imports: [DatabaseModule, AuditModule, ToolRegistryModule],
+  imports: [CacheModule, DatabaseModule, AuditModule, ToolRegistryModule],
   providers: [
-    CacheStoreService,
     SurfacePipelineService,
     SurfaceService,
     SurfaceTriggersService,
@@ -54,6 +60,12 @@ import {
     SurfaceEventChannelCreateListener,
     SurfaceEventChannelDeleteListener,
   ],
-  exports: [SurfaceService, SurfacePipelineService, CacheStoreService],
+  exports: [SurfaceService, SurfacePipelineService],
 })
-export class SurfaceModule {}
+export class SurfaceModule implements SpraxiumOnBoot {
+  constructor(private readonly surfaces: SurfaceService) {}
+
+  onBoot(): void {
+    runtimeSurface = { render: (surfaceId: string) => this.surfaces.renderSurface(surfaceId) };
+  }
+}
