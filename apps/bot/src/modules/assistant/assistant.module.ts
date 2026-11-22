@@ -3,6 +3,7 @@ import { AuditModule } from '../audit/audit.module';
 import { ImagelabModule } from '../imagelab/imagelab.module';
 import { GuildConfigModule } from '../guild-config/guild-config.module';
 import { ToolRegistryModule } from '../tool-registry/tool-registry.module';
+import { GuildRulesModule } from '../rules/guild-rules.module';
 import { IaConfigureButtonHandler, IaConfigureModalSubmitHandler } from './handlers/ia-config.handlers';
 import { ToolsNextHandler, ToolsPrevHandler } from './handlers/tools-page.handlers';
 import { AssistantMentionListener } from './listeners/assistant-mention.listener';
@@ -22,7 +23,7 @@ import { BootRecoveryService } from './boot-recovery.service';
 // restent confinés au container du premier chargeur transitif.
 @Global()
 @Module({
-  imports: [AuditModule, GuildConfigModule, ImagelabModule, ToolRegistryModule],
+  imports: [AuditModule, GuildConfigModule, GuildRulesModule, ImagelabModule, ToolRegistryModule],
   listeners: [AssistantMentionListener],
   handlers: [IaConfigureButtonHandler, IaConfigureModalSubmitHandler, ToolsPrevHandler, ToolsNextHandler],
   providers: [AssistantQueue, AgentLoopService, AssistantService, LlmService, WebAgentService, ResponseCacheService, BootRecoveryService],

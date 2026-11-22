@@ -5,6 +5,7 @@ import { AssistantService } from '../assistant.service';
 import { getValidatedEnv } from '../../../auth/env.accessor';
 import { PrismaService } from '../../database/prisma.service';
 import { GuildRulesService } from '../../rules/guild-rules.service';
+import { fileLog } from '../../logging/file-log.service';
 
 const log = new Logger('AssistantListener');
 
@@ -94,12 +95,12 @@ export class AssistantMentionListener {
     if (!me || !guildId) return;
 
     // 1. Source : seuls les webhooks auto-créés par le bot pour les rigs
-    //    passent (reconnaissance par nom + owner bot) ; E2E_ENABLED requis.
+    //    passent (reconnaissance par nom, E2E_ENABLED requis — le webhook
+    //    agent-e2e-guardian est créé PAR le bot via son token, c'est la clé).
     if (message.webhookId) {
       const e2eEnabled = getValidatedEnv().E2E_ENABLED === 'true';
-      const name = (message.author.username ?? '').toLowerCase();
-      const owned = message.webhookId.length > 0 && staffWebhookNames().includes(name) && message.author.discriminator === '0';
-      if (!(e2eEnabled && owned)) return;
+      const webhookName = (message.author?.username ?? '').toLowerCase();
+      if (!(e2eEnabled && staffWebhookNames().includes(webhookName))) return;
     } else if (message.author.bot) {
       return;
     }
@@ -135,6 +136,15 @@ export class AssistantMentionListener {
     log.info(
       `[GATE] accepté (dédié=${inDedicatedChannel} mention=${mentioned} nom=${byName && nameAllowed} réponse-bot=${repliesToBot} zone-libre=${freeZone}) — ${message.author.username}`,
     );
+    fileLog()?.event('info', 'gate', 'accept', {
+      guildId,
+      channelId: message.channelId,
+      dedicated: inDedicatedChannel,
+      mention: mentioned,
+      name: byName && nameAllowed,
+      reply: repliesToBot,
+      freeZone,
+    });
     await this.assistant.enqueueMessage(message, repliesToBot);
   }
 }

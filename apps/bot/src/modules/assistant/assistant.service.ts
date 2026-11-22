@@ -23,6 +23,7 @@ import { storeToolsPanel } from './tools.panel';
 import { type AgentRequest } from './queue/types';
 import { AppEnv } from '../../app.env';
 import { PrismaService } from '../database/prisma.service';
+import { GuildRulesService } from '../rules/guild-rules.service';
 
 const log = new Logger('Assistant');
 
@@ -264,6 +265,7 @@ export class AssistantService {
     private readonly env: AppEnv,
     private readonly prisma: PrismaService,
     private readonly responseCache: ResponseCacheService,
+    private readonly guildRules: GuildRulesService,
   ) {
     queue.setProcessor((request) => this.processAgentRequest(request));
     this.registry.register(this.getLastSnapshotTool());
@@ -572,13 +574,14 @@ export class AssistantService {
       mentionedIds.map(async (id) => ({ id, text: await this.memory.getMemberProfile(guild.id, id).catch(() => null) })),
     );
 
-    const [guildProfile, memberProfile, recentActions, skillTriggers] = await Promise.all([
+    const [guildProfile, memberProfile, recentActions, skillTriggers, serverRules] = await Promise.all([
       this.memory.getGuildProfile(guild.id).catch(() => null),
       this.memory.getMemberProfile(guild.id, request.userId).catch(() => null),
       fetchRecentActions(this.prisma, guild.id, 12).catch(() => [] as string[]),
       getSkillTriggers(guild.id)
         .then((skills) => skills.map((skill) => `${skill.id} | ${skill.trigger}`))
         .catch(() => [] as string[]),
+      this.guildRules.describeForPrompt(guild.id).catch(() => [] as string[]),
     ]);
     // Fiches consolidées (compactes) plutôt que les entrées brutes : le
     // journal complet reste visible dans le dashboard et via get*Memory.
@@ -620,7 +623,7 @@ export class AssistantService {
         content: buildSystemPrompt(locale, guild.name, channel.name, [...openAiTools.map((tool) => tool.function.name), 'search_tools'], permissions, {
           guildMemories,
           memberMemories,
-        }, recentActions, skillTriggers),
+        }, recentActions, skillTriggers, serverRules),
       },
       {
         role: 'user',

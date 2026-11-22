@@ -8,6 +8,7 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import type { GuildRulesService } from '../rules/guild-rules.service';
 import type { CacheStoreService } from '../../shared/cache/cache-store.service';
+import { fileLog } from '../logging/file-log.service';
 
 let registryInstance: ToolRegistryService | undefined;
 
@@ -207,12 +208,24 @@ export class ToolRegistryService {
       }
     }
 
+    // R3 : traçabilité fichier (diagnose.mjs consomme ces lignes).
+    const startedAt = Date.now();
+    const logFinish = (result: ToolResult): void => {
+      fileLog()?.event(result.ok ? 'info' : 'warn', 'registry', 'tool.run', {
+        tool: name,
+        ok: result.ok,
+        ms: Date.now() - startedAt,
+        guildId: ctx.guildId,
+      });
+    };
+
     // try/catch : une exception handler ne remonte JAMAIS à la boucle LLM —
     // elle devient un refus explicite que le modèle reformule pour l'utilisateur
     // (fix du silence : « Missing Permissions » non rattrapé laissait la
     // demande sans réponse ni trace action).
     try {
       const result = await tool.handler(parsed.data, ctx);
+      logFinish(result);
       return finish(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

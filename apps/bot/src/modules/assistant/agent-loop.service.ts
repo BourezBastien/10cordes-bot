@@ -2,6 +2,7 @@ import { Injectable } from '@spraxium/common';
 import type { ToolResult, ToolRunContext } from '@10cordes/shared';
 import { LlmService, QuotaExhaustedError, toApiToolName, type ChatCause, type ChatMessage, type OpenAiTool } from './llm.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
+import { fileLog } from '../logging/file-log.service';
 
 /**
  * R0.2 : plafond relevé à 12 pour les constructions multi-étapes (un casino
@@ -87,6 +88,7 @@ export class AgentLoopService {
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
       await hooks.onIterationStart?.(iteration, messages);
+      const iterationStartedAt = Date.now();
       let quotaExhausted = false;
       // R0.2 : buffer PAR itération — les deltas ne sont commis au responder
       // qu'à la fin de l'itération, et seulement sans tool_calls.
@@ -108,6 +110,20 @@ export class AgentLoopService {
         usage.promptTokens += completion.usage.promptTokens;
         usage.completionTokens += completion.usage.completionTokens;
       }
+      fileLog()?.llm({
+        cause: hooks.cause,
+        model: 'runtime',
+        promptTokens: completion.usage?.promptTokens ?? 0,
+        completionTokens: completion.usage?.completionTokens ?? 0,
+        ms: Date.now() - iterationStartedAt,
+        ok: !quotaExhausted,
+      });
+      fileLog()?.event('info', 'loop', 'iteration', {
+        iteration,
+        toolCalls: completion.toolCalls.length,
+        textChars: iterationText.length,
+        thrownAway: completion.toolCalls.length > 0 && iterationText.trim().length > 0,
+      });
 
       if (completion.toolCalls.length > 0) {
         // Le texte de CE tour contient des tool_calls : il n'est JAMAIS

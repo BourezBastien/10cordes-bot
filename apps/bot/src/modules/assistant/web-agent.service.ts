@@ -9,6 +9,7 @@ import { LlmService, type ChatMessage, type OpenAiTool } from './llm.service';
 import { buildSystemPrompt, fetchRecentActions, sanitizeTranscriptLine, selectRelevantTools, toolToOpenAiTool } from './assistant.service';
 import { AgentLoopService } from './agent-loop.service';
 import { getSkillTriggers } from '../agent/skill.service';
+import { GuildRulesService } from '../rules/guild-rules.service';
 import { type ToolRunContext } from '@10cordes/shared';
 import { PrismaService } from '../database/prisma.service';
 
@@ -36,6 +37,7 @@ export class WebAgentService {
   constructor(
     private readonly llm: LlmService,
     private readonly registry: ToolRegistryService,
+    private readonly guildRules: GuildRulesService,
     private readonly loop: AgentLoopService,
     private readonly memory: MemoryService,
     private readonly config: GuildConfigService,
@@ -78,13 +80,14 @@ export class WebAgentService {
     const openAiTools: OpenAiTool[] = relevant.map((tool) => byName.get(tool.name)!);
     const toolset = { active: openAiTools, byName };
 
-    const [guildProfile, memberProfile, recentActions, skillTriggers] = await Promise.all([
+    const [guildProfile, memberProfile, recentActions, skillTriggers, serverRules] = await Promise.all([
       this.memory.getGuildProfile(guildId).catch(() => null),
       this.memory.getMemberProfile(guildId, discordUserId).catch(() => null),
       fetchRecentActions(this.prisma, guildId, 12).catch(() => [] as string[]),
       getSkillTriggers(guildId)
         .then((skills) => skills.map((skill) => `${skill.id} | ${skill.trigger}`))
         .catch(() => [] as string[]),
+      this.guildRules.describeForPrompt(guildId).catch(() => [] as string[]),
     ]);
     const guildMemories = guildProfile ? [`Fiche serveur consolidée : ${guildProfile}`] : [];
     const memberMemories = memberProfile ? [`Fiche du membre (consolidée) : ${memberProfile}`] : [];
@@ -117,7 +120,7 @@ export class WebAgentService {
         content: buildSystemPrompt(locale, guild.name, channel?.name ?? 'web', [...openAiTools.map((tool) => tool.function.name), 'search_tools'], permissions, {
           guildMemories,
           memberMemories,
-        }, recentActions, skillTriggers),
+        }, recentActions, skillTriggers, serverRules),
       },
       {
         role: 'user',
