@@ -8,6 +8,7 @@ import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { ImagelabService } from '../imagelab/imagelab.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import { setLlmAccessor } from './llm.accessor';
+import { IntegrationService } from '../integrations/integration.service';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -129,7 +130,7 @@ export class LlmService implements SpraxiumOnBoot {
     private readonly registry: ToolRegistryService,
     private readonly imagelab: ImagelabService,
     private readonly config: GuildConfigService,
-    private readonly integrations: import('../integrations/integration.service').IntegrationService,
+    private readonly integrations: IntegrationService,
   ) {}
 
   async onBoot(): Promise<void> {

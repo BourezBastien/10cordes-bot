@@ -3,7 +3,7 @@ import { Logger } from '@spraxium/logger';
 import { Client } from 'discord.js';
 import { z } from 'zod';
 import type { BotTool, ToolResult, ToolRunContext } from '@10cordes/shared';
-import type { IntegrationService } from '../integrations/integration.service';
+import { IntegrationService } from '../integrations/integration.service';
 import { safeFetch } from '../../shared/utils/safe-fetch';
 import { AppEnv } from '../../app.env';
 import { getToolRegistry } from '../tool-registry/tool-registry.service';
@@ -33,7 +33,7 @@ export class MusicService implements SpraxiumOnBoot {
 
   constructor(
     private readonly env: AppEnv,
-    private readonly integrations: import('../integrations/integration.service').IntegrationService,
+    private readonly integrations: IntegrationService,
     private readonly client: Client,
   ) {}
 

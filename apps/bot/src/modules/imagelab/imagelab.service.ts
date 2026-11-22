@@ -6,7 +6,7 @@ import { AppEnv } from '../../app.env';
 import { PrismaService } from '../database/prisma.service';
 import type { BotTool, ToolResult } from '@10cordes/shared';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
-import type { IntegrationService } from '../integrations/integration.service';
+import { IntegrationService } from '../integrations/integration.service';
 
 const API_BASE = "https://api.pixellab.ai/v2";
 
