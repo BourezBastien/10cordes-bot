@@ -203,7 +203,10 @@ export function discordExtraTools(
         if (!me?.permissions.has(PermissionFlagsBits.ManageRoles)) {
           return { ok: false, summary: "Le bot n'a pas la permission ManageRoles." };
         }
-        const valid = (flags: string[]) => flags.every((f) => f in PermissionFlagsBits && f !== 'Administrator');
+        // Object.hasOwn : `f in PermissionFlagsBits` acceptait aussi
+        // 'toString', 'constructor', '__proto__' (propriétés héritées).
+        const valid = (flags: string[]) =>
+          flags.every((f) => Object.hasOwn(PermissionFlagsBits as Record<string, unknown>, f) && f !== 'Administrator');
         if (!valid(allow) || !valid(deny)) {
           return {
             ok: false,
@@ -500,7 +503,7 @@ export function discordExtraTools(
       category: 'agent',
       paramsSchema: z.object({ channelId: z.string().min(1), content: z.string().min(1).max(1500) }),
       requiredModules: [],
-      permissions: [],
+      permissions: ['SendMessages'],
       destructive: false,
       systemPrompt: 'Le bot doit avoir SendMessages dans le salon.',
       handler: async (input, ctx) => {
@@ -538,7 +541,7 @@ export function discordExtraTools(
       category: 'agent',
       paramsSchema: z.object({ channelId: z.string().min(1), limit: z.number().int().min(1).max(20).default(10) }),
       requiredModules: [],
-      permissions: [],
+      permissions: ['ViewChannel', 'ReadMessageHistory'],
       destructive: false,
       systemPrompt: 'Read-only. Les messages portent leur DATE (âge en jours) : tu peux calculer un seuil d\u0027inactivité. Ne prétends jamais qu\u0027un horodatage est indisponible.',
       handler: async (input, ctx) => {
@@ -742,8 +745,10 @@ export function discordExtraTools(
         const channel = await textChannelOf(guild, ctx.channelId);
         if (!channel) return { ok: false, summary: 'Salon de la demande introuvable.' };
         const { message } = input as { message: string };
-        await channel.send({ content: `🔧 ${message}` }).catch(() => null);
-        return { ok: true, summary: `Étape annoncée : ${message.slice(0, 80)}` };
+        const sent = await channel.send({ content: `🔧 ${message}` }).then(() => true).catch(() => false);
+        return sent
+          ? { ok: true, summary: `Étape annoncée : ${message.slice(0, 80)}` }
+          : { ok: false, summary: 'Annonce impossible (permissions du salon ?).' };
       },
     },
   ];

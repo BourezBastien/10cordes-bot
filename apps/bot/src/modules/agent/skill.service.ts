@@ -124,11 +124,18 @@ export class SkillService implements SpraxiumOnBoot {
       const guilds = await this.prisma.guild.findMany({ select: { id: true } });
       let seeded = 0;
       for (const guild of guilds) {
+        // Un seul findMany par guild (l'ancien findFirst par skill était un
+        // N+1 séquentiel) ; INCLUT les soft-deleted : une skill supprimée
+        // par le staff ne doit PAS être ressuscitée au boot suivant.
+        const rows = await this.prisma.agentSkill.findMany({
+          where: { guildId: guild.id, trigger: { in: SKILL_LIBRARY.map((skill) => skill.trigger) } },
+          select: { id: true, trigger: true, createdByUserId: true, rule: true, deletedAt: true },
+        });
+        const byTrigger = new Map(rows.map((row) => [row.trigger, row]));
         for (const skill of SKILL_LIBRARY) {
-          const existing = await this.prisma.agentSkill.findFirst({
-            where: { guildId: guild.id, trigger: skill.trigger, deletedAt: null },
-            select: { id: true, createdByUserId: true, rule: true },
-          });
+          const existing = byTrigger.get(skill.trigger);
+          // Soft-deleted (par le staff ou un membre) : on ne re-seed JAMAIS.
+          if (existing?.deletedAt) continue;
           // Les skills de bibliothèque suivent le code : la règle est mise à
           // jour à chaque boot si elle évolue (les skills de membres non).
           if (existing?.createdByUserId === 'library') {
@@ -271,6 +278,10 @@ export class SkillService implements SpraxiumOnBoot {
           rule: z.string().min(3).max(RULE_MAX).describe('Comportement à suivre tant que le trigger s\u2019applique'),
         }),
         requiredModules: [],
+        // ManageGuild : une skill est une règle DURABLE injectée dans
+        // chaque prompt du serveur — pas un contenu qu'un membre lambda
+        // doit pouvoir imposer (injection de comportement).
+        permissions: ['ManageGuild'],
         destructive: false,
         systemPrompt:
           'Pour une information durable SUR quelqu\u2019un (identité, préférences), utilise saveMemberMemory : les skills sont des règles de comportement génériques, pas des faits personnels. Le skill est automatiquement attribué à l\u2019auteur de la demande.',

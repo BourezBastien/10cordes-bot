@@ -1,18 +1,13 @@
 import type { AgentJobData, QueueCounts } from './types';
 import type { QueueDriver } from './queue-driver';
 
-interface MemoryEntry {
-  job: AgentJobData;
-  handler: (job: AgentJobData) => Promise<void>;
-}
-
 /**
  * Fallback sans Redis : file en mémoire, séquentielle (1 job à la fois).
  * Utilisé uniquement quand REDIS_URL est injoignable (dev sans Docker).
  */
 export class MemoryDriver implements QueueDriver {
   readonly name = 'memory' as const;
-  private readonly queue: MemoryEntry[] = [];
+  private readonly queue: AgentJobData[] = [];
   private running = false;
   private handler: ((job: AgentJobData) => Promise<void>) | null = null;
   private completed = 0;
@@ -23,30 +18,33 @@ export class MemoryDriver implements QueueDriver {
 
   async process(handler: (job: AgentJobData) => Promise<void>): Promise<void> {
     this.handler = handler;
+    // Draine aussi les jobs mis en file AVANT l'enregistrement du handler
+    // (bascule bullmq -> memory en cours de route).
     this.pump();
   }
 
   enqueue(job: AgentJobData): void {
-    this.queue.push({ job, handler: this.handler! });
+    this.queue.push(job);
     this.pump();
   }
 
   private pump(): void {
-    if (this.running) return;
+    if (this.running || !this.handler) return;
+    const handler = this.handler;
     const next = this.queue.shift();
     if (!next) return;
     this.running = true;
     void (async () => {
       try {
-        await next.handler(next.job);
+        await handler(next);
         this.completed++;
       } catch (error) {
         this.failed++;
         const message = error instanceof Error ? error.message : String(error);
-        this.onFailed(next.job, message);
+        this.onFailed(next, message);
         this.recent.unshift({
-          userId: next.job.request.userId,
-          content: next.job.request.content.slice(0, 80),
+          userId: next.request.userId,
+          content: next.request.content.slice(0, 80),
           error: message,
           at: new Date().toISOString(),
         });

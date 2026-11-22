@@ -3,7 +3,10 @@ import { AppModule } from '../src/app.module';
 
 export const httpConfig = defineHttp({
   enabled: true,
-  host: '127.0.0.1',
+  // 127.0.0.1 par défaut (dev local : l'API n'est PAS exposée hors machine).
+  // En conteneur, docker-compose pose HTTP_HOST=0.0.0.0 pour que le port
+  // publié soit réellement joignable.
+  host: process.env.HTTP_HOST ?? '127.0.0.1',
   port: Number.parseInt(process.env.PORT ?? '3000', 10),
   apiKey: process.env.HTTP_API_KEY,
   sharding: false,

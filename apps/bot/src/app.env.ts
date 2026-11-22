@@ -75,19 +75,6 @@ export class AppEnv extends SpraxiumBaseEnv {
   @IsString()
   DISCORD_BOT_NAME!: string;
 
-  /** Surnoms acceptés en texte brut, séparés par des virgules (ex: "coco, dix cordes"). */
-  @Env('DISCORD_BOT_ALIASES', { default: '', secret: false })
-  @IsString()
-  DISCORD_BOT_ALIASES!: string;
-
-  /**
-   * Noms/surnoms des AUTRES bots du serveur (séparés par des virgules) que
-   * l'agent doit ignorer : « JP fais ça » est pour JP, jamais pour nous.
-   */
-  @Env('DISCORD_OTHER_BOTS', { default: '', secret: false })
-  @IsString()
-  DISCORD_OTHER_BOTS!: string;
-
   /** kie.ai (génération musicale Suno) — requis pour le tool generateMusic. */
   @Env('KIE_API_KEY')
   @IsOptional()

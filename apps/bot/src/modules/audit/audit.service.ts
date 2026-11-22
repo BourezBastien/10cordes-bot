@@ -1,4 +1,5 @@
 import { Injectable } from '@spraxium/common';
+import { Logger } from '@spraxium/logger';
 import { PrismaService } from '../database/prisma.service';
 
 export interface AuditEntry {
@@ -17,25 +18,42 @@ export interface AuditQuery {
 
 /**
  * Journal d'audit global (0.11) — fire-and-forget : une erreur d'audit
- * n'échoue jamais sur l'action audité.
+ * n'échoue jamais l'action auditée, mais elle est LOGGÉE (jamais avalée).
  */
 @Injectable()
 export class AuditService {
+  private readonly log = new Logger('Audit');
+
   constructor(private readonly prisma: PrismaService) {}
 
   record(entry: AuditEntry): void {
-    void this.prisma.auditLog
-      .create({
-        data: {
-          guildId: entry.guildId ?? null,
-          source: entry.source ?? 'system',
-          action: entry.action,
-          actorId: entry.actorId ?? null,
-          targetId: entry.targetId ?? null,
-          metadata: JSON.stringify(entry.metadata ?? {}),
-        },
-      })
-      .catch(() => {});
+    void (async () => {
+      try {
+        // AuditLog.guildId porte une FK réelle vers guilds : seule
+        // GuildConfigService.get() créait le row Guild. Tout audit émis
+        // avant un premier accès config (guild fraîche, events de boot)
+        // violait la FK et était perdu SANS trace (l'ancien .catch vide).
+        if (entry.guildId) {
+          await this.prisma.guild.upsert({
+            where: { id: entry.guildId },
+            create: { id: entry.guildId },
+            update: {},
+          });
+        }
+        await this.prisma.auditLog.create({
+          data: {
+            guildId: entry.guildId ?? null,
+            source: entry.source ?? 'system',
+            action: entry.action,
+            actorId: entry.actorId ?? null,
+            targetId: entry.targetId ?? null,
+            metadata: JSON.stringify(entry.metadata ?? {}),
+          },
+        });
+      } catch (error) {
+        this.log.warn(`audit « ${entry.action} » perdu : ${(error as Error).message.slice(0, 140)}`);
+      }
+    })();
   }
 
   async recent(guildId: string | null, query: AuditQuery = {}): Promise<

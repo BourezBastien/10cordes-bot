@@ -4,7 +4,7 @@ import type { Message } from 'discord.js';
 import { BullMqDriver } from './queue/bullmq.driver';
 import { MemoryDriver } from './queue/memory.driver';
 import type { QueueDriver } from './queue/queue-driver';
-import { AGENT_CONCURRENCY, snapshotFromMessage, type AgentJobData, type AgentRequest, type QueueCounts } from './queue/types';
+import { snapshotFromMessage, type AgentJobData, type AgentRequest, type QueueCounts } from './queue/types';
 import { AppEnv } from '../../app.env';
 import { notice } from '../../shared/ui';
 
@@ -28,26 +28,29 @@ export class AssistantQueue {
 
   constructor(private readonly env: AppEnv) {
     // BullMQ si REDIS_URL fourni ; sinon fallback mémoire (dev sans Docker).
-    this.driver = this.env.REDIS_URL
-      ? new BullMqDriver(this.env.REDIS_URL, (job, error) => {
-          this.log.warn(`Job échoué (définitif) pour ${job.request.userId} : ${error.slice(0, 120)}`);
-        })
-      : new MemoryDriver((job, error) => {
-          this.log.warn(`Job échoué (définitif) pour ${job.request.userId} : ${error.slice(0, 120)}`);
-        });
+    this.driver = this.env.REDIS_URL ? new BullMqDriver(this.env.REDIS_URL, (job, error) => this.onFinalFailure(job, error)) : this.memoryDriver();
     // Sonde de connexion : Redis injoignable sous 5s -> bascule mémoire
-    // (le bot reste fonctionnel même sans Docker).
+    // (le bot reste fonctionnel même sans Docker). Le handler ENREGISTRÉ est
+    // re-passé au nouveau driver : sans ça, la bascule après setProcessor
+    // laissait le MemoryDriver sans handler (jobs perdus).
     void Promise.race([
       this.driver.counts(),
       new Promise((resolve) => setTimeout(resolve, 5_000).unref?.()),
     ]).then((ok) => {
       if (!ok) {
         this.log.warn('Redis injoignable : bascule de la queue en mémoire.');
-        this.driver = new MemoryDriver((job, error) => {
-          this.log.warn(`Job échoué (définitif) pour ${job.request.userId} : ${error.slice(0, 120)}`);
-        });
+        this.driver = this.memoryDriver();
+        if (this.currentHandler) void this.driver.process(this.currentHandler);
       }
     });
+  }
+
+  private memoryDriver(): MemoryDriver {
+    return new MemoryDriver((job, error) => this.onFinalFailure(job, error));
+  }
+
+  private onFinalFailure(job: AgentJobData, error: string): void {
+    this.log.warn(`Job échoué (définitif) pour ${job.request.userId} : ${error.slice(0, 120)}`);
   }
 
   /** Enregistre le processeur d'une demande (AssistantService) — évite un cycle de DI. */
@@ -63,18 +66,20 @@ export class AssistantQueue {
         else this.perUserPending.set(key, remaining);
       }
     };
-    this.driver.process(this.currentHandler);
+    void this.driver.process(this.currentHandler);
   }
 
-  /** Point d'entrée du listener : met la demande en file (FIFO par utilisateur). */
-  async enqueueMessage(message: Message, repliesToBot: boolean): Promise<void> {
-    void repliesToBot;
-    const accepted = await this.enqueue(message);
-    if (accepted) return;
+  /**
+   * Point d'entrée du listener : met la demande en file (FIFO par utilisateur).
+   * Retourne false si refusée (caps / queue pleine / agent non prêt) — le
+   * caller (boot-recovery) n'avance son watermark QUE sur true.
+   */
+  async enqueueMessage(message: Message, repliesToBot: boolean): Promise<boolean> {
+    return this.enqueue(message, repliesToBot);
   }
 
   /** Met la demande en file (snapshot). Retourne false si refusée (caps). */
-  async enqueue(message: Message): Promise<boolean> {
+  async enqueue(message: Message, repliesToBot = false): Promise<boolean> {
     const key = `${message.guildId}:${message.author.id}`;
 
     if (!this.processor) {
@@ -97,7 +102,7 @@ export class AssistantQueue {
     }
 
     // File silencieuse : la réponse arrive directement (portail éphémère ou salon).
-    await this.driver.enqueue({ request: snapshotFromMessage(message, false) });
+    await this.driver.enqueue({ request: snapshotFromMessage(message, repliesToBot) });
     this.perUserPending.set(key, pendingForUser + 1);
     return true;
   }
@@ -113,9 +118,5 @@ export class AssistantQueue {
 
   async recentFailures(limit: number): Promise<Array<{ userId: string; content: string; error: string; at: string }>> {
     return this.driver.recentFailures(limit);
-  }
-
-  get concurrency(): number {
-    return AGENT_CONCURRENCY;
   }
 }

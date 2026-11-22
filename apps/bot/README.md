@@ -18,18 +18,21 @@ re-reads `spraxium.config.ts` and the bare ESM import fails.
 Environment lives in `.env` (see `.env.example`). Required: `DISCORD_TOKEN`.
 Optional: `DEEPSEEK_API_KEY` / `DEEPSEEK_MODEL` / `DEEPSEEK_EFFORT` (agent
 brain), `PIXELLAB_API_KEY`, `REDIS_URL` (BullMQ durable queue; in-memory
-fallback), `HTTP_API_KEY`, `BETTER_AUTH_SECRET` + `DISCORD_CLIENT_SECRET`
-(dashboard), `DISCORD_BOT_NAME` / `DISCORD_BOT_ALIASES` (plain-text name
-triggers), `E2E_ENABLED` + `E2E_GUILD_ID` + `E2E_STAFF_WEBHOOK_IDS` (dev-only
-test rig).
+fallback), `HTTP_API_KEY` (set `HTTP_HOST=0.0.0.0` in Docker),
+`BETTER_AUTH_SECRET` + `DISCORD_CLIENT_SECRET` (dashboard),
+`DISCORD_BOT_NAME` (plain-text name trigger), `E2E_ENABLED` + `E2E_GUILD_ID`
++ `E2E_STAFF_WEBHOOK_IDS` (dev-only test rig; ONLY these webhooks pass the
+gate).
 
 Enable the **MESSAGE CONTENT** privileged intent in the Discord developer portal.
 
 ## How the agent works
 
-- **Triggers**: real mention, bot name/alias typed as plain text, reply to one
-  of its messages, or passive triage in the dedicated AI channel (cheap-model
-  OUI/NON gate on every human message - it follows the conversation).
+- **Triggers (gate refondue 22/11)**: real mention, bot name typed as plain
+  text (whole word), verified reply to one of its messages, or any human
+  message in the dedicated AI channel. Webhooks must be allowlisted
+  (`E2E_STAFF_WEBHOOK_IDS`); messages mentioning another bot are ignored.
+  No passive LLM triage anymore.
 - **Direct execution**: no plans, no confirmation panels. Each destructive tool
   re-checks the requester's Discord permission and the bot's, archives before
   deleting, and audits everything (`agent.action.direct` / `agent.action.denied`).

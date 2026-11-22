@@ -15,7 +15,7 @@ export interface ComponentActionContext {
   guildId: string;
   channelId: string;
   member: GuildMember | null;
-  /** Id du message porteur (AgentPanel.messageId) pour la persistance. */
+  /** ID du MESSAGE Discord porteur du composant (= AgentPanel.messageId) pour la persistance (votes, records). */
   messageId: string;
   /** Label du bouton/option déclencheur (pour les tickets : nom du salon). */
   label?: string;

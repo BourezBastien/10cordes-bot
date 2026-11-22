@@ -46,6 +46,10 @@ export class BootRecoveryService implements SpraxiumOnBoot {
       const watermark = await this.prisma.channelWatermark.findUnique({
         where: { channelId },
       });
+      // Avance uniquement sur les messages CONFIRMÉS en file (bug fix :
+      // l'ancien code avançait au dernier message lu même en cas de refus
+      // caps/erreur, perdant les demandes définitivement).
+      let newWatermark: string | null = null;
 
       const messages = await channel.messages.fetch({ limit: MAX_BACKFILL }).catch(() => null);
       if (!messages) continue;
@@ -61,20 +65,31 @@ export class BootRecoveryService implements SpraxiumOnBoot {
         });
 
       for (const message of candidates) {
-        await this.assistant.enqueueMessage(message, false).catch(() => {});
-        recovered++;
+        const accepted = await this.assistant.enqueueMessage(message, false).catch(() => false);
+        if (accepted) {
+          recovered++;
+          newWatermark = message.id;
+          continue;
+        }
+        // Refus (caps, queue pleine) : le watermark ne franchit JAMAIS un
+        // message non enqueué — sinon la demande serait perdue. Elle sera
+        // réessayée au prochain boot ; on arrête ici (les suivants restent
+        // eux aussi après le watermark).
+        this.log.warn(`Enqueue refusé (${message.author.tag}) : watermark maintenu, réessai au prochain boot.`);
+        break;
       }
 
-      const newest = messages.first();
-      if (newest) {
+      if (newWatermark) {
         await this.prisma.channelWatermark.upsert({
           where: { channelId },
-          create: { channelId, lastMessageId: newest.id },
-          update: { lastMessageId: newest.id },
+          create: { channelId, lastMessageId: newWatermark },
+          update: { lastMessageId: newWatermark },
+        }).catch((error: unknown) => {
+          this.log.warn(`Watermark non sauvegardé : ${(error as Error).message.slice(0, 100)}`);
         });
       }
-      if (candidates.length > 0) {
-        this.log.info(`${candidates.length} demande(s) manquante(s) ré-enqueue(ées) (salon ${channelId}).`);
+      if (recovered > 0) {
+        this.log.info(`${recovered} demande(s) manquante(s) ré-enqueue(s) avec succès (salon ${channelId}).`);
       }
     }
     if (recovered === 0) this.log.info('Récupération boot : aucune demande manquée.');

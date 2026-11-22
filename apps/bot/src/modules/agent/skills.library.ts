@@ -24,8 +24,8 @@ export const SKILL_LIBRARY: LibrarySkill[] = [
     rule: 'WORKFLOW TICKETS. 0) NARRATION OBLIGATOIRE : avant CHAQUE phase, annonceStep (ex : « je crée les 3 catégories... », « je configure les permissions staff... », « je poste le panel... ») — l\u0027utilisateur doit voir la construction en direct. 1) QUESTIONS si info manquante : types de tickets (sinon propose Commercial / Technique / Autres) ? rôle staff existant ? salon du panneau ? 2) RÉCAP compact en liste AVANT de construire. 3) CONSTRUIS : pour CHAQUE type, une catégorie dédiée (createCategory position adaptée) ; patch config tickets.staffRoleId avec le rôle staff EXISTANT demandé ; puis sendPanel dans le salon du panneau : selectMenu dont CHAQUE option porte label du type + description + categoryId de sa catégorie + welcomeMessage. 4) Le message du panel EST un embed moderne (titre + description + composants V2) : respecte le format demandé (si l\u0027utilisateur demande des BOUTONS précis dans le panel comme claim/fermer/aide, utilise buttons plutôt que selectMenu et dis-le). 5) Chaque ticket ouvert reçoit AUTOMATIQUEMENT les boutons Claim / Fermer / Demander de l\u0027aide (built-in) : mentions-le dans le récap. Staff gère (claim/close), les membres ne voient QUE leur ticket (overwrites déjà posés). 6) Rapporte : panel id, catégories créées, où est le panel, comment tester (clic → salon + 3 boutons).',
   },
   {
-    category: 'polls-legacy',
-    trigger: 'Quand on demande un vote par réactions emojis avec clôture manuelle par le staff',
+    category: 'polls',
+    trigger: 'Quand on demande un sondage, un vote, un scrutin — à durée limitée ou illimitée, avec boutons ou réactions',
     rule: 'WORKFLOW SONDAGE (COMPOSITION avec les utilitaires). 1) Le plus souvent AUCUNE question nécessaire : question + options lisibles en tête. Si l\u0027utilisateur précise une durée (« dans 30 secondes », « dans 10 minutes »), convertis en SECONDES. 2) CONSTRUIS : sendPanel (titre « 📊 question », description « Un vote par personne, modifiable. Résultats automatiques à <t:epoch:R> », rangée de boutons — CHAQUE bouton = une option avec action { type: vote, choice: « label » }). 3) CLÔTURE AUTO : jobs.schedule kind=once à l\u0029échéance, actions [{ type: runTool, name: tally.votes, input: { messageId: <id renvoyé par sendPanel>, close: true } }] — dépouille et publie les résultats tout seul. 4) Une fois posté : UNE phrase de statut max (« résultats dans 10 min ») — NE répète NI la question NI les options NI l\u0027ID, et NE modifie JAMAIS le message ensuite (tally.votes est le seul à l\u0029éditer).',
   },
   {
@@ -121,7 +121,7 @@ export const SKILL_LIBRARY: LibrarySkill[] = [
   {
     category: 'art-culture',
     trigger: 'Quand on demande de l\u0027art, une œuvre, une image culturelle, une définition, une traduction ou un savoir pointu',
-    rule: 'WORKFLOW CULTURE. 1) Outils dédiés : searchArt (Met/ArtIC avec image URL), defineWord (dictionnaire), searchWikipedia (résumé + lien), getLyrics (paroles), convertCurrency (taux BCE), getPublicHolidays (pays + année). 2) CITE TOUJOURS la source (musée, dictionnaire, Wikipédia). 3) Si la demande est créative (moodboard, palette), combine : getColorSchema + searchArt + les conventions du serveur.',
+    rule: 'WORKFLOW CULTURE. 1) Outils dédiés : searchInternet (recherche web : musées, œuvres, artistes), defineWord (dictionnaire), searchWikipedia (résumé + lien), getLyrics (paroles), convertCurrency (taux BCE), getPublicHolidays (pays + année). 2) CITE TOUJOURS la source (musée, dictionnaire, Wikipédia). 3) Si la demande est créative (moodboard, palette), combine : getColorSchema + generateImage + les conventions du serveur.',
   },
   {
     category: 'memory-correction',
@@ -151,7 +151,7 @@ export const SKILL_LIBRARY: LibrarySkill[] = [
   {
     category: 'giveaways',
     trigger: 'Quand on demande de lancer un giveaway, un tirage au sort, un drop ou un concours',
-    rule: 'WORKFLOW GIVEAWAY. 1) QUESTIONS si manquant : lots ? durée ? nombre de gagnants ? salon ? 2) createPoll-equivalent : giveaway.start (annonce 🎉, participation par réaction, tirage AUTOMATIQUE à l\u0029échéance — jamais de tirage manuel promis) ou giveaway.drop pour un premier-arrivé-gagnant. 3) Une fois lancé : UNE phrase de statut (lots + heure de fin <t:..:R>), l\u0029embed est déjà dans le salon. 4) giveaway.reroll pour refaire un tirage sur demande explicite, giveaway.list pour l\u0029état. 5) NE touche jamais au message du giveaway avec les tools d\u0029édition : la lib le gère.',
+    rule: 'WORKFLOW GIVEAWAY (COMPOSITION avec les utilitaires). 1) QUESTIONS si manquant : lots ? durée ? nombre de gagnants ? salon ? 2) CONSTRUIS : sendPanel « 🎉 Giveaway » (lots, durée, gagnants, clôture à <t:epoch:R>) dans le salon voulu, puis reaction.add 🎉 sur ce message. 3) CLÔTURE AUTO : jobs.schedule kind=once à l\u0027échéance avec actions [{ type: runTool, name: members.pickRandom, input: { scope: reactors, sourceId: <messageId>, count: <gagnants> } }] puis sendMessage annonçant les gagnants — le tirage est AUTOMATIQUE, ne promets jamais de tirer à la main. 4) Une fois lancé : UNE phrase de statut, l\u0027embed est déjà dans le salon. 5) NE touche jamais au message du giveaway avec les tools d\u0027édition.',
   },
   {
     category: 'security',
@@ -167,6 +167,21 @@ export const SKILL_LIBRARY: LibrarySkill[] = [
     category: 'levels',
     trigger: 'Quand on demande d\u0029activer les niveaux/XP, de voir son niveau ou le classement',
     rule: 'LEVELS. Activation : config levels.enabled=true (levels.xpPerMessage 15 par défaut, cooldown 60s). Requêtes : member.level (progression), server.levels en [PANEL], levels.addXp pour corriger. Rôles-récompenses : config levels.roleRewards [{level, roleId}]. Annonce de level-up automatique dans le salon courant (ou levels.announceChannelId).',
+  },
+  {
+    category: 'embed-components',
+    trigger: 'Référence PRIMITIVE : quand tu dois construire un embed, un panel, des boutons ou des composants pour N\u0027IMPORTE QUEL système (tickets, sondages, suggestions, RSVP, collectifs...)',
+    rule: 'PRIMITIVE COMPOSANTS (sendPanel + components.edit/delete). LAYOUT : title (≤120), description (≤3500, supporte ## titres et -# footer inline), accentColor hex, footer, thumbnailUrl, imageUrl, jusqu\u0027à 10 RANGÉES — chaque rangée = 1-5 boutons OU 1 menu ≤25 options. BOUTON = { label ≤80, emoji, style primary/secondary/success/danger, action } avec action TYPÉE : reply {message} (poste un texte), link {url} (bouton externe), ticket {categoryId, welcomeMessage} (ouvre un salon), giveRole/removeRole {roleId} (sur le cliqueur), reveal {message} (éphémère), counter {name} (incrémente), runTool {name, input} (n\u0027importe quel tool au clic), record.write {collection, data} (écrit dans le store typé). DEFAULTS : accent #d95926. Les interactions survivent aux restarts (définition persistée). COMPOSE : boutons = collecteurs de clics génériques (vote/RSVP/inscription via record.write), runTool = exécute ta logique. Ce composant est la BASE de tous les systèmes que tu construis.',
+  },
+  {
+    category: 'records',
+    trigger: 'Référence PRIMITIVE : quand tu dois stocker/lire des données structurées pour un système (rappels, suggestions, faq, compteurs, notes, votes...)',
+    rule: 'PRIMITIVE STORE (records.*). Collections TYPÉES déclarées en code (records.collections pour la liste + champs) : reminders { userId, text, dueAtIso }, suggestions { userId, text, status, reason }, quotes { text, author }, faq { question, answer }, counters { name, value }, notes { targetUserId, content }, component_votes { messageId, channelId, choice }. La validation Zod est STRICTE : en cas de refus, corrige les champs exacts indiqués. NOUVELLE collection nécessaire ? Elle doit être déclarée en code (demande au owner) — jamais de JSON libre.',
+  },
+  {
+    category: 'jobs',
+    trigger: 'Référence PRIMITIVE : quand tu dois planifier une action différée ou récurrente (clôtures, rappels, cleanups, annonces périodiques)',
+    rule: 'PRIMITIVE TEMPS (jobs.schedule). kinds : once à une date ISO, cron (tz Europe/Paris), interval minutes (5 min à 30 j). Actions : sendMessage {channelId, content}, addRole/removeRole {roleId}, runTool {name, input} (N\u0027IMPORTE QUEL tool à l\u0029échéance — ex tally.votes pour clôturer un sondage, channel.remove pour supprimer un salon). Tick 30s + sweep au boot : survit aux redémarrages. jobs.list/jobs.cancel pour la gestion.',
   },
   {
     category: 'movies',

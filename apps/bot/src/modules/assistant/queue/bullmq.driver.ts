@@ -1,6 +1,6 @@
-import { Queue, Worker, type Processor } from 'bullmq';
+import { Queue, Worker } from 'bullmq';
 import Redis from 'ioredis';
-import { QUEUE_NAME, type AgentJobData, type QueueCounts } from './types';
+import { AGENT_CONCURRENCY, JOB_ATTEMPTS, QUEUE_NAME, type AgentJobData, type QueueCounts } from './types';
 import type { QueueDriver } from './queue-driver';
 
 
@@ -8,6 +8,7 @@ export class BullMqDriver implements QueueDriver {
   readonly name = 'bullmq' as const;
   private readonly connection: Redis;
   private readonly queue: Queue<AgentJobData>;
+  private worker: Worker<AgentJobData> | null = null;
   private readonly recent: Array<{ userId: string; content: string; error: string; at: string }> = [];
 
   constructor(
@@ -18,7 +19,7 @@ export class BullMqDriver implements QueueDriver {
     this.queue = new Queue<AgentJobData>(QUEUE_NAME, {
       connection: this.connection,
       defaultJobOptions: {
-        attempts: 3,
+        attempts: JOB_ATTEMPTS,
         backoff: { type: 'exponential', delay: 2_000 },
         removeOnComplete: { count: 200 },
         removeOnFail: { count: 200 },
@@ -31,17 +32,17 @@ export class BullMqDriver implements QueueDriver {
   }
 
   async process(handler: (job: AgentJobData) => Promise<void>): Promise<void> {
-    const worker = new Worker<AgentJobData>(
+    this.worker = new Worker<AgentJobData>(
       QUEUE_NAME,
       async (job) => {
         await handler(job.data);
       },
       {
         connection: this.connection,
-        concurrency: 5,
+        concurrency: AGENT_CONCURRENCY,
       },
     );
-    worker.on('failed', (job, error) => {
+    this.worker.on('failed', (job, error) => {
       if (job && job.attemptsMade >= (job.opts.attempts ?? 1)) {
         const data = job.data;
         this.onFailure(data, error.message);
@@ -54,7 +55,7 @@ export class BullMqDriver implements QueueDriver {
         if (this.recent.length > 20) this.recent.pop();
       }
     });
-    await worker.waitUntilReady();
+    await this.worker.waitUntilReady();
   }
 
   async counts(): Promise<QueueCounts> {
@@ -72,10 +73,8 @@ export class BullMqDriver implements QueueDriver {
   }
 
   async close(): Promise<void> {
+    await this.worker?.close();
     await this.queue.close();
     this.connection.disconnect();
   }
 }
-
-// Processor type guard (BullMQ exports Processor comme string | fonction)
-export type { Processor };

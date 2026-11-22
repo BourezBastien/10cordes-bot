@@ -106,19 +106,19 @@ export class ToolRegistryService {
     const tool = this.tools.get(name);
     if (!tool) return { ok: false, summary: `Unknown tool \`${name}\`.` };
 
-    const audited = tool.destructive || tool.name.startsWith('config.');
+    // Traçabilité TOTALE (demande owner) : chaque appel de tool est audité,
+    // succès comme refus — c'est ce qui permet de vérifier le comportement
+    // de l'agent (rigs, diagnostics) et de reconstituer une action.
     const finish = (result: ToolResult, deniedPermission?: string[]): ToolResult => {
-      if (audited) {
-        this.audit.record({
-          guildId: ctx.guildId,
-          source: 'agent',
-          action: deniedPermission ? `tool.denied.${name}` : `tool.${name}`,
-          actorId: ctx.userId,
-          metadata: deniedPermission
-            ? { missing: deniedPermission }
-            : { ok: result.ok, input: (input as Record<string, unknown>) ?? {} },
-        });
-      }
+      this.audit.record({
+        guildId: ctx.guildId,
+        source: 'agent',
+        action: deniedPermission ? `tool.denied.${name}` : `tool.${name}`,
+        actorId: ctx.userId,
+        metadata: deniedPermission
+          ? { missing: deniedPermission }
+          : { ok: result.ok, input: (input as Record<string, unknown>) ?? {} },
+      });
       return result;
     };
 

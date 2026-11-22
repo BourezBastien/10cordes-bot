@@ -24,8 +24,10 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import { getToolRegistry } from '../tool-registry/tool-registry.service';
+import { getCollection } from '../records/collections';
 import { registerComponentAction, executeComponentAction } from '../../shared/actions/registry';
 import { registerDefaultComponentExecutors } from '../../shared/actions/default-executors';
+import { runToolAsActor } from '../../shared/actions/run-tool';
 
 /** Bouton dynamique des rangées arbitraires : params inline r/b (index rangée/bouton). */
 @DynamicButton({ baseId: 'panel:action', encoding: 'inline' })
@@ -117,6 +119,50 @@ export class PanelsService implements SpraxiumOnBoot {
       if (!ctx.member) return 'Membre introuvable pour ouvrir le ticket.';
       if (action.type !== 'ticket') return 'Action inattendue.';
       return this.createTicketChannel(ctx.guildId, ctx.label ?? 'ticket', action.categoryId, action.welcomeMessage, ctx.member, ctx.messageId);
+    });
+    // Executors de COMPOSITION : runTool (n'importe quel tool au clic) et
+    // record.write (écrit dans une collection typée). Ce sont les primitives
+    // qui rendent tout workflow composable par boutons. runTool s'exécute
+    // avec les permissions RÉELLES du cliqueur (node deny respecté).
+    registerComponentAction('runTool', async (action, ctx) => {
+      if (action.type !== 'runTool') return 'Action inattendue.';
+      const result = await runToolAsActor(action.name, action.input, {
+        guildId: ctx.guildId,
+        channelId: ctx.channelId,
+        userId: ctx.userId ?? ctx.member?.id ?? '',
+        permissions: ctx.member?.permissions.toArray() ?? [],
+        roleIds: ctx.member?.roles.cache.map((role) => role.id) ?? [],
+      });
+      return result.ok ? result.summary : `Échec : ${result.summary}`;
+    });
+    registerComponentAction('record.write', async (action, ctx) => {
+      if (action.type !== 'record.write') return 'Action inattendue.';
+      const def = getCollection(action.collection);
+      if (!def) return `Collection « ${action.collection} » inconnue.`;
+      const parsed = def.schema.safeParse({ ...action.data, userId: ctx.userId });
+      if (!parsed.success) {
+        const issues = parsed.error.issues.map((issue) => `${issue.path.join('.') || 'racine'} : ${issue.message}`).join(' ; ');
+        return `Données invalides pour « ${action.collection} » : ${issues}`;
+      }
+      const validated = parsed.data as Record<string, unknown>;
+      const created = await this.prisma.agentRecord.create({
+        data: {
+          guildId: ctx.guildId,
+          collection: action.collection,
+          channelId: ctx.channelId,
+          messageId: ctx.messageId,
+          createdBy: ctx.userId ?? ctx.member?.id ?? 'anonyme',
+          data: JSON.stringify({ version: 1, userId: ctx.userId ?? ctx.member?.id, ...validated }),
+        },
+      });
+      this.audit.record({
+        guildId: ctx.guildId,
+        source: 'agent',
+        action: 'component.record.written',
+        actorId: ctx.userId,
+        metadata: { collection: action.collection, recordId: created.id },
+      });
+      return 'Enregistré.';
     });
   }
 
@@ -261,24 +307,41 @@ export class PanelsService implements SpraxiumOnBoot {
       systemPrompt: 'Pour corriger/améliorer un panel existant. Les champs omis conservent leur valeur actuelle.',
       handler: async (input, ctx) => {
         if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
-        const { messageId } = input as { messageId: string };
-        const row = await this.prisma.agentPanel.findFirst({ where: { messageId, guildId: ctx.guildId } });
-        if (!row) return { ok: false, summary: 'Panel introuvable pour ce message.' };
-        const current = this.normalizeDefinition(JSON.parse(row.definition));
-        const patch = input as Record<string, unknown>;
-        const merged = this.normalizeDefinition({ ...current, ...patch });
-        if (!merged) return { ok: false, summary: 'Layout résultant invalide.' };
-        await this.prisma.agentPanel.update({ where: { id: row.id }, data: { definition: JSON.stringify(merged) } });
-        const guild = this.client.guilds.cache.get(ctx.guildId);
-        if (guild) {
-          const channel = await guild.channels.fetch(row.channelId).catch(() => null);
-          if (channel?.isTextBased() && !channel.partial) {
-            await channel.messages
-              .edit(messageId, { flags: 32768, components: [await this.buildContainer(merged)] })
-              .catch(() => {});
-          }
-        }
-        return { ok: true, summary: `Panel « ${merged.title ?? row.id.slice(-6)} » édité et re-rendu.` };
+    const { messageId } = input as { messageId: string };
+    const row = await this.prisma.agentPanel.findFirst({ where: { messageId, guildId: ctx.guildId } });
+    if (!row) return { ok: false, summary: 'Panel introuvable pour ce message.' };
+    let currentRaw: Record<string, unknown>;
+    try {
+      currentRaw = JSON.parse(row.definition) as Record<string, unknown>;
+    } catch {
+      return { ok: false, summary: 'Définition persistée illisible (JSON invalide).' };
+    }
+    const current = this.normalizeDefinition(currentRaw);
+    if (!current) return { ok: false, summary: 'Définition persistée invalide.' };
+    const patch = input as Record<string, unknown>;
+    const merged = this.normalizeDefinition({ ...current, ...patch });
+    if (!merged) return { ok: false, summary: 'Layout résultant invalide.' };
+    await this.prisma.agentPanel.update({ where: { id: row.id }, data: { definition: JSON.stringify(merged) } });
+    let rendered = true;
+    const guild = this.client.guilds.cache.get(ctx.guildId);
+    if (guild) {
+      const channel = await guild.channels.fetch(row.channelId).catch(() => null);
+      if (channel?.isTextBased() && !channel.partial) {
+        await channel.messages
+          .edit(messageId, { flags: 32768, components: [await this.buildContainer(merged)] })
+          .catch(() => {
+            rendered = false;
+          });
+      } else {
+        rendered = false;
+      }
+    }
+    return {
+      ok: true,
+      summary: rendered
+        ? `Panel « ${merged.title ?? row.id.slice(-6)} » édité et re-rendu.`
+        : `Panel « ${merged.title ?? row.id.slice(-6)} » édité en DB mais le re-rendu Discord a échoué (message ou salon introuvable).`,
+    };
       },
     };
   }
@@ -487,13 +550,12 @@ export class PanelsService implements SpraxiumOnBoot {
     const button = layoutRow.buttons[buttonIndex];
     if (!button) throw new Error('Bouton introuvable dans ce panel.');
     const action: ComponentButtonAction = button.action ?? { type: 'reply', message: '👍' };
-    const { executeComponentAction } = await import('../../shared/actions/registry');
     return executeComponentAction(action, {
       interaction,
       guildId: row.guildId,
       channelId: row.channelId,
       member,
-      messageId: row.id,
+      messageId: row.messageId,
       label: button.label,
       userId: interaction.user.id,
     });
@@ -516,13 +578,12 @@ export class PanelsService implements SpraxiumOnBoot {
     const option = layoutRow.select.options[optionIndex];
     if (!option) throw new Error('Option introuvable dans ce menu.');
     const action: ComponentButtonAction = option.action ?? { type: 'reply', message: '👍' };
-    const { executeComponentAction } = await import('../../shared/actions/registry');
     return executeComponentAction(action, {
       interaction,
       guildId: row.guildId,
       channelId: row.channelId,
       member,
-      messageId: row.id,
+      messageId: row.messageId,
       label: option.label,
       userId: interaction.user.id,
     });
@@ -543,7 +604,7 @@ export class PanelsService implements SpraxiumOnBoot {
       guildId: row.guildId,
       channelId: row.channelId,
       member,
-      messageId: row.id,
+      messageId: row.messageId,
       label: option.label,
     });
   }
@@ -563,7 +624,7 @@ export class PanelsService implements SpraxiumOnBoot {
       guildId: row.guildId,
       channelId: row.channelId,
       member,
-      messageId: row.id,
+      messageId: row.messageId,
       label: button.label,
     });
   }
@@ -599,8 +660,8 @@ export class PanelsService implements SpraxiumOnBoot {
       update: { value: { increment: 1 } },
     });
     // Ligne Ticket obligatoire : les boutons claim/close du module tickets
-    // résolvent le ticket par (guildId, channelId) en DB — sans elle ils
-    // seraient des no-op silencieux sur les tickets ouverts par le panel.
+    // résolvent le ticket par (guildId, channelId) en DB. Si elle échoue on
+    // supprime le salon : un ticket sans ligne DB serait un no-op silencieux.
     const slug = label.toLowerCase().replace(/[^a-z0-9]+/gu, '-').replace(/^-|-$/g, '').slice(0, 40) || 'ticket';
     const created = await guild.channels.create({
       name: `${slug}-${String(counter.value).padStart(4, '0')}`,
@@ -609,16 +670,19 @@ export class PanelsService implements SpraxiumOnBoot {
       reason: `ticket de <@${member.id}> (panel)`,
       permissionOverwrites: [
         { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-        { id: member.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
-        { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+        { id: member.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles] },
+        { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles] },
         ...(staffRoleId
-          ? [{ id: staffRoleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] }]
+          ? [{ id: staffRoleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles] }]
           : []),
       ],
     });
-    await this.prisma.ticket
-      .create({ data: { guildId, number: counter.value, channelId: created.id, userId: member.id } })
-      .catch(() => {});
+    try {
+      await this.prisma.ticket.create({ data: { guildId, number: counter.value, channelId: created.id, userId: member.id } });
+    } catch (error) {
+      await created.delete(`ticket DB injoignable : ${(error as Error).message.slice(0, 80)}`).catch(() => {});
+      throw new Error("Impossible d'enregistrer le ticket en base (réessaie).");
+    }
     // Accueil en V2 (embed moderne) + rangée standard claim / fermer / aide.
     const welcome = new ContainerBuilder().setAccentColor(0xd9_59_26);
     welcome.addTextDisplayComponents(new TextDisplayBuilder().setContent(`## 📬 Ticket — ${label}`));
@@ -628,9 +692,13 @@ export class PanelsService implements SpraxiumOnBoot {
           '🙋 **Claim** (staff) : prise en charge · 🔒 **Fermer** (staff) : clôture + transcript · 🆘 **Aide** : appelle le staff.',
       ),
     );
-    await created
+    const welcomeSent = await created
       .send({ flags: 32768, components: [welcome, ticketActionRow()] })
-      .catch(() => {});
+      .then(() => true)
+      .catch((error: unknown) => {
+        this.log.warn(`Accueil du ticket non envoyé : ${(error as Error).message.slice(0, 100)}`);
+        return false;
+      });
     this.audit.record({
       guildId,
       source: 'agent',
@@ -639,7 +707,7 @@ export class PanelsService implements SpraxiumOnBoot {
       targetId: created.id,
       metadata: { panelId, label },
     });
-    return `Salon <#${created.id}> créé dans la catégorie ${categoryId ? `<#${categoryId}>` : 'racine'}.`;
+    return `Salon <#${created.id}> créé dans la catégorie ${categoryId ? `<#${categoryId}>` : 'racine'}${welcomeSent ? '' : ' (accueil non envoyé : permissions du salon)'}.`;
   }
 }
 

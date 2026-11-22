@@ -71,7 +71,14 @@ export class UtilityService implements SpraxiumOnBoot {
             if (!batch || batch.size === 0) break;
             lastId = batch.last()?.id;
             for (const message of batch.values()) {
-              if (Date.now() - message.createdTimestamp > windowMs) continue;
+              // Les messages sont du plus récent au plus ancien : dès qu'on
+              // franchit la fenêtre, tout le reste de la pagination est plus
+              // vieux — on STOPPE la pagination (l'ancien `continue` sur la
+              // boucle interne fetchait des pages entières pour rien).
+              if (Date.now() - message.createdTimestamp > windowMs) {
+                page = 5;
+                break;
+              }
               if (userId && message.author.id !== userId) continue;
               if (contains && !message.content.toLowerCase().includes(contains.toLowerCase())) continue;
               const when = new Date(message.createdTimestamp).toISOString().slice(0, 16).replace('T', ' ');
@@ -280,8 +287,10 @@ export class UtilityService implements SpraxiumOnBoot {
           if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
           const channel = this.textChannel(ctx.guildId, (input as { channelId: string }).channelId);
           if (!channel) return { ok: false, summary: 'Salon introuvable.' };
-          await channel.messages.pin((input as { messageId: string }).messageId).catch(() => {});
-          return { ok: true, summary: 'Message épinglé.' };
+          const pinned = await channel.messages.pin((input as { messageId: string }).messageId).then(() => true).catch(() => false);
+          return pinned
+            ? { ok: true, summary: 'Message épinglé.' }
+            : { ok: false, summary: 'Épinglage impossible (message introuvable ou permissions ?).' };
         },
       },
       {
@@ -297,8 +306,10 @@ export class UtilityService implements SpraxiumOnBoot {
           if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
           const channel = this.textChannel(ctx.guildId, (input as { channelId: string }).channelId);
           if (!channel) return { ok: false, summary: 'Salon introuvable.' };
-          await channel.messages.unpin((input as { messageId: string }).messageId).catch(() => {});
-          return { ok: true, summary: 'Message désépinglé.' };
+          const unpinned = await channel.messages.unpin((input as { messageId: string }).messageId).then(() => true).catch(() => false);
+          return unpinned
+            ? { ok: true, summary: 'Message désépinglé.' }
+            : { ok: false, summary: 'Désépinglage impossible (message introuvable ou permissions ?).' };
         },
       },
       {
@@ -328,8 +339,10 @@ export class UtilityService implements SpraxiumOnBoot {
             hook = await channel.createWebhook({ name: 'agent-annonces', avatar: avatarUrl, reason: 'annonces agent' }).catch(() => undefined);
           }
           if (!hook) return { ok: false, summary: 'Création du webhook impossible (permissions ManageWebhooks ?).' };
-          await hook.send({ content: content.slice(0, 1500), username: name.slice(0, 80), avatarURL: avatarUrl }).catch(() => {});
-          return { ok: true, summary: 'Annonce postée via webhook.' };
+          const sent = await hook.send({ content: content.slice(0, 1500), username: name.slice(0, 80), avatarURL: avatarUrl }).then(() => true).catch(() => false);
+          return sent
+            ? { ok: true, summary: 'Annonce postée via webhook.' }
+            : { ok: false, summary: "Envoi via webhook échoué (permissions du salon, contenu rejeté ?)." };
         },
       },
       {
@@ -348,8 +361,10 @@ export class UtilityService implements SpraxiumOnBoot {
           const { messageId, emoji } = input as { messageId: string; emoji: string };
           const message = await channel.messages.fetch(messageId).catch(() => null);
           if (!message) return { ok: false, summary: 'Message introuvable.' };
-          await message.react(emoji).catch(() => {});
-          return { ok: true, summary: `Réaction ${emoji} ajoutée.` };
+          const reacted = await message.react(emoji).then(() => true).catch(() => false);
+          return reacted
+            ? { ok: true, summary: `Réaction ${emoji} ajoutée.` }
+            : { ok: false, summary: `Réaction ${emoji} impossible (emoji invalide ou permissions ?).` };
         },
       },
     ];

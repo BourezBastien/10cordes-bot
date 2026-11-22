@@ -278,7 +278,7 @@ export function buildSystemPrompt(
     'Ne devine jamais un ID : résous les noms via les tools de liste.',
     'Chaîne tes appels : tu peux enchaîner plusieurs tools avant de répondre (jusqu\u0027à 8 étapes).',
     'OUTILS FILTRÉS : seuls les tools pertinents pour la demande en cours t\u0029ont été injectés. Si la demande évolue vers autre chose en cours de route et qu\u0029un tool te manque, DIS-LE honnêtement et demande à l\u0029utilisateur de reformuler dans une nouvelle demande.',
-    'HARMONIE MODULE/UTILITAIRES : pour un système DEMANDÉ qui correspond à un module éprouvé (tickets, sondages, giveaways, vérification), utilise le module. Pour toute variante ou système SANS module, COMPOSE avec les utilitaires génériques : sendPanel (composants à actions typées), records.* (store typé : reminders, suggestions, faq, quotes, counters, notes), jobs.* (once/cron/interval), components.* — l\u0029assemblage des primitives construit des systèmes complets sur mesure.',
+    'COMPOSITION D\u0027ABORD : pour construire un SYSTÈME (sondage, tickets, suggestions, RSVP, collectif, modération légère...), COMPOSE avec les primitives — sendPanel (embed V2 + boutons à action typée), records.* (store typé), jobs.* + runTool (planification), components.* (édition). Les tools métier dédiés ne servent QUE pour ce que les primitives ne couvrent pas (generateMusic, generateImage, voice.*, sanctions ciblées). Ne demande jamais à l\u0029utilisateur « quel module veux-tu » : TU construis le système sur mesure avec les composants.',
     'PROGRESSION VISIBLE : pour tout montage multi-étapes (tickets, panels, catégories, rôles, automatisations) ou analyse longue (scan de salons, membres, rôles), appelle announceStep à CHAQUE phase avec des compteurs concrets (« création des 3 catégories... », « salons analysés : 24/57... »). L\u0027utilisateur doit voir ce que tu fais en direct, jamais un silence de 2 minutes suivi du résultat final.',
     'INFO MANQUANTE = RECHERCHE : si la demande touche un sujet que tu ne maîtrises pas assez (actualité, personne, jeu, événement), cherche d\u0029abord via searchInternet / getNews avant de répondre. Vérifie la cohérence entre plusieurs sources fiables ; ne cite PAS les sources dans ta réponse (sauf demande explicite). Ne télécharge JAMAIS rien sur la machine : lecture web uniquement.',
     'DEMANDE EXPLICITE = EXÉCUTION IMMÉDIATE : quand l\u0027utilisateur nomme l\u0027action et la cible (ex: « renomme X en Y », « mets un slowmode de 5s »), appelle le tool tout de suite, sans question préalable, sans proposer d\u0027alternative, sans demander confirmation. Ne pose une question QUE si un paramètre essentiel manque réellement (aucun nom donné, cible inexistante).',
@@ -1009,8 +1009,21 @@ export class AssistantService {
     }
     const chunks = splitReplyChunks(finalDelivery);
     await status.done();
+    // Réponse ADRESSÉE : chaque morceau répond au message d'origine (reply
+    // messageReference, failIfNotExists pour survivre à sa suppression) ;
+    // fallback channel.send nu si le reply échoue (message source partielle,
+    // permissions). Décision v3 : le bot ne « parle dans le vide » plus.
+    let replied = false;
     for (const chunk of chunks) {
       if (!chunk.trim()) continue;
+      if (!replied) {
+        const sent = await channel
+          .send({ content: chunk, reply: { messageReference: request.messageId, failIfNotExists: false } })
+          .then(() => true)
+          .catch(() => false);
+        replied = sent;
+        if (sent) continue;
+      }
       await channel.send({ content: chunk }).catch(() => {});
     }
     if (executed.length === 0 && chunks.length === 1 && chunks[0].trim()) {

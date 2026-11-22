@@ -121,12 +121,15 @@ export class PollsService implements SpraxiumOnBoot {
     ctx: { guildId: string; channelId: string; userId: string; messageId: string },
     choice: string,
   ): Promise<string> {
+    // Match EXACT sur la colonne messageId (+ guildId + createdBy) : le
+    // `contains` sur data pouvait matcher le vote d'un AUTRE sondage dont
+    // le snowflake est une sous-chaîne (longueurs 17-20 chiffres).
     const existing = await this.prisma.agentRecord.findFirst({
       where: {
         guildId: ctx.guildId,
         collection: 'component_votes',
         createdBy: ctx.userId,
-        data: { contains: ctx.messageId },
+        messageId: ctx.messageId,
       },
     });
     if (existing) {
@@ -155,7 +158,7 @@ export class PollsService implements SpraxiumOnBoot {
    */
   async tallyVotes(messageId: string, close: boolean): Promise<boolean> {
     const votes = await this.prisma.agentRecord.findMany({
-      where: { collection: 'component_votes', data: { contains: messageId } },
+      where: { collection: 'component_votes', messageId },
     });
     if (votes.length === 0) return false;
 

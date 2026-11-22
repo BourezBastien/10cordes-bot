@@ -2,6 +2,7 @@ import { Ctx } from '@spraxium/common';
 import { ButtonHandler } from '@spraxium/components';
 import {
   ActionRowBuilder,
+  AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
   MessageFlags,
@@ -23,6 +24,7 @@ import {
   TicketRate5,
 } from './components/ticket.components';
 import { panel } from '../../shared/ui';
+import { runToolAsSystem } from '../../shared/actions/run-tool';
 
 function claimCloseRows(): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -252,7 +254,6 @@ export class TicketCloseHandler {
     if (config.tickets.logChannelId) {
       const logChannel = await guild.channels.fetch(config.tickets.logChannelId).catch(() => null);
       if (logChannel?.isTextBased() && !logChannel.partial) {
-        const { AttachmentBuilder } = await import('discord.js');
         const textFile = new AttachmentBuilder(Buffer.from(closed.transcript, 'utf8'), {
           name: `ticket-${closed.number}-transcript.txt`,
         });
@@ -292,8 +293,18 @@ export class TicketCloseHandler {
         })
         .catch(() => {});
     }
-    setTimeout(() => {
-      void guild.channels.delete(channelId, `ticket #${closed.number} closed`).catch(() => {});
-    }, 60_000);
+    // Suppression différée via le MOTEUR DE JOBS (survit aux redémarrages) :
+    // l'ancien setTimeout 60 s en mémoire laissait un salon orphelin si le
+    // bot redémarrant dans la fenêtre (ticket déjà closed en DB).
+    void runToolAsSystem(
+      'jobs.schedule',
+      {
+        name: `ticket-close-${channelId}`.slice(0, 60),
+        kind: 'once',
+        runAtIso: new Date(Date.now() + 60_000).toISOString(),
+        actions: [{ type: 'runTool', name: 'deleteChannel', input: { channelId } }],
+      },
+      { guildId: guild.id, botUserId: interaction.client.user.id },
+    ).catch(() => {});
   }
 }

@@ -99,12 +99,16 @@ export class AutomationsService implements SpraxiumOnBoot {
   private async activeFor(guildId: string, triggerType: string): Promise<AgentAutomationRow[]> {
     const cached = this.cache.get(guildId);
     if (!cached || Date.now() - cached.fetchedAt > 30_000) {
-      const rows = await this.prisma.agentAutomation.findMany({
-        where: { guildId, enabled: true, triggerType },
+      // Fetch NON filtré par triggerType : le cache est partagé par TOUS les
+      // triggers du serveur. (Bug fix : filtrer à l'écriture rendait les
+      // autres triggers invisibles pendant tout le TTL — une automatisation
+      // member.joined ne se déclenchait jamais après un message.created.)
+      const rows = (await this.prisma.agentAutomation.findMany({
+        where: { guildId, enabled: true },
         orderBy: { createdAt: 'asc' },
-      });
-      this.cache.set(guildId, { rows: rows as AgentAutomationRow[], fetchedAt: Date.now() });
-      return rows as AgentAutomationRow[];
+      })) as AgentAutomationRow[];
+      this.cache.set(guildId, { rows, fetchedAt: Date.now() });
+      return rows.filter((row) => row.triggerType === triggerType);
     }
     return cached.rows.filter((row) => row.triggerType === triggerType);
   }

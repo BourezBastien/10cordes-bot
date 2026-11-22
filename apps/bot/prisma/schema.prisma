@@ -542,11 +542,16 @@ model AgentRecord {
   guildId    String
   collection String
   data       String // JSON validé par le registre Zod de la collection (versionné)
+  // Clics de composants (vote, record.write) : salon et message porteur,
+  // en colonnes pour un match EXACT (le contains sur data était ambigu).
+  channelId  String?
+  messageId  String?
   createdBy  String
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   guild      Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@index([guildId, collection, createdAt])
+  @@index([guildId, collection, messageId])
   @@map("agent_records")
 }

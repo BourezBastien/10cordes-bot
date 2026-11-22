@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { BotTool } from '@10cordes/shared';
 import { getToolRegistry } from '../tool-registry/tool-registry.service';
 import { PrismaService } from '../database/prisma.service';
+import { registerComponentAction } from '../../shared/actions/registry';
 import { COLLECTIONS, getCollection } from './collections';
 
 /**
@@ -19,8 +20,46 @@ export class RecordsService implements SpraxiumOnBoot {
   constructor(private readonly prisma: PrismaService) {}
 
   onBoot(): void {
-    for (const tool of this.buildTools()) getToolRegistry().register(tool);
-    this.log.info(`${this.buildTools().length} tools records enregistrés (${Object.keys(COLLECTIONS).length} collections).`);
+    const tools = this.buildTools();
+    for (const tool of tools) getToolRegistry().register(tool);
+    this.log.info(`${tools.length} tools records enregistrés (${Object.keys(COLLECTIONS).length} collections).`);
+    // Executor 'counter' : incrémente un compteur nommé de la collection
+    // 'counters' (un enregistrement par nom et par serveur). Enfin branché :
+    // le schéma partagé proposait l'action, aucun executor n'existait.
+    registerComponentAction('counter', async (action, ctx) => {
+      if (action.type !== 'counter') return 'Action inattendue.';
+      if (!ctx.guildId) return 'Contexte de serveur requis.';
+      const rows = await this.prisma.agentRecord.findMany({
+        where: { guildId: ctx.guildId, collection: 'counters' },
+      });
+      const existing = rows.find((row) => {
+        try {
+          return (JSON.parse(row.data) as { name?: string }).name === action.name;
+        } catch {
+          return false;
+        }
+      });
+      if (existing) {
+        const current = JSON.parse(existing.data) as { value?: number };
+        const value = (current.value ?? 0) + 1;
+        await this.prisma.agentRecord.update({
+          where: { id: existing.id },
+          data: { data: JSON.stringify({ version: 1, name: action.name, value }) },
+        });
+        return `**${action.name}** : ${value}.`;
+      }
+      await this.prisma.agentRecord.create({
+        data: {
+          guildId: ctx.guildId,
+          collection: 'counters',
+          channelId: ctx.channelId,
+          messageId: ctx.messageId,
+          createdBy: ctx.userId ?? ctx.member?.id ?? 'anonyme',
+          data: JSON.stringify({ version: 1, name: action.name, value: 1 }),
+        },
+      });
+      return `**${action.name}** : 1.`;
+    });
   }
 
   private validate(collection: string, data: unknown): { ok: true; data: Record<string, unknown> } | { ok: false; summary: string } {
@@ -101,7 +140,12 @@ export class RecordsService implements SpraxiumOnBoot {
           const { recordId, data: patch } = input as { recordId: string; data: Record<string, unknown> };
           const record = await this.prisma.agentRecord.findFirst({ where: { id: recordId, guildId: ctx.guildId } });
           if (!record) return { ok: false, summary: 'Enregistrement introuvable.' };
-          const current = JSON.parse(record.data || '{}') as Record<string, unknown>;
+          let current: Record<string, unknown>;
+          try {
+            current = JSON.parse(record.data || '{}') as Record<string, unknown>;
+          } catch {
+            current = {};
+          }
           const merged = { ...current, ...patch };
           const check = this.validate(record.collection, merged);
           if (!check.ok) return check;

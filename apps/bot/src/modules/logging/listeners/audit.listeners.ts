@@ -22,6 +22,7 @@ const trunc = (value: string | null | undefined, max = 150): string | undefined 
   value === undefined || value === null ? undefined : value.slice(0, max);
 
 /** Message create/update/delete : nourrit l'audit (contenu tronqué). */
+@Listener(Events.MessageCreate)
 export class AuditMessageCreatedListener {
   constructor(private readonly audit: AuditService) {}
 
@@ -39,6 +40,7 @@ export class AuditMessageCreatedListener {
   }
 }
 
+@Listener(Events.GuildMemberAdd)
 export class AuditMemberJoinedListener {
   constructor(private readonly audit: AuditService) {}
 
@@ -54,6 +56,7 @@ export class AuditMemberJoinedListener {
   }
 }
 
+@Listener(Events.GuildMemberRemove)
 export class AuditMemberLeftListener {
   constructor(private readonly audit: AuditService) {}
 
@@ -69,6 +72,7 @@ export class AuditMemberLeftListener {
   }
 }
 
+@Listener(Events.GuildBanAdd)
 export class AuditBanAddListener {
   constructor(private readonly audit: AuditService) {}
 
@@ -84,6 +88,7 @@ export class AuditBanAddListener {
   }
 }
 
+@Listener(Events.GuildBanRemove)
 export class AuditBanRemoveListener {
   constructor(private readonly audit: AuditService) {}
 
@@ -99,6 +104,7 @@ export class AuditBanRemoveListener {
   }
 }
 
+@Listener(Events.ChannelCreate)
 export class AuditChannelCreatedListener {
   constructor(private readonly audit: AuditService) {}
 
@@ -114,6 +120,7 @@ export class AuditChannelCreatedListener {
   }
 }
 
+@Listener(Events.ChannelDelete)
 export class AuditChannelDeletedListener {
   constructor(private readonly audit: AuditService) {}
 
@@ -129,6 +136,7 @@ export class AuditChannelDeletedListener {
   }
 }
 
+@Listener(Events.GuildRoleCreate)
 export class AuditRoleCreatedListener {
   constructor(private readonly audit: AuditService) {}
 
@@ -144,6 +152,7 @@ export class AuditRoleCreatedListener {
   }
 }
 
+@Listener(Events.GuildRoleDelete)
 export class AuditRoleDeletedListener {
   constructor(private readonly audit: AuditService) {}
 
@@ -159,6 +168,7 @@ export class AuditRoleDeletedListener {
   }
 }
 
+@Listener(Events.GuildEmojiUpdate)
 export class AuditEmojiUpdatedListener {
   constructor(private readonly audit: AuditService) {}
 
@@ -174,6 +184,7 @@ export class AuditEmojiUpdatedListener {
   }
 }
 
+@Listener(Events.InviteCreate)
 export class AuditInviteCreatedListener {
   constructor(private readonly audit: AuditService) {}
 
@@ -189,6 +200,7 @@ export class AuditInviteCreatedListener {
   }
 }
 
+@Listener(Events.InviteDelete)
 export class AuditInviteDeletedListener {
   constructor(private readonly audit: AuditService) {}
 

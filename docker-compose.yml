@@ -2,13 +2,23 @@ services:
   bot:
     build: .
     restart: unless-stopped
-    env_file: .env
+    # Le .env réel vit dans apps/bot/ (celui de la racine n'existe pas).
+    env_file:
+      - path: ./apps/bot/.env
+        required: false
     environment:
       DATABASE_URL: file:../data/bot.db
+      # Le réseau Docker résout le service par son nom (jamais 127.0.0.1).
+      REDIS_URL: redis://redis:6379
+      # Le serveur HTTP doit écouter sur toutes les interfaces du conteneur
+      # pour que le port publié soit joignable (défaut local : 127.0.0.1).
+      HTTP_HOST: 0.0.0.0
     ports:
       - '3000:3000'
     volumes:
       - bot-data:/app/apps/bot/data
+    depends_on:
+      - redis
 
   redis:
     image: redis:7-alpine

@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { ActionSchema } from '../automations/automations.service';
 import { PrismaService } from '../database/prisma.service';
 import { getToolRegistry } from '../tool-registry/tool-registry.service';
+import { runToolAsSystem } from '../../shared/actions/run-tool';
 import { renderTemplate, type BotTool } from '@10cordes/shared';
 
 /**
@@ -149,22 +150,20 @@ export class JobsService implements SpraxiumOnBoot {
             await channel.send({ content: renderTemplate(action.content, vars) });
           }
         } else if (action.type === 'sendDm') {
-          // Un job n'a pas de destinataire DM naturel (pas de user dans le contexte) :
-          // réservé aux automatisations event-driven.
-          void action;
+          // Un job n'a pas de destinataire DM naturel (pas de user dans le
+          // contexte) : réservé aux automatisations event-driven.
+          throw new Error('sendDm non applicable à un job (pas de destinataire) — utilise une automatisation');
         } else if (action.type === 'addRole' || action.type === 'removeRole') {
-          // Sans membre cible, les actions de rôle ne s'appliquent pas aux jobs.
-          void action;
+          // Retiré du schéma de planification : un job n'a pas de membre
+          // cible. Les vieux jobs stockés avec ces actions reçoivent une
+          // erreur EXPLICITE (plus de no-op silencieux).
+          throw new Error(`${action.type} non applicable à un job (pas de membre cible) — utilise une automatisation`);
         } else if (action.type === 'runTool') {
           // Primitive universelle : exécute n'importe quel tool du registry
-          // avec les permissions du bot (audité par le registry).
-          const result = await getToolRegistry().run(action.name, action.input, {
+          // en tant que système (porte unique auditable, voir run-tool.ts).
+          const result = await runToolAsSystem(action.name, action.input, {
             guildId,
-            channelId: null,
-            userId: this.client.user?.id ?? 'jobs',
-            locale: 'fr',
-            permissions: ['Administrator'],
-            reply: async () => {},
+            botUserId: this.client.user?.id ?? 'jobs',
           });
           if (!result.ok) throw new Error(result.summary);
         }
@@ -184,7 +183,7 @@ export class JobsService implements SpraxiumOnBoot {
       {
         name: 'jobs.schedule',
         description:
-          'Planifie un job récurrent ou différé : once (à une date/heure), cron (expression, tz Europe/Paris par défaut) ou interval (minutes). Actions = sendMessage/addRole/removeRole avec templates {{server.name}}, {{member.count}}.',
+          'Planifie un job récurrent ou différé : once (à une date/heure), cron (expression, tz Europe/Paris par défaut) ou interval (minutes). Actions = sendMessage (templates {{server.name}}, {{member.count}}) et runTool (n\u0027importe quel tool à l\u0027échéance). Les actions de rôle (addRole/removeRole) n\u0027existent pas ici : un job n\u0027a pas de membre cible — passe par les automatisations event-driven pour ça.',
         category: 'jobs',
         paramsSchema: z.object({
           name: z.string().min(1).max(60),
@@ -196,8 +195,6 @@ export class JobsService implements SpraxiumOnBoot {
             .array(
               z.union([
                 z.object({ type: z.literal('sendMessage'), channelId: z.string(), content: z.string().min(1).max(1500) }),
-                z.object({ type: z.literal('addRole'), roleId: z.string() }),
-                z.object({ type: z.literal('removeRole'), roleId: z.string() }),
                 z.object({
                   type: z.literal('runTool'),
                   name: z.string().min(3).max(40),

@@ -129,12 +129,16 @@ export class ImagelabService implements SpraxiumOnBoot {
           // LIVRAISON : l'image part en pièce jointe dans le salon de la
           // demande (sans ça, le base64 restait coincé dans le résultat du
           // tool et le modèle annonçait faussement « image postée »).
-          await ctx.sendFile
-            ?.({ name: `pixel-icon-${Date.now()}.png`, attachment: Buffer.from(image.base64, 'base64') })
-            .catch(() => {});
+          const delivered = ctx.sendFile
+            ? await ctx.sendFile({ name: `pixel-icon-${Date.now()}.png`, attachment: Buffer.from(image.base64, 'base64') })
+                .then(() => true)
+                .catch(() => false)
+            : false;
           return {
-            ok: true,
-            summary: `Icône ${size}x${size} générée et envoyée dans le salon (${image.costUsd ? `$${image.costUsd}` : 'crédits consommés'}).`,
+            ok: delivered,
+            summary: delivered
+              ? `Icône ${size}x${size} générée et envoyée dans le salon (${image.costUsd ? `$${image.costUsd}` : 'crédits consommés'}).`
+              : `Icône générée mais l'envoi dans le salon a échoué (surface sans fichiers) — ne dis PAS qu'elle est postée.`,
             data: { size },
           };
         },
@@ -160,10 +164,18 @@ export class ImagelabService implements SpraxiumOnBoot {
             transparent: true,
             palette,
           });
-          await ctx.sendFile
-            ?.({ name: `pixel-emoji-${Date.now()}.png`, attachment: Buffer.from(image.base64, 'base64') })
-            .catch(() => {});
-          return { ok: true, summary: 'Émoji 64x64 généré et envoyé dans le salon. Propose un nom d\u0027émoji court à l\u0027utilisateur.', data: { size: 64 } };
+          const delivered = ctx.sendFile
+            ? await ctx.sendFile({ name: `pixel-emoji-${Date.now()}.png`, attachment: Buffer.from(image.base64, 'base64') })
+                .then(() => true)
+                .catch(() => false)
+            : false;
+          return {
+            ok: delivered,
+            summary: delivered
+              ? "Émoji 64x64 généré et envoyé dans le salon. Propose un nom d'émoji court à l'utilisateur."
+              : "Émoji généré mais l'envoi dans le salon a échoué — ne dis PAS qu'il est posté.",
+            data: { size: 64 },
+          };
         },
       },
     ];

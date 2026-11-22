@@ -1,5 +1,6 @@
 import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
 import { Logger } from '@spraxium/logger';
+import { randomInt } from 'node:crypto';
 import {
   ChannelType,
   Client,
@@ -47,6 +48,7 @@ export class ServerlifeService implements SpraxiumOnBoot {
   private readonly lockedChannels = new Map<string, Set<string>>();
   private readonly activityBuffer = new Map<string, number>(); // clé guildId:userId -> delta messages
   private flushTimer: NodeJS.Timeout | null = null;
+  private sweepTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly client: Client,
@@ -55,13 +57,23 @@ export class ServerlifeService implements SpraxiumOnBoot {
   ) {}
 
   onBoot(): void {
-    for (const tool of this.buildTools()) getToolRegistry().register(tool);
-    this.log.info(`${this.buildTools().length} tools vie de serveur enregistrés.`);
+    const tools = this.buildTools();
+    for (const tool of tools) getToolRegistry().register(tool);
+    this.log.info(`${tools.length} tools vie de serveur enregistrés.`);
     void this.sweepTempSanctions();
     void this.announceBirthdays();
     // Flush périodique du buffer d'activité (60s).
     this.flushTimer = setInterval(() => void this.flushActivity(), 60_000);
     this.flushTimer.unref?.();
+    // Sweeps périodiques (bug fix : ils ne tournaient qu'au BOOT — une
+    // sanction expirée pendant l'uptime n'était révoquée qu'au restart, et
+    // les anniversaires n'étaient annoncés que si le bot redémarrant le
+    // jour J).
+    this.sweepTimer = setInterval(() => {
+      void this.sweepTempSanctions();
+      void this.announceBirthdays();
+    }, 5 * 60_000);
+    this.sweepTimer.unref?.();
   }
 
   // ── Helpers ─────────────────────────────────────────────────
@@ -168,10 +180,15 @@ export class ServerlifeService implements SpraxiumOnBoot {
     }
   }
 
-  /** Annonce les anniversaires du jour dans le salon système. */
+  /** Annonce les anniversaires du jour dans le salon système (une fois par jour local). */
+  private lastBirthdayDay = '';
   private async announceBirthdays(): Promise<void> {
-    const mmdd = new Date().toISOString().slice(5, 10);
+    // Date LOCALE (fr-CA => YYYY-MM-DD) : toISOString découpait en UTC et
+    // décalait les anniversaires selon le fuseau.
+    const mmdd = new Date().toLocaleDateString('fr-CA').slice(5, 10);
+    if (mmdd === this.lastBirthdayDay) return; // déjà annoncé aujourd'hui
     const today = await this.prisma.memberBirthday.findMany({ where: { date: mmdd } });
+    this.lastBirthdayDay = mmdd;
     for (const birthday of today) {
       const guild = this.client.guilds.cache.get(birthday.guildId);
       const target = guild?.systemChannelId ?? null;
@@ -179,7 +196,7 @@ export class ServerlifeService implements SpraxiumOnBoot {
       const channel = guild.channels.cache.get(target);
       if (channel?.isTextBased()) {
         await channel
-          .send({ content: `🎂 C'est l'anniversaire de <@${birthday.userId}> aujourd'hui !Joyeux anniversaire.` })
+          .send({ content: `🎂 C'est l'anniversaire de <@${birthday.userId}> aujourd'hui ! Joyeux anniversaire.` })
           .catch(() => {});
       }
     }
@@ -208,6 +225,76 @@ export class ServerlifeService implements SpraxiumOnBoot {
           if (entries.length === 0) return { ok: true, summary: 'Aucun message supprimé/édité en mémoire pour ce salon.' };
           const lines = entries.slice(-5).map((entry) => `[${entry.author} · ${entry.action}] : ${entry.content.slice(0, 120)}`);
           return { ok: true, summary: `Derniers effacements : ${lines.join(' | ')}` };
+        },
+      },
+      {
+        name: 'members.pickRandom',
+        description:
+          'Tirage aléatoire de membres : parmi les réactants 🎉 d\u0029un message, les membres d\u0029un rôle, ou tout le serveur. La primitive des tirages au sort composés (giveaways, quiz...).',
+        category: 'serverlife',
+        paramsSchema: z.object({
+          scope: z.enum(['reactors', 'role', 'all']).default('all'),
+          sourceId: z.string().optional().describe('scope=reactors : ID du message ; scope=role : ID du rôle'),
+          count: z.number().int().min(1).max(20).default(1),
+          excludeBots: z.boolean().default(true),
+        }),
+        requiredModules: [],
+        destructive: false,
+        systemPrompt:
+          'Pour les tirages au sort composés : combine avec sendPanel (bouton réaction via reaction.add) + reaction.list pour lister les participants, puis ce tool pour tirer. Exclut toujours les bots.',
+        handler: async (input, ctx) => {
+          if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
+          const guild = this.guildOf(ctx);
+          if (!guild) return { ok: false, summary: 'Contexte de serveur requis.' };
+          const { scope, sourceId, count, excludeBots } = input as {
+            scope?: 'reactors' | 'role' | 'all';
+            sourceId?: string;
+            count?: number;
+            excludeBots?: boolean;
+          };
+          const take = count ?? 1;
+          let candidates: string[] = [];
+          if (scope === 'reactors') {
+            if (!sourceId) return { ok: false, summary: 'scope=reactors exige sourceId (ID du message).' };
+            const channelId = ctx.channelId ?? '';
+            const channel = this.client.channels.cache.get(channelId);
+            if (!channel || !('messages' in channel)) return { ok: false, summary: 'Salon introuvable.' };
+            const message = await channel.messages.fetch(sourceId).catch(() => null);
+            if (!message) return { ok: false, summary: 'Message introuvable.' };
+            for (const reaction of message.reactions.cache.values()) {
+              const users = await reaction.users.fetch().catch(() => null);
+              if (!users) continue;
+              for (const user of users.values()) {
+                if (excludeBots && (user.bot || user.id === this.client.user?.id)) continue;
+                if (!candidates.includes(user.id)) candidates.push(user.id);
+              }
+            }
+          } else {
+            const members = await guild.members.fetch().catch(() => null);
+            if (!members) return { ok: false, summary: 'Fetch des membres impossible.' };
+            candidates = members
+              .filter((member) => {
+                if (member.user.bot) return false;
+                if (scope === 'role' && sourceId) return member.roles.cache.has(sourceId);
+                return true;
+              })
+              .map((member) => member.id);
+          }
+          if (candidates.length === 0) return { ok: false, summary: 'Aucun candidat pour ce tirage.' };
+          const winners: string[] = [];
+          const pool = [...candidates];
+          for (let i = 0; i < take && pool.length > 0; i += 1) {
+            const index = randomInt(0, pool.length);
+            winners.push(pool[index]);
+            pool.splice(index, 1);
+          }
+          return {
+            ok: true,
+            summary:
+              `Tirage parmi ${candidates.length} candidat(s) : ${winners.map((id) => `<@${id}>`).join(', ')}. ` +
+              'Annonce les gagnants en UNE phrase (ne répète pas les conditions).',
+            data: { winners, candidates: candidates.length },
+          };
         },
       },
       {
@@ -471,7 +558,7 @@ export class ServerlifeService implements SpraxiumOnBoot {
       {
         name: 'temp.sanction',
         description:
-          'Applique une sanction TEMPORAIRE auto-révoquée : tempmute (timeout Discord), temprole (rôle retiré après), tempban (unban après). Révocation planifiée en DB, survit aux redémarrages (sweep au boot).',
+          'Applique une sanction TEMPORAIRE auto-révoquée : tempmute (timeout Discord), temprole (rôle retiré après), tempban (unban après). Révocation planifiée en DB + sweep toutes les 5 min : survit aux redémarrages et s\'exécute pendant l\'uptime.',
         category: 'serverlife',
         paramsSchema: z.object({
           userId: z.string().min(1),
@@ -484,7 +571,7 @@ export class ServerlifeService implements SpraxiumOnBoot {
         permissions: ['ModerateMembers', 'ManageRoles'],
         destructive: true,
         systemPrompt:
-          'La révocation est AUTOMATIQUE (sweep au boot) : ne promets jamais de lever la sanction à la main. Consulte member.trust avant si le doute.',
+          'La révocation est AUTOMATIQUE (sweep périodique) : ne promets jamais de lever la sanction à la main. Consulte member.trust avant si le doute.',
         handler: async (input, ctx) => {
           if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
           const guild = this.guildOf(ctx);
@@ -497,15 +584,21 @@ export class ServerlifeService implements SpraxiumOnBoot {
             reason?: string;
           };
           const member = await guild.members.fetch(userId).catch(() => null);
+          // L'action Discord d'abord, avec son échec PROPAGÉ : l'ancien
+          // .catch vide créait la ligne de révocation pour une sanction
+          // jamais appliquée (réponse « sanction appliquée » mensongère).
           if (type === 'role') {
             if (!roleId) return { ok: false, summary: 'type=role exige roleId.' };
             if (!member) return { ok: false, summary: 'Membre introuvable.' };
-            await member.roles.add(roleId, reason ?? 'sanction temporaire').catch(() => {});
+            const applied = await member.roles.add(roleId, reason ?? 'sanction temporaire').then(() => true).catch(() => false);
+            if (!applied) return { ok: false, summary: 'Ajout du rôle impossible (hiérarchie ou permissions du bot ?).' };
           } else if (type === 'timeout') {
             if (!member) return { ok: false, summary: 'Membre introuvable.' };
-            await member.timeout(durationMinutes * 60_000, reason ?? 'sanction temporaire').catch(() => {});
+            const applied = await member.timeout(durationMinutes * 60_000, reason ?? 'sanction temporaire').then(() => true).catch(() => false);
+            if (!applied) return { ok: false, summary: 'Timeout impossible (hiérarchie ou permissions du bot ?).' };
           } else {
-            await guild.members.ban(userId, { reason: reason ?? 'sanction temporaire' }).catch(() => {});
+            const applied = await guild.members.ban(userId, { reason: reason ?? 'sanction temporaire' }).then(() => true).catch(() => false);
+            if (!applied) return { ok: false, summary: 'Ban impossible (hiérarchie ou permissions du bot ?).' };
           }
           const revokeAt = new Date(Date.now() + durationMinutes * 60_000);
           await this.prisma.tempSanction.create({

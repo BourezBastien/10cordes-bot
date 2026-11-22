@@ -1,6 +1,7 @@
 import { PermissionFlagsBits, type Client, type Guild } from 'discord.js';
 import { z } from 'zod';
 import type { AdminOp, BotTool, ToolResult, ToolRunContext } from '@10cordes/shared';
+import { getToolRegistry } from '../../tool-registry/tool-registry.service';
 import { AgentService } from '../agent.service';
 import { discordExtraTools } from './discord.tools.extra';
 
@@ -211,9 +212,9 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       }),
       requiredModules: [],
       permissions: ['ModerateMembers'],
-      destructive: false,
+      destructive: true,
       systemPrompt:
-        'Temporary sanction (max 28 days), available to anyone with ModerateMembers, NOT whitelist-gated. Creates a moderation case. Requires bot ModerateMembers and a bot role above the target.',
+        'Temporary sanction (max 28 days), gated by ModerateMembers. Hiérarchie vérifiée : demandeur ET bot au-dessus de la cible. Pour une révocation AUTOMATIQUE, préfère temp.sanction (timeout auto-révoqué).',
       handler: async (input, ctx) => {
         const guild = guildOf(ctx);
         if (!guild) return noGuild();
@@ -257,7 +258,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       }),
       requiredModules: [],
       permissions: ['ManageMessages'],
-      destructive: false,
+      destructive: true,
       systemPrompt:
         'DESTRUCTIF mais borné : le filtre days protège les vieux messages — demande la fenêtre si l\u0029utilisateur ne la précise pas (« tout le salon » = days à demander quand même). Jamais de purge sans fenêtre d\u0029âge.',
       handler: async (input, ctx) => {
@@ -281,10 +282,13 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
           // Filtrage STRICT par âge AVANT le bulkDelete : Discord refuse le
           // bulk au-delà de 14 jours, et l'utilisateur demande une fenêtre
           // précise (« aujourd'hui ») — jamais toucher les vieux messages.
-          const inWindow = batch.filter((message) => message.createdTimestamp >= cutoff && !message.pinned);
+          const inWindowAll = batch.filter((message) => message.createdTimestamp >= cutoff && !message.pinned);
           const tooOld = batch.filter((message) => message.createdTimestamp < cutoff);
           skippedOld += tooOld.size;
-          if (inWindow.size === 0) break;
+          if (inWindowAll.size === 0) break;
+          // Le budget count est respecté PAR LOT (l'ancien code pouvait
+          // supprimer jusqu'à 100 messages pour un count=5).
+          const inWindow = inWindowAll.first(budget - deleted);
           const done = await channel.bulkDelete(inWindow, true).catch(() => null);
           if (!done || done.size === 0) break;
           deleted += done.size;
@@ -306,6 +310,40 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       handler: async (input, ctx) => {
         const { channelId } = input as { channelId: string };
         return executeDirectOp(ctx, { type: 'channel.delete', channelId });
+      },
+    },
+    {
+      name: 'channel.remove',
+      description:
+        'Supprime un salon immédiatement ou APRÈS UN DÉLAI (delayMinutes) via le moteur de jobs — survit aux redémarrages. Idéal pour les fermetures de tickets différées et les cleanups planifiés.',
+      category: 'agent',
+      paramsSchema: z.object({
+        channelId: z.string().min(1),
+        delayMinutes: z.number().int().min(0).max(10_080).default(0).describe('0 = immédiat ; sinon suppression différée'),
+      }),
+      requiredModules: [],
+      permissions: ['ManageChannels'],
+      destructive: true,
+      systemPrompt:
+        'Pour les suppressions différées (« supprime ce salon dans 10 minutes ») : delayMinutes + jobs.schedule runTool channel.remove à l\u0029échéance. Un snapshot est archivé avant.',
+      handler: async (input, ctx) => {
+        const { channelId, delayMinutes } = input as { channelId: string; delayMinutes?: number };
+        if (!delayMinutes) return executeDirectOp(ctx, { type: 'channel.delete', channelId });
+        const registry = getToolRegistry();
+        const scheduled = await registry.run(
+          'jobs.schedule',
+          {
+            name: `delete-${channelId}`,
+            kind: 'once',
+            runAtIso: new Date(Date.now() + delayMinutes * 60_000).toISOString(),
+            actions: [{ type: 'runTool', name: 'channel.remove', input: { channelId, delayMinutes: 0 } }],
+          },
+          ctx,
+        );
+        return {
+          ok: scheduled.ok,
+          summary: `Salon <#${channelId}> supprimé automatiquement dans ${delayMinutes} min.`,
+        };
       },
     },
     {

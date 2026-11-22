@@ -10,6 +10,9 @@ import { GuildConfigService } from '../guild-config/guild-config.service';
  * réponse, le bon index n'existe que côté serveur), timer de kick en mémoire
  * ET sanction kick planifiée en DB (TempSanction type='kick') pour survivre
  * aux redémarrages (sweep serverlife).
+ *
+ * La clé du défi est COMPOSITE `${guildId}:${userId}` : un membre présent sur
+ * deux serveurs avec le gate actif avait son défi écrasé par le second.
  */
 
 interface PendingVerification {
@@ -31,8 +34,12 @@ export class VerificationService {
     private readonly config: GuildConfigService,
   ) {}
 
-  isPending(userId: string): PendingVerification | undefined {
-    const pending = this.pending.get(userId);
+  private key(guildId: string, userId: string): string {
+    return `${guildId}:${userId}`;
+  }
+
+  isPending(guildId: string, userId: string): PendingVerification | undefined {
+    const pending = this.pending.get(this.key(guildId, userId));
     return pending && !pending.verified ? pending : undefined;
   }
 
@@ -50,7 +57,7 @@ export class VerificationService {
 
   /** Kick uniquement si toujours non vérifié (appelé par timer ou sweep). */
   async kickIfPending(guildId: string, userId: string): Promise<void> {
-    const pending = this.pending.get(userId);
+    const pending = this.pending.get(this.key(guildId, userId));
     if (pending?.verified) return;
     const undone = await this.prisma.tempSanction.findFirst({
       where: { guildId, userId, type: 'kick', done: false },
@@ -64,7 +71,7 @@ export class VerificationService {
       this.log.warn(`Kick non vérifié : ${userId} sur ${guildId}`);
     }
     await this.prisma.tempSanction.update({ where: { id: undone.id }, data: { done: true } });
-    this.pending.delete(userId);
+    this.pending.delete(this.key(guildId, userId));
   }
 
   /** Génère le défi (a + b, 3 choix mélangés) pour un membre. randomInt crypto. */
@@ -83,13 +90,19 @@ export class VerificationService {
       void this.kickIfPending(guildId, userId);
     }, Math.max(60_000, kickMinutes * 60_000));
     timer.unref?.();
-    this.pending.set(userId, { guildId, correctIndex, labels: shuffled.map(String) as [string, string, string], timer, verified: false });
+    this.pending.set(this.key(guildId, userId), {
+      guildId,
+      correctIndex,
+      labels: shuffled.map(String) as [string, string, string],
+      timer,
+      verified: false,
+    });
     return { question: `${a} + ${b}`, labels: shuffled.map(String) as [string, string, string] };
   }
 
   /** Vérifie la réponse : rôle + annulation du kick. */
-  async answer(userId: string, choiceIndex: number): Promise<boolean> {
-    const pending = this.pending.get(userId);
+  async answer(guildId: string, userId: string, choiceIndex: number): Promise<boolean> {
+    const pending = this.pending.get(this.key(guildId, userId));
     if (!pending || pending.verified) return false;
     if (choiceIndex !== pending.correctIndex) return false;
     pending.verified = true;
@@ -110,7 +123,7 @@ export class VerificationService {
       where: { guildId: pending.guildId, userId, type: 'kick', done: false },
       data: { done: true },
     });
-    this.pending.delete(userId);
+    this.pending.delete(this.key(guildId, userId));
     return true;
   }
 }

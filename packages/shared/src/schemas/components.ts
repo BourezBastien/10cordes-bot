@@ -33,6 +33,24 @@ export const ComponentButtonActionSchema = z.discriminatedUnion('type', [
    * Dépouillement via tally.votes. Générique : sert à tout collecteur de clics.
    */
   z.object({ type: z.literal('vote'), choice: z.string().min(1).max(80) }),
+  /**
+   * Exécute N'IMPORTE QUEL tool du registry au clic (permissions du bot,
+   * audité component.runtool). La primitive qui rend tout workflow composable.
+   */
+  z.object({
+    type: z.literal('runTool'),
+    name: z.string().min(3).max(40),
+    input: z.record(z.string(), z.unknown()).default({}),
+  }),
+  /**
+   * Écrit/fusionne un enregistrement dans une collection du store typé
+   * (validation Zod de la collection). Le membre qui clique est enregistré.
+   */
+  z.object({
+    type: z.literal('record.write'),
+    collection: z.string().min(1).max(40),
+    data: z.record(z.string(), z.unknown()),
+  }),
 ]);
 export type ComponentButtonAction = z.infer<typeof ComponentButtonActionSchema>;
 

@@ -1,6 +1,6 @@
 import { createWriteStream } from 'node:fs';
 import { resolve } from 'node:path';
-import { IntentPreset, SpraxiumFactory } from '@spraxium/core';
+import { SpraxiumFactory } from '@spraxium/core';
 import { GatewayIntentBits } from 'discord.js';
 import { EnvValidator } from '@spraxium/env';
 import { Logger } from '@spraxium/logger';
@@ -92,4 +92,9 @@ async function main(): Promise<void> {
   await app.listen();
 }
 
-main();
+main().catch((error) => {
+  // Sans ce catch, un crash de boot part en unhandledRejection : le process
+  // peut rester vivant sans bot ni trace claire.
+  console.error('[FATAL] boot échoué :', error);
+  process.exitCode = 1;
+});

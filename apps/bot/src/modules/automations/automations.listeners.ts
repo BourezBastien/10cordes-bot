@@ -2,7 +2,13 @@ import { Listener, On } from '@spraxium/common';
 import { Events, type GuildMember, type Message, type PartialGuildMember } from 'discord.js';
 import { AutomationsService } from './automations.service';
 
-/** Listeners Automations : événements Discord → automatisations du serveur. */
+/**
+ * Listeners Automations : événements Discord → automatisations du serveur.
+ * Un @Listener PAR CLASSE (une classe = un event) : sans le décorateur de
+ * classe, le framework ignore silencieusement les méthodes @On (bug fix du
+ * 22/11, même cause que les 12 listeners d'audit morts).
+ */
+@Listener(Events.MessageCreate)
 export class AutomationsMessageListener {
   constructor(private readonly automations: AutomationsService) {}
 
@@ -20,7 +26,8 @@ export class AutomationsMessageListener {
   }
 }
 
-export class AutomationsMemberListener {
+@Listener(Events.GuildMemberAdd)
+export class AutomationsMemberJoinListener {
   constructor(private readonly automations: AutomationsService) {}
 
   @On()
@@ -29,6 +36,11 @@ export class AutomationsMemberListener {
       .handleEvent('member.joined', { guildId: member.guild.id, channelId: member.guild.id, userId: member.id, member })
       .catch(() => {});
   }
+}
+
+@Listener(Events.GuildMemberRemove)
+export class AutomationsMemberLeaveListener {
+  constructor(private readonly automations: AutomationsService) {}
 
   @On()
   async onGuildMemberRemove(member: GuildMember | PartialGuildMember): Promise<void> {
