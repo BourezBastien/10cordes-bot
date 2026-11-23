@@ -1,0 +1,163 @@
+import type { SkillBlueprint } from '@10cordes/shared';
+import { bool, chan, cron, emoji, num, str, type DomainBlueprints } from './blueprint.helpers';
+
+/** AUTOMATISATION & TIMERS (13) : récurrents, horaires, stickies, feeds. */
+export const automationBlueprints: DomainBlueprints = [
+  {
+    slug: 'auto-recurring-digest',
+    domain: 'automation',
+    tags: ['message récurrent', 'cron', 'rappel planifié', 'bilan automatique', 'digest'],
+    trigger: 'Planifier un message, rappel ou bilan récurrent personnalisable',
+    params: {
+      cronSchedule: cron('Expression cron (ex : lundis 9h = 0 9 * * 1)', '0 9 * * 1'),
+      targetChannelId: chan('Salon où publier'),
+      headerEmoji: emoji('Emoji d\u0027en-tête', '📅'),
+      includeActivitySummary: bool('Inclure les stats d\u0029activité récentes', false),
+      messagePrompt: str('Consigne du message récurrent', 'Bonne semaine à tous ! Quels sont vos objectifs ?'),
+    },
+    requiredTools: ['trigger.schedule', 'surface.create', 'sendMessage', 'activity.summary'],
+    workflow: '1. Convertir l\u0029horaire en cron si besoin. 2. trigger.schedule kind=cron. 3. À chaque exécution : si includeActivitySummary, appeler activity.summary puis composer le contenu. 4. Publier via surface.create (Components V2) avec headerEmoji.',
+  },
+  {
+    slug: 'auto-night-mode-schedule',
+    domain: 'automation',
+    tags: ['mode nuit', 'fermer salon', 'ouvrir salon', 'schedule', 'automatique'],
+    trigger: 'Fermer et ouvrir des salons automatiquement à des horaires fixes',
+    params: {
+      closeCron: cron('Horaire de fermeture (ex : 2h du matin = 0 2 * * *)', '0 2 * * *'),
+      openCron: cron('Horaire d\u0029ouverture (ex : 7h du matin = 0 7 * * *)', '0 7 * * *'),
+      channelIds: str('Salons à fermer/ouvrir (IDs séparés par virgules)', ''),
+    },
+    requiredTools: ['trigger.schedule', 'setChannelOverwrite'],
+    workflow: '1. trigger.schedule cron closeCron : setChannelOverwrite deny SendMessages pour @everyone sur chaque salon. 2. trigger.schedule cron openCron : retire le deny.',
+  },
+  {
+    slug: 'auto-sticky-message',
+    domain: 'automation',
+    tags: ['message sticky', 'rappel', 'toujours visible', 'repost', '5 messages'],
+    trigger: 'Message sticky qui se repost après N nouveaux messages',
+    params: {
+      channelId: chan('Salon du sticky'),
+      message: str('Contenu du message sticky', ''),
+      repostAfter: num('Reposter après N nouveaux messages', 5),
+    },
+    requiredTools: ['sendMessage', 'purgeMessages', 'records.create', 'records.update', 'surface.create'],
+    workflow: '1. records.create collection sticky_state { channelId, messageId, count: 0 }. 2. EventTrigger message.create dans le salon : increment count. 3. Si count >= repostAfter : deleteMessage de l\u0029ancien + sendMessage du nouveau + reset count.',
+  },
+  {
+    slug: 'auto-idle-topic-prompts',
+    domain: 'automation',
+    tags: ['inactivité', 'silence', 'sujet aléatoire', 'relancer', 'ambiance'],
+    trigger: 'Envoyer un sujet de discussion quand un salon devient inactif',
+    params: {
+      channelId: chan('Salon à surveiller'),
+      idleMinutes: num('Minutes d\u0027inactivité avant relance', 10),
+    },
+    requiredTools: ['trigger.schedule', 'trigger.cancelByKey', 'sendMessage'],
+    workflow: '1. EventTrigger message.create : trigger.cancelByKey idle-{{channelId}} + trigger.schedule (delaySec = idleMinutes * 60, cancelKey = idle-{{channelId}}). 2. À l\u0029échéance : step random pour choisir un sujet + sendMessage.',
+  },
+  {
+    slug: 'crosspost-announcements',
+    domain: 'automation',
+    tags: ['crosspost', 'publier', 'annonces', 'auto', 'abonnés'],
+    trigger: 'Crossposter automatiquement les messages du salon d\u0027annonces',
+    params: {
+      announceChannelId: chan('Salon d\u0029annonces (type News)'),
+    },
+    requiredTools: ['message.crosspost'],
+    workflow: '1. EventTrigger message.create dans le salon d\u0029annonces. 2. Si l\u0029auteur est staff ou le bot : message.crosspost.',
+  },
+  {
+    slug: 'auto-role-time-based',
+    domain: 'automation',
+    tags: ['rôle automatique', 'ancienneté', 'temps', 'vétéran', 'mois'],
+    trigger: 'Attribuer un rôle après X jours d\u0027ancienneté sur le serveur',
+    params: {
+      days: num('Jours d\u0029ancienneté requis', 30),
+      rewardRoleId: str('Rôle à attribuer (ID)', ''),
+      checkCron: cron('Rythme de vérification', '0 6 * * *'),
+    },
+    requiredTools: ['trigger.schedule', 'getMembers', 'getMemberInfo', 'addRoleToMember', 'records.create'],
+    workflow: '1. trigger.schedule cron checkCron. 2. getMembers + getMemberInfo (joinedAt). 3. joinedAt < now - days ET sans le rôle : addRoleToMember + records.create collection tenure_rewards (anti double attribution).',
+  },
+  {
+    slug: 'rss-feed-watcher',
+    domain: 'automation',
+    tags: ['RSS', 'flux', 'veille', 'news', 'publication auto'],
+    trigger: 'Surveiller un flux RSS et publier les nouveaux articles',
+    params: {
+      feedUrl: str('URL du flux RSS', ''),
+      targetChannelId: chan('Salon de publication'),
+      pollMinutes: num('Minutes entre chaque vérification', 15),
+    },
+    requiredTools: ['readRssFeed', 'trigger.schedule', 'surface.create', 'records.create'],
+    workflow: '1. records.create collection rss_seen { guid } avec les items actuels (pas de spam rétroactif). 2. trigger.schedule interval pollMinutes : readRssFeed. 3. Nouveaux guid : surface.create (titre, lien, extrait) + records.create. 4. Erreurs consécutives > 3 : alerte staff.',
+  },
+  {
+    slug: 'auto-thread-archive-schedule',
+    domain: 'automation',
+    tags: ['thread', 'archive auto', 'inactif', 'nettoyage', '1 semaine'],
+    trigger: 'Archiver automatiquement les threads inactifs depuis N jours',
+    params: {
+      idleDays: num('Jours d\u0029inactivité avant archivage', 7),
+    },
+    requiredTools: ['trigger.schedule', 'getChannels', 'records.create'],
+    workflow: '1. trigger.schedule quotidien. 2. Lister les threads actifs (getChannels). 3. Dernier message > idleDays : archivage + records.create collection thread_archives. 4. Rapport hebdo du nombre archivé.',
+  },
+  {
+    slug: 'auto-birthday-wishes',
+    domain: 'automation',
+    tags: ['anniversaire', 'souhaits', 'automatique', '8h'],
+    trigger: 'Souhaiter les anniversaires automatiquement chaque matin',
+    params: {
+      announceChannelId: chan('Salon des annonces'),
+      wishTemplate: str('Message ({{user.mention}} interpolé)', 'Joyeux anniversaire {{user.mention}} ! 🎂'),
+    },
+    requiredTools: ['birthday.set', 'trigger.schedule', 'sendMessage', 'reaction.add'],
+    workflow: '1. birthday.set enregistre les dates (collection dédiée). 2. trigger.schedule cron 8h : recherche des anniversaires du jour. 3. sendMessage wishTemplate + reaction.add 🎂 sur le message. 4. Rappel à J-7 pour les préparatifs si demandé.',
+  },
+  {
+    slug: 'auto-voice-karma-points',
+    domain: 'automation',
+    tags: ['vocal', 'points', 'karma', 'récompense', 'temps'],
+    trigger: 'Distribuer des points aux membres actifs en vocal chaque heure',
+    params: {
+      pointsPerHour: num('Points par heure passée en vocal', 10),
+    },
+    requiredTools: ['trigger.schedule', 'voice.activity', 'records.update', 'records.search'],
+    workflow: '1. trigger.schedule interval 1h. 2. voice.activity : membres en vocal maintenant. 3. records.update collection points { userId, balance += pointsPerHour }. 4. Classement consultable en conversation.',
+  },
+  {
+    slug: 'auto-welcome-back-returning',
+    domain: 'automation',
+    tags: ['retour', 'rejoin', 're-bienvenue', 'ancien', 'content de revenir'],
+    trigger: 'Message de re-bienvenue différencié pour les membres qui reviennent',
+    params: {
+      welcomeChannelId: chan('Salon des bienvenues'),
+    },
+    requiredTools: ['records.search', 'sendMessage', 'getMemberInfo'],
+    workflow: '1. EventTrigger member.join. 2. records.search collection known_members { userId }. 3. Déjà connu : message « re-bienvenue {{user.mention}}, content de te revoir » + restauration des rôles si récente. 4. Nouveau : parcours d\u0029accueil standard.',
+  },
+  {
+    slug: 'reaction-starboard-auto',
+    domain: 'automation',
+    tags: ['starboard', 'étoile', 'meilleurs messages', '⭐', 'salon dédié'],
+    trigger: 'Starboard : les messages très étoilés sont republiés dans un salon dédié',
+    params: {
+      starEmoji: emoji('Emoji du starboard', '⭐'),
+      threshold: num('Étoiles nécessaires', 5),
+      boardChannelId: chan('Salon du starboard'),
+    },
+    requiredTools: ['reaction.add', 'records.create', 'records.search', 'sendMessage'],
+    workflow: '1. EventTrigger reaction add (starEmoji). 2. Comptage : records.search collection stars { messageId } (dédup par réacteur). 3. Threshold atteint (une seule fois, claimOnce) : sendMessage dans boardChannelId avec lien + auteur + contenu. 4. Anti-boucle : ignorer les messages du salon starboard lui-même.',
+  },
+  {
+    slug: 'auto-reminder-personal',
+    domain: 'automation',
+    tags: ['rappel', 'personnel', 'DM', 'dans 2 heures', 'note-le'],
+    trigger: 'Rappels personnels par DM (« rappelle-moi X dans Y »)',
+    params: {},
+    requiredTools: ['trigger.schedule', 'sendDirectMessage', 'records.create'],
+    workflow: '1. Parser la demande (contenu + délai relatif). 2. trigger.schedule kind=once avec cancelKey = reminder-{{userId}}-{{ts}}. 3. À l\u0029échéance : sendDirectMessage avec le contenu + contexte (salon d\u0029origine). 4. Annulation possible en conversation (« annule mon rappel »).',
+  },
+];
