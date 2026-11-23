@@ -7,8 +7,30 @@ export interface ToolRunContext {
   channelId?: string | null;
   userId: string;
   locale: string;
+  /**
+   * Permissions Discord de l'appelant (noms des flags, ex: "ManageGuild", "Administrator").
+   * Le registry refuse les tools dont `permissions` n'est pas satisfaite.
+   */
+  permissions: string[];
   /** Canal de réponse humain du frontend appelant (chat, vocal→TTS, dashboard). */
   reply: (message: string) => Promise<void>;
+  /**
+   * Envoi d'un fichier dans le salon de la demande (ou targetChannelId).
+   * Optionnel : absent sur les surfaces sans fichiers (dashboard web).
+   */
+  sendFile?: (file: { name: string; attachment: Uint8Array | string }, targetChannelId?: string) => Promise<void>;
+  /**
+   * Progression longue opération : édite LA ligne de statut unique du
+   * traitement (« [TOOL] analyse : 24/48 salons... »). Optionnel : absent
+   * sur les surfaces sans salon (dashboard). Les tools ne postent JAMAIS
+   * leurs propres messages de progression.
+   */
+  progress?: (text: string) => Promise<void>;
+  /**
+   * IDs des rôles de l'appelant (pour les permission nodes allow/deny par
+   * tool, résolus côté serveur — jamais choisis par le modèle). Optionnel.
+   */
+  roleIds?: string[];
 }
 
 export interface ToolResult {
@@ -32,6 +54,17 @@ export interface BotTool {
   paramsSchema: z.ZodType;
   /** Modules obligatoires pour exécuter ce tool. */
   requiredModules: string[];
+  /**
+   * Permissions Discord requises (noms de flags, ex: "ManageChannels").
+   * Vide/absent = exécutable par tous. "Administrator" dans les permissions de
+   * l'appelant court-circuite la vérification.
+   */
+  permissions?: string[];
+  /**
+   * Portée du résultat : "guild" (défaut) = réponse publique dans le canal ;
+   * "user" = info personnelle → le frontend répond en privé (MP).
+   */
+  scope?: 'guild' | 'user';
   /** Tier 3 (irréversible) → whitelist d'IDs + confirmation obligatoire. */
   destructive: boolean;
   /**
@@ -40,4 +73,22 @@ export interface BotTool {
    */
   systemPrompt?: string;
   handler: (input: unknown, ctx: ToolRunContext) => Promise<ToolResult>;
+}
+
+/**
+ * Factory typée pour déclarer un tool SANS cast `input as` : le handler
+ * reçoit l'input déjà typé `z.infer<T>`. La validation reste faite par le
+ * registry (safeParse avec refus actionnable) AVANT l'appel — le narrowing
+ * interne est donc sûr par construction, et le cast n'existe plus qu'ICI.
+ */
+export function defineTool<T extends z.ZodType>(
+  def: Omit<BotTool, 'handler' | 'paramsSchema'> & {
+    paramsSchema: T;
+    handler: (input: z.infer<T>, ctx: ToolRunContext) => Promise<ToolResult>;
+  },
+): BotTool {
+  return {
+    ...def,
+    handler: (input: unknown, ctx: ToolRunContext) => def.handler(input as z.infer<T>, ctx),
+  };
 }

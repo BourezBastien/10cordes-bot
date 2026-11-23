@@ -1,8 +1,7 @@
 import type { HttpGuard } from '@spraxium/http';
 import type { Context } from 'hono';
-import { PermissionFlagsBits, type Client } from 'discord.js';
-import type { AppEnv } from '../../app.env';
-import type { PrismaService } from '../../modules/database/prisma.service';
+import { PermissionFlagsBits, Client } from 'discord.js';
+import { getValidatedEnv } from '../env.accessor';
 import { getAuth } from '../auth.instance';
 
 interface CacheEntry {
@@ -20,11 +19,7 @@ const CACHE_TTL_MS = 5 * 60 * 1_000;
 export class GuildAccessGuard implements HttpGuard {
   private static readonly cache = new Map<string, CacheEntry>();
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly env: AppEnv,
-    private readonly client: Client,
-  ) {}
+  constructor(private readonly client: Client) {}
 
   async canActivate(ctx: Context): Promise<boolean> {
     const session = await this.resolveSession(ctx);
@@ -55,7 +50,7 @@ export class GuildAccessGuard implements HttpGuard {
   private async resolveSession(ctx: Context) {
     const existing = ctx.get('session') as { user: { id: string } } | undefined;
     if (existing) return existing;
-    const auth = getAuth(this.env);
+    const auth = getAuth(getValidatedEnv());
     const session = await auth.api.getSession({ headers: ctx.req.raw.headers });
     if (session) ctx.set('session', session);
     return session;

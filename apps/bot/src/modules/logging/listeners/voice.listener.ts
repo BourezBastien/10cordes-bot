@@ -1,9 +1,9 @@
-import { Listener } from '@spraxium/common';
+import { Listener, On } from '@spraxium/common';
 import { Events, type VoiceState } from 'discord.js';
 import { LoggingService } from '../logging.service';
 
 function channelLabel(state: VoiceState): string {
-  return state.channelId ? `<#${state.channelId}>` : '—';
+  return state.channelId ? `<#${state.channelId}>` : '(aucun)';
 }
 
 /** Logs vocaux : join/leave/move + détection stream / caméra (17✅). */
@@ -11,6 +11,7 @@ function channelLabel(state: VoiceState): string {
 export class VoiceStateListener {
   constructor(private readonly logging: LoggingService) {}
 
+  @On()
   async onVoiceStateUpdate(oldState: VoiceState, newState: VoiceState): Promise<void> {
     const guildId = newState.guild.id;
     const member = `<@${newState.id}>`;

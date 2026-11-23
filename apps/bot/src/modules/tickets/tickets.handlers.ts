@@ -1,178 +1,46 @@
-import { Ctx, SlashCommand, SlashCommandHandler, SlashOption, SlashSubcommand, UseGuards, withOptions } from '@spraxium/common';
-import { PermissionGuard } from '@spraxium/core';
+import { Ctx } from '@spraxium/common';
 import { ButtonHandler } from '@spraxium/components';
 import {
   ActionRowBuilder,
+  AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
   MessageFlags,
-  PermissionFlagsBits,
   type ButtonInteraction,
-  type ChatInputCommandInteraction,
   type GuildMember,
 } from 'discord.js';
 import { TicketsService } from './tickets.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
-import { TicketPanelButton, TicketClaimButton, TicketCloseButton } from './components/ticket.components';
+import {
+  TicketPanelButton,
+  TicketClaimButton,
+  TicketCloseButton,
+  TicketHelpButton,
+  TicketUnclaimButton,
+  TicketRate1,
+  TicketRate2,
+  TicketRate3,
+  TicketRate4,
+  TicketRate5,
+} from './components/ticket.components';
 import { panel } from '../../shared/ui';
-
-const ADMIN = withOptions(PermissionGuard, { permissions: ['ManageGuild'] });
+import { runToolAsSystem } from '../../shared/actions/run-tool';
 
 function claimCloseRows(): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder().setCustomId('ticket:claim').setLabel('🙋 Claim').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('ticket:unclaim').setLabel('↩️ Unclaim').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('ticket:close').setLabel('🔒 Fermer').setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId('ticket:help').setLabel('🆘 Demander de l\u0027aide').setStyle(ButtonStyle.Primary),
   );
 }
 
-@SlashCommand({
-  name: 'ticket',
-  description: 'Ticket system — panel, staff and logs configuration.',
-  defaultMemberPermissions: PermissionFlagsBits.ManageGuild,
-  dmPermission: false,
-})
-export class TicketCommand {
-  @SlashOption.Channel('channel', { description: 'Category containing ticket channels', required: true })
-  @SlashSubcommand({ name: 'category', description: 'Set the category where tickets are created.' })
-  category() {}
-
-  @SlashOption.Role('role', { description: 'Staff role (claim/close)', required: true })
-  @SlashSubcommand({ name: 'staff', description: 'Set the staff role.' })
-  staff() {}
-
-  @SlashOption.Channel('channel', { description: 'Channel receiving the open panel', required: true })
-  @SlashSubcommand({ name: 'panel', description: 'Set the channel receiving the open panel.' })
-  panel() {}
-
-  @SlashOption.Channel('channel', { description: 'Channel receiving transcripts', required: true })
-  @SlashSubcommand({ name: 'logs', description: 'Set the transcripts channel.' })
-  logs() {}
-
-  @SlashSubcommand({ name: 'setup', description: 'Post the ticket panel in the configured channel.' })
-  setup() {}
-}
-
-@SlashCommandHandler(TicketCommand, { sub: 'category' })
-@UseGuards(ADMIN)
-export class TicketCategoryHandler {
-  constructor(private readonly config: GuildConfigService) {}
-
-  async handle(@Ctx() interaction: ChatInputCommandInteraction): Promise<void> {
-    const guildId = interaction.guildId;
-    const categoryId = interaction.options.getChannel('channel', false)?.id;
-    if (!guildId || !categoryId) return;
-    await this.config.patch(guildId, { tickets: { categoryId } });
-    await interaction.reply({
-      flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral],
-      components: [panel({ title: '## ✅ Catégorie des tickets', lines: [`Tickets créés dans <#${categoryId}>`], accentColor: 0x57_f2_87 })],
-    });
-  }
-}
-
-@SlashCommandHandler(TicketCommand, { sub: 'staff' })
-@UseGuards(ADMIN)
-export class TicketStaffHandler {
-  constructor(private readonly config: GuildConfigService) {}
-
-  async handle(@Ctx() interaction: ChatInputCommandInteraction): Promise<void> {
-    const guildId = interaction.guildId;
-    const roleId = interaction.options.getRole('role', false)?.id;
-    if (!guildId || !roleId) return;
-    await this.config.patch(guildId, { tickets: { staffRoleId: roleId } });
-    await interaction.reply({
-      flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral],
-      components: [panel({ title: '## ✅ Rôle staff', lines: [`Staff des tickets : <@&${roleId}>`], accentColor: 0x57_f2_87 })],
-    });
-  }
-}
-
-@SlashCommandHandler(TicketCommand, { sub: 'panel' })
-@UseGuards(ADMIN)
-export class TicketPanelChannelHandler {
-  constructor(private readonly config: GuildConfigService) {}
-
-  async handle(@Ctx() interaction: ChatInputCommandInteraction): Promise<void> {
-    const guildId = interaction.guildId;
-    const channelId = interaction.options.getChannel('channel', false)?.id;
-    if (!guildId || !channelId) return;
-    await this.config.patch(guildId, { tickets: { panelChannelId: channelId } });
-    await interaction.reply({
-      flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral],
-      components: [
-        panel({
-          title: '## ✅ Salon du panneau',
-          lines: [`Panneau postable dans <#${channelId}> — lance \`/ticket setup\`.`],
-          accentColor: 0x57_f2_87,
-        }),
-      ],
-    });
-  }
-}
-
-@SlashCommandHandler(TicketCommand, { sub: 'logs' })
-@UseGuards(ADMIN)
-export class TicketLogsHandler {
-  constructor(private readonly config: GuildConfigService) {}
-
-  async handle(@Ctx() interaction: ChatInputCommandInteraction): Promise<void> {
-    const guildId = interaction.guildId;
-    const channelId = interaction.options.getChannel('channel', false)?.id;
-    if (!guildId || !channelId) return;
-    await this.config.patch(guildId, { tickets: { logChannelId: channelId } });
-    await interaction.reply({
-      flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral],
-      components: [panel({ title: '## ✅ Salon des transcripts', lines: [`Transcripts → <#${channelId}>`], accentColor: 0x57_f2_87 })],
-    });
-  }
-}
-
-@SlashCommandHandler(TicketCommand, { sub: 'setup' })
-@UseGuards(ADMIN)
-export class TicketSetupHandler {
-  constructor(private readonly config: GuildConfigService) {}
-
-  async handle(@Ctx() interaction: ChatInputCommandInteraction): Promise<void> {
-    const guildId = interaction.guildId;
-    if (!guildId) return;
-    const config = await this.config.get(guildId);
-    if (!config.tickets.panelChannelId) {
-      await interaction.reply({
-        flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral],
-        components: [
-          panel({
-            title: '## ❌ Salon du panneau non configuré',
-            lines: ['Lance `/ticket panel` dans le salon voulu, puis relance `/ticket setup`.'],
-            accentColor: 0xe8_8b_94,
-          }),
-        ],
-      });
-      return;
-    }
-
-    const channel = await interaction.guild?.channels.fetch(config.tickets.panelChannelId).catch(() => null);
-    if (!channel?.isTextBased() || channel.partial) {
-      await interaction.reply({
-        flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral],
-        components: [panel({ title: '## ❌ Salon inaccessible', lines: ['Je ne peux pas écrire dans le salon du panneau.'] })],
-      });
-      return;
-    }
-
-    const container = panel({
-      title: '## 📬 Support',
-      lines: ['Un problème, une question ? Ouvre un ticket et le staff te répondra ici.'],
-      footer: 'Un seul ticket ouvert à la fois par membre.',
-    });
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId('ticket:open').setLabel('📬 Ouvrir un ticket').setStyle(ButtonStyle.Primary),
-    );
-
-    await channel.send({ flags: MessageFlags.IsComponentsV2, components: [container, row] });
-    await interaction.reply({
-      flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral],
-      components: [panel({ title: '## ✅ Panneau posté', lines: [`Voir <#${channel.id}>`], accentColor: 0x57_f2_87 })],
-    });
-  }
+function rateRow(): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    ...[1, 2, 3, 4, 5].map((rating) =>
+      new ButtonBuilder().setCustomId(`ticket:rate:${rating}`).setLabel(`${rating}★`).setStyle(ButtonStyle.Secondary),
+    ),
+  );
 }
 
 @ButtonHandler(TicketPanelButton)
@@ -205,7 +73,7 @@ export class TicketPanelOpenHandler {
         components: [
           panel({
             title: '## ❌ Échec',
-            lines: ['Impossible de créer le ticket — vérifie la catégorie configurée.'],
+            lines: ['Impossible de créer le ticket, vérifie la catégorie configurée.'],
             accentColor: 0xe8_8b_94,
           }),
         ],
@@ -220,7 +88,7 @@ export class TicketPanelOpenHandler {
         components: [
           panel({
             title: `## 📬 Ticket #${opened.number}`,
-            lines: [`Ouvert par <@${interaction.user.id}>`, 'Décris ta demande — le staff arrive !'],
+            lines: [`Ouvert par <@${interaction.user.id}>`, 'Décris ta demande, le staff arrive !'],
           }),
           claimCloseRows(),
         ],
@@ -257,8 +125,100 @@ export class TicketClaimHandler {
     await this.tickets.claim(guild.id, interaction.channelId, interaction.user.id);
     await interaction.reply({
       flags: MessageFlags.IsComponentsV2,
-      components: [panel({ title: '## 🙋 Ticket claimé', lines: [`Pris en charge par <@${interaction.user.id}>`] })],
+      components: [panel({ title: '## 🙋 Ticket claimé', lines: [`Pris en charge par <@${interaction.user.id}> — masqué aux autres staff.`] })],
     });
+  }
+}
+
+@ButtonHandler(TicketUnclaimButton)
+export class TicketUnclaimHandler {
+  constructor(
+    private readonly tickets: TicketsService,
+    private readonly config: GuildConfigService,
+  ) {}
+
+  async handle(@Ctx() interaction: ButtonInteraction): Promise<void> {
+    const guild = interaction.guild;
+    const member = interaction.member as GuildMember | null;
+    if (!guild || !member) return;
+    const config = await this.config.get(guild.id);
+    if (!this.tickets.isStaff(member, config.tickets.staffRoleId)) {
+      await interaction.reply({
+        flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral],
+        components: [panel({ title: '## 🚫 Réservé au staff', lines: [] })],
+      });
+      return;
+    }
+
+    await this.tickets.unclaim(guild.id, interaction.channelId, interaction.user.id);
+    await interaction.reply({
+      flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral],
+      components: [panel({ title: '## ↩️ Ticket libéré', lines: ['De nouveau visible par tout le staff.'] })],
+    });
+  }
+}
+
+@ButtonHandler(TicketHelpButton)
+export class TicketHelpHandler {
+  constructor(private readonly config: GuildConfigService) {}
+
+  /** Bouton visible : le membre appelle le staff sur son ticket (non éphémère). */
+  async handle(@Ctx() interaction: ButtonInteraction): Promise<void> {
+    const guild = interaction.guild;
+    const member = interaction.member as GuildMember | null;
+    if (!guild || !member || !interaction.channelId) return;
+    const config = await this.config.get(guild.id).catch(() => null);
+    const staffMention = config?.tickets.staffRoleId ? `<@&${config.tickets.staffRoleId}>` : 'le staff';
+    await interaction.reply({
+      content: `🆘 <@${member.id}> demande de l\u0027aide sur ce ticket — ${staffMention} notifié.`,
+      allowedMentions: { users: [member.id], roles: config?.tickets.staffRoleId ? [config.tickets.staffRoleId] : [] },
+    });
+  }
+}
+
+abstract class TicketRateBase {
+  constructor(protected readonly tickets: TicketsService) {}
+
+  protected async reply(interaction: ButtonInteraction, rating: number): Promise<void> {
+    const guild = interaction.guild;
+    if (!guild || !interaction.channelId) return;
+    await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+    const stored = await this.tickets.storeFeedback(guild.id, interaction.channelId, interaction.user.id, rating);
+    const text = stored
+      ? `⭐ Note enregistrée : ${rating}/5. Merci !`
+      : 'Tu as déjà noté ce ticket.';
+    await interaction.editReply({ content: text }).catch(() => {});
+  }
+}
+
+@ButtonHandler(TicketRate1)
+export class TicketRate1Handler extends TicketRateBase {
+  async handle(@Ctx() interaction: ButtonInteraction): Promise<void> {
+    await this.reply(interaction, 1);
+  }
+}
+@ButtonHandler(TicketRate2)
+export class TicketRate2Handler extends TicketRateBase {
+  async handle(@Ctx() interaction: ButtonInteraction): Promise<void> {
+    await this.reply(interaction, 2);
+  }
+}
+@ButtonHandler(TicketRate3)
+export class TicketRate3Handler extends TicketRateBase {
+  async handle(@Ctx() interaction: ButtonInteraction): Promise<void> {
+    await this.reply(interaction, 3);
+  }
+}
+@ButtonHandler(TicketRate4)
+export class TicketRate4Handler extends TicketRateBase {
+  async handle(@Ctx() interaction: ButtonInteraction): Promise<void> {
+    await this.reply(interaction, 4);
+  }
+}
+@ButtonHandler(TicketRate5)
+export class TicketRate5Handler extends TicketRateBase {
+  async handle(@Ctx() interaction: ButtonInteraction): Promise<void> {
+    await this.reply(interaction, 5);
   }
 }
 
@@ -294,16 +254,18 @@ export class TicketCloseHandler {
     if (config.tickets.logChannelId) {
       const logChannel = await guild.channels.fetch(config.tickets.logChannelId).catch(() => null);
       if (logChannel?.isTextBased() && !logChannel.partial) {
-        const { AttachmentBuilder } = await import('discord.js');
-        const file = new AttachmentBuilder(Buffer.from(closed.transcript, 'utf8'), {
+        const textFile = new AttachmentBuilder(Buffer.from(closed.transcript, 'utf8'), {
           name: `ticket-${closed.number}-transcript.txt`,
+        });
+        const htmlFile = new AttachmentBuilder(Buffer.from(closed.html, 'utf8'), {
+          name: `ticket-${closed.number}-transcript.html`,
         });
         const container = panel({
           title: `## 📄 Ticket #${closed.number} fermé`,
-          lines: [`Ouvert par <@${closed.userId}> · Fermé par <@${interaction.user.id}>`, 'Transcript joint.'],
+          lines: [`Ouvert par <@${closed.userId}> · Fermé par <@${interaction.user.id}>`, 'Transcripts joint (txt + HTML).'],
         });
         await logChannel
-          .send({ flags: MessageFlags.IsComponentsV2, components: [container], files: [file] })
+          .send({ flags: MessageFlags.IsComponentsV2, components: [container], files: [textFile, htmlFile] })
           .catch(() => {});
       }
     }
@@ -312,14 +274,37 @@ export class TicketCloseHandler {
       components: [
         panel({
           title: '## 🔒 Ticket fermé',
-          lines: ['Transcript envoyé au staff.', 'Salon supprimé dans 5 secondes…'],
+          lines: ['Transcript envoyé au staff.', 'Une note avant la suppression ? Le salon part dans 60 secondes.'],
           accentColor: 0xd9_b3_6b,
         }),
       ],
     });
+    // Fenêtre de feedback : le salon reste 60s pour laisser l'ouvrier noter.
     const channelId = interaction.channelId;
-    setTimeout(() => {
-      void guild.channels.delete(channelId, `ticket #${closed.number} closed`).catch(() => {});
-    }, 5_000);
+    const feedbackChannel = await guild.channels.fetch(channelId).catch(() => null);
+    if (feedbackChannel?.isTextBased() && !feedbackChannel.partial) {
+      await feedbackChannel
+        .send({
+          flags: MessageFlags.IsComponentsV2,
+          components: [
+            panel({ title: '## ⭐ Ton avis sur ce ticket', lines: ['Une note avant la fermeture définitive ?'] }),
+            rateRow(),
+          ],
+        })
+        .catch(() => {});
+    }
+    // Suppression différée via le MOTEUR DE JOBS (survit aux redémarrages) :
+    // l'ancien setTimeout 60 s en mémoire laissait un salon orphelin si le
+    // bot redémarrant dans la fenêtre (ticket déjà closed en DB).
+    void runToolAsSystem(
+      'jobs.schedule',
+      {
+        name: `ticket-close-${channelId}`.slice(0, 60),
+        kind: 'once',
+        runAtIso: new Date(Date.now() + 60_000).toISOString(),
+        actions: [{ type: 'runTool', name: 'deleteChannel', input: { channelId } }],
+      },
+      { guildId: guild.id, botUserId: interaction.client.user.id },
+    ).catch(() => {});
   }
 }

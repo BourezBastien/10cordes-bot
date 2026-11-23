@@ -40,7 +40,7 @@ describe('CONFIG_KEYS', () => {
   it('only references known top-level groups', () => {
     for (const key of CONFIG_KEYS) {
       expect(
-        ['defaultLocale', 'welcome.', 'farewell.', 'moderation.', 'tickets.', 'levels.'].some((prefix) =>
+        ['defaultLocale', 'welcome.', 'farewell.', 'moderation.', 'tickets.', 'levels.', 'assistant.', 'security.', 'roles.', 'logs.'].some((prefix) =>
           key.path.startsWith(prefix),
         ),
       ).toBe(true);

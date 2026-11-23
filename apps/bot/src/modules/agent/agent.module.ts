@@ -2,25 +2,28 @@ import { Module } from '@spraxium/common';
 import { AuditModule } from '../audit/audit.module';
 import { GuildConfigModule } from '../guild-config/guild-config.module';
 import { ModerationModule } from '../moderation/moderation.module';
+import { ModuleManagerModule } from '../module-manager/module-manager.module';
 import { ToolRegistryModule } from '../tool-registry/tool-registry.module';
-import { AgentCommand, AgentPlansHandler, AgentProposeHandler, AgentWhitelistAddHandler, AgentWhitelistHandler, AgentWhitelistRemoveHandler } from './commands/agent.command';
-import { AgentApproveHandler, AgentCancelHandler } from './components/agent-buttons.handler';
 import { AgentService } from './agent.service';
-import { AdminWhitelistService } from './whitelist.service';
+import { PanelActionButtonHandler, PanelButton0Handler, PanelButton1Handler, PanelButton2Handler, PanelButton3Handler, PanelButton4Handler, PanelSelectHandler } from './panels.handlers';
+import { PanelsService } from './panels.service';
+import { SkillService } from './skill.service';
+import { SkillBlueprintLibrary } from './skill-blueprint.library';
 
+// Plus de commandes slash agent : tout passe par l'agent conversationnel
+// (tools discord.* en exécution directe, permission-gated en code).
 @Module({
-  imports: [AuditModule, GuildConfigModule, ModerationModule, ToolRegistryModule],
-  commands: [AgentCommand],
+  imports: [AuditModule, GuildConfigModule, ModerationModule, ModuleManagerModule, ToolRegistryModule],
   handlers: [
-    AgentWhitelistAddHandler,
-    AgentWhitelistRemoveHandler,
-    AgentWhitelistHandler,
-    AgentProposeHandler,
-    AgentPlansHandler,
-    AgentApproveHandler,
-    AgentCancelHandler,
+    PanelButton0Handler,
+    PanelButton1Handler,
+    PanelButton2Handler,
+    PanelButton3Handler,
+    PanelButton4Handler,
+    PanelSelectHandler,
+    PanelActionButtonHandler,
   ],
-  providers: [AgentService, AdminWhitelistService],
-  exports: [AgentService, AdminWhitelistService],
+  providers: [AgentService, SkillService, SkillBlueprintLibrary, PanelsService],
+  exports: [AgentService],
 })
 export class AgentModule {}

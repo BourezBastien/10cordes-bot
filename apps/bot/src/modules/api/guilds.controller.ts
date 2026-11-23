@@ -6,20 +6,28 @@ import {
   HttpGuards,
   HttpParam,
   HttpPatch,
+  HttpPost,
+  HttpQuery,
   ValidationError,
 } from '@spraxium/http';
-import { PermissionFlagsBits, type Client } from 'discord.js';
+import { PermissionFlagsBits, Client } from 'discord.js';
 import { ZodError } from 'zod';
 import type { Context } from 'hono';
+import { PrismaService } from '../database/prisma.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import { GuildModuleStateService } from '../module-manager/guild-module-state.service';
 import { ModuleManagerService } from '../module-manager/module-manager.service';
+import { WebAgentService } from '../assistant/web-agent.service';
 import { SessionGuard } from '../../auth/guards/session.guard';
 import { GuildAccessGuard } from '../../auth/guards/guild-access.guard';
 
 interface ModuleToggleBody {
   enabled: boolean;
   confirm?: boolean;
+}
+
+interface AgentChatBody {
+  message: string;
 }
 
 function toValidationDetails(error: ZodError): Array<{ property: string; constraints: Record<string, string> }> {
@@ -35,6 +43,8 @@ export class GuildsController {
     private readonly modules: ModuleManagerService,
     private readonly config: GuildConfigService,
     private readonly states: GuildModuleStateService,
+    private readonly prisma: PrismaService,
+    private readonly webAgent: WebAgentService,
     private readonly client: Client,
   ) {}
 
@@ -121,9 +131,143 @@ export class GuildsController {
     @HttpBody() body: ModuleToggleBody,
   ): Promise<unknown> {
     if (body.enabled) {
-      const enabled = await this.modules.enableModule('guild', guildId, moduleId);
+      const enabled = await this.modules.enableModule(guildId, moduleId);
       return { applied: true, enabled };
     }
-    return this.modules.disableModule('guild', guildId, moduleId, body.confirm ?? false);
+    return this.modules.disableModule(guildId, moduleId, body.confirm ?? false);
+  }
+
+  /** Salons du serveur : inputs channel de l'éditeur de config. */
+  @HttpGet('/:guildId/channels')
+  @HttpGuards(SessionGuard, GuildAccessGuard)
+  async listChannels(@HttpParam('guildId') guildId: string): Promise<unknown> {
+    const guild = this.client.guilds.cache.get(guildId);
+    if (!guild) return { channels: [] };
+    const channels = guild.channels.cache
+      .map((channel) => ({
+        id: channel.id,
+        name: channel.name,
+        type: channel.type,
+        category: channel.parentId ?? null,
+        position: 'position' in channel ? channel.position : 0,
+      }))
+      .sort((a, b) => a.position - b.position)
+      .map(({ position: _position, ...channel }) => channel);
+    return { channels };
+  }
+
+  /** Rôles du serveur hors gérés (bot/intégrations), triés par position décroissante. */
+  @HttpGet('/:guildId/roles')
+  @HttpGuards(SessionGuard, GuildAccessGuard)
+  async listRoles(@HttpParam('guildId') guildId: string): Promise<unknown> {
+    const guild = this.client.guilds.cache.get(guildId);
+    if (!guild) return { roles: [] };
+    const roles = guild.roles.cache
+      .filter((role) => !role.managed)
+      .sorted((a, b) => b.position - a.position)
+      .map((role) => ({
+        id: role.id,
+        name: role.name,
+        color: role.color,
+        position: role.position,
+      }));
+    return { roles };
+  }
+
+  /** Journal d'audit paginé (du plus récent). */
+  @HttpGet('/:guildId/audit')
+  @HttpGuards(SessionGuard, GuildAccessGuard)
+  async listAudit(
+    @HttpParam('guildId') guildId: string,
+    @HttpQuery('page') pageRaw?: string,
+  ): Promise<unknown> {
+    const page = Math.max(1, Number.parseInt(pageRaw ?? '1', 10) || 1);
+    const pageSize = 25;
+    const [entries, total] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        where: { guildId },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.auditLog.count({ where: { guildId } }),
+    ]);
+    return { entries, page, pageSize, total, pages: Math.max(1, Math.ceil(total / pageSize)) };
+  }
+
+  /** Mémoires persistantes : serveur + membres. */
+  @HttpGet('/:guildId/memories')
+  @HttpGuards(SessionGuard, GuildAccessGuard)
+  async listMemories(@HttpParam('guildId') guildId: string): Promise<unknown> {
+    const [guild, members] = await Promise.all([
+      this.prisma.guildMemory.findMany({ where: { guildId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.memberMemory.findMany({ where: { guildId }, orderBy: { createdAt: 'desc' } }),
+    ]);
+    return { guild, members };
+  }
+
+  /** Statistiques : audit par jour, top XP, cases modération par action. */
+  @HttpGet('/:guildId/stats')
+  @HttpGuards(SessionGuard, GuildAccessGuard)
+  async stats(@HttpParam('guildId') guildId: string): Promise<unknown> {
+    const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1_000);
+
+    const auditRows = await this.prisma.auditLog.groupBy({
+      by: ['action'],
+      where: { guildId, createdAt: { gte: since } },
+      _count: { action: true },
+    });
+
+    const [topXp, cases, casesByAction] = await Promise.all([
+      this.prisma.userLevel.findMany({
+        where: { guildId },
+        orderBy: [{ level: 'desc' }, { xp: 'desc' }],
+        take: 10,
+        select: { userId: true, level: true, xp: true },
+      }),
+      this.prisma.modCase.count({ where: { guildId, createdAt: { gte: since } } }),
+      this.prisma.modCase.groupBy({
+        by: ['action'],
+        where: { guildId, createdAt: { gte: since } },
+        _count: { action: true },
+      }),
+    ]);
+
+    return {
+      windowDays: 14,
+      auditByAction: auditRows.map((row) => ({ action: row.action, count: row._count.action })),
+      topXp,
+      moderation: { cases14d: cases, byAction: casesByAction.map((row) => ({ action: row.action, count: row._count.action })) },
+    };
+  }
+
+  /**
+   * Chat avec l'agent depuis le dashboard : mêmes tools et gates que Discord,
+   * permissions = celles du membre Discord lié au compte connecté.
+   */
+  @HttpPost('/:guildId/agent/chat')
+  @HttpGuards(SessionGuard, GuildAccessGuard)
+  async agentChat(
+    @HttpParam('guildId') guildId: string,
+    @HttpCtx() ctx: Context,
+    @HttpBody() body: AgentChatBody,
+  ): Promise<unknown> {
+    const session = ctx.get('session');
+    const account = await this.prisma.account.findFirst({
+      where: { userId: session.user.id, providerId: 'discord' },
+      select: { accountId: true },
+    });
+    const discordUserId = account?.accountId;
+    if (!discordUserId) {
+      throw new ValidationError([{ property: 'message', constraints: { message: "Compte Discord lié introuvable pour cette session." } }]);
+    }
+    try {
+      return await this.webAgent.chat(guildId, discordUserId, String(body?.message ?? ''));
+    } catch (error) {
+      if (error instanceof Error && error.message.length < 200) {
+        throw new ValidationError([{ property: 'message', constraints: { message: error.message } }]);
+      }
+      throw error;
+    }
   }
 }

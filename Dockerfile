@@ -27,4 +27,5 @@ EXPOSE 3000
 WORKDIR /app/apps/bot
 
 # Apply migrations then start the compiled bot (config discovered in .spraxium/dist).
-CMD ["sh", "-c", "npx prisma migrate deploy --schema prisma/schema.prisma && node .spraxium/dist/src/main.js"]
+# R1e : le build produit main.mjs (pas .js) + le config .mjs doit être copié en .js.
+CMD ["sh", "-c", "cp -n .spraxium/dist/spraxium.config.mjs .spraxium/dist/spraxium.config.js 2>/dev/null; npx prisma migrate deploy --schema prisma/schema.prisma && node .spraxium/dist/src/main.mjs"]

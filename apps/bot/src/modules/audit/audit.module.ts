@@ -1,10 +1,11 @@
-import { Module } from '@spraxium/common';
-import { AuditCommand, AuditRecentHandler, AuditStatsHandler } from './audit';
+import { Global, Module } from '@spraxium/common';
+import { DatabaseModule } from '../database/database.module';
 import { AuditService } from './audit.service';
 
+// @Global : AuditService est consommé par presque tous les modules.
+@Global()
 @Module({
-  commands: [AuditCommand],
-  handlers: [AuditRecentHandler, AuditStatsHandler],
+  imports: [DatabaseModule],
   providers: [AuditService],
   exports: [AuditService],
 })

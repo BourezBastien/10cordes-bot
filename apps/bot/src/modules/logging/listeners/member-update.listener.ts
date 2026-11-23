@@ -1,4 +1,4 @@
-import { Listener } from '@spraxium/common';
+import { Listener, On } from '@spraxium/common';
 import { Events, type GuildMember, type PartialGuildMember } from 'discord.js';
 import { GuildConfigService } from '../../guild-config/guild-config.service';
 import { LoggingService } from '../logging.service';
@@ -14,6 +14,7 @@ export class MemberUpdateListener {
     private readonly config: GuildConfigService,
   ) {}
 
+  @On()
   async onGuildMemberUpdate(oldMember: GuildMember | PartialGuildMember, newMember: GuildMember): Promise<void> {
     const guildConfig = await this.config.get(newMember.guild.id);
     const ignoredRoles = new Set(guildConfig.logs.ignoredRoles);
@@ -31,7 +32,7 @@ export class MemberUpdateListener {
     }
 
     if (oldMember.nickname !== newMember.nickname) {
-      lines.push(`📝 Pseudo : \`${oldMember.nickname ?? '—'}\` → \`${newMember.nickname ?? '—'}\``);
+      lines.push(`📝 Pseudo : \`${oldMember.nickname ?? '(aucun)'}\` → \`${newMember.nickname ?? '(aucun)'}\``);
     }
 
     if (lines.length === 0) return;

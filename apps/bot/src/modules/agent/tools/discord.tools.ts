@@ -1,50 +1,38 @@
 import { PermissionFlagsBits, type Client, type Guild } from 'discord.js';
 import { z } from 'zod';
-import {
-  AgentPlanSchema,
-  type BotTool,
-  type ToolResult,
-  type ToolRunContext,
-} from '@10cordes/shared';
-import { AgentService } from '../agent.service';
+import type { AdminOp, BotTool, ToolResult, ToolRunContext } from '@10cordes/shared';
+import { getToolRegistry } from '../../tool-registry/tool-registry.service';
+import type { AgentService } from '../agent.service';
+import { discordExtraTools } from './discord.tools.extra';
 
 /**
  * Tools Discord de l'Agent Admin — chaque tool embarque son propre systemPrompt
- * (préconditions, effets, refus) et respecte la grille de tiers :
- * - lecture libre ;
- * - tier 2 (créer / renommer / archiver / timeout) : exécution directe, permission vérifiée en code ;
- * - tier 3 (supprimer / kick / ban) : création d'un PLAN soumis à confirmation humaine (whitelist).
+ * (préconditions, effets, refus) et exécute DIRECTEMENT (plus de plans depuis
+ * le 17/11) : gates de permissions en code pour le demandeur ET le bot,
+ * archive-first pour les suppressions, tout audité.
  */
+export interface ToolHelpers {
+  guildOf: (ctx: ToolRunContext) => Guild | null;
+  noGuild: () => ToolResult;
+}
+
 export function agentTools(agent: AgentService, client: Client): BotTool[] {
   const guildOf = (ctx: ToolRunContext): Guild | null =>
     ctx.guildId ? (client.guilds.cache.get(ctx.guildId) ?? null) : null;
   const noGuild = (): ToolResult => ({ ok: false, summary: 'Contexte de serveur requis.' });
 
-  const proposePlan = async (
-    ctx: ToolRunContext,
-    title: string,
-    ops: Array<Record<string, unknown>>,
-  ): Promise<ToolResult> => {
-    const parsed = AgentPlanSchema.safeParse({ title, ops });
-    if (!parsed.success) {
-      const issue = parsed.error.issues[0];
-      return {
-        ok: false,
-        summary: `Plan invalide (${issue?.path.join('.') || 'ops'}) : ${issue?.message ?? ''}`,
-      };
-    }
-    if (!ctx.guildId || !ctx.channelId) return { ok: false, summary: 'Contexte de serveur et de canal requis.' };
-    const plan = await agent.createPlan(ctx.guildId, ctx.channelId, ctx.userId, parsed.data);
-    return {
-      ok: true,
-      summary: `Plan #${plan.planId} proposé — ${plan.destructiveOps.length} op(s) destructive(s). En attente de confirmation humaine (5 min).`,
-      data: { planId: plan.planId },
-    };
+  /** Exécution directe d'une op via AgentService (gates + audit inclus). */
+  const executeDirectOp = async (ctx: ToolRunContext, op: AdminOp): Promise<ToolResult> => {
+    const guild = guildOf(ctx);
+    if (!guild) return noGuild();
+    const result = await agent.executeDirect(guild.id, ctx.userId, op);
+    return { ok: result.ok, summary: `${result.label}${result.detail ? ` (${result.detail})` : ''}` };
   };
 
-  return [
+
+  const baseTools: BotTool[] = [
     {
-      name: 'discord.guild.info',
+      name: 'getServerInfo',
       description: 'Infos du serveur : nom, membres, owner, nombre de salons et rôles.',
       category: 'agent',
       paramsSchema: z.record(z.string(), z.unknown()),
@@ -56,13 +44,13 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
         if (!guild) return noGuild();
         return {
           ok: true,
-          summary: `${guild.name} — ${guild.memberCount} membres, ${guild.channels.cache.size} salons, ${guild.roles.cache.size} rôles.`,
+          summary: `${guild.name} : ${guild.memberCount} membres, ${guild.channels.cache.size} salons, ${guild.roles.cache.size} rôles.`,
           data: { id: guild.id, name: guild.name, ownerId: guild.ownerId },
         };
       },
     },
     {
-      name: 'discord.channel.list',
+      name: 'getChannels',
       description: 'Liste les salons (id, nom, type).',
       category: 'agent',
       paramsSchema: z.record(z.string(), z.unknown()),
@@ -81,7 +69,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       },
     },
     {
-      name: 'discord.role.list',
+      name: 'getRoles',
       description: 'Liste les rôles (id, nom, couleur, position).',
       category: 'agent',
       paramsSchema: z.record(z.string(), z.unknown()),
@@ -98,22 +86,33 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       },
     },
     {
-      name: 'discord.channel.create',
-      description: 'Crée un salon texte, vocal ou une catégorie.',
+      name: 'createChannel',
+      description: 'Crée un salon texte, vocal ou une catégorie, avec placement optionnel (catégorie parente, position).',
       category: 'agent',
       paramsSchema: z.object({
         name: z.string().min(1).max(100),
         kind: z.enum(['text', 'voice', 'category']).default('text'),
         topic: z.string().max(1024).optional(),
+        categoryId: z.string().min(1).optional(),
+        position: z.number().int().min(1).max(100).optional(),
+        userLimit: z.number().int().min(1).max(99).optional().describe('kind=voice : limite de places (générateurs "Duo"=2, "Squad"=5...)'),
       }),
       requiredModules: [],
+      permissions: ['ManageChannels'],
       destructive: false,
       systemPrompt:
-        'Tier 2 (reversible via rename/archive with confirmation). Requires bot ManageChannels. Use channel.list first to avoid duplicates.',
+        'Tier 2 (reversible). Call getServerStyle FIRST and imitate the detected conventions (emoji prefixes, special casing) before naming. Place with categoryId; position = slot in the list (1 = top).',
       handler: async (input, ctx) => {
         const guild = guildOf(ctx);
         if (!guild) return noGuild();
-        const { name, kind, topic } = input as { name: string; kind: 'text' | 'voice' | 'category'; topic?: string };
+        const { name, kind, topic, categoryId, position, userLimit } = input as {
+          name: string;
+          kind: 'text' | 'voice' | 'category';
+          topic?: string;
+          categoryId?: string;
+          position?: number;
+          userLimit?: number;
+        };
         if (!guild.members.me?.permissions.has(PermissionFlagsBits.ManageChannels)) {
           return { ok: false, summary: "Le bot n'a pas la permission ManageChannels." };
         }
@@ -121,19 +120,54 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
           name,
           type: kind === 'voice' ? 2 : kind === 'category' ? 4 : 0,
           topic,
+          parent: categoryId,
+          ...(kind === 'voice' && userLimit ? { userLimit } : {}),
           reason: `agent tool (by <@${ctx.userId}>)`,
         });
-        return { ok: true, summary: `Salon **${name}** créé → <#${created.id}>`, data: { channelId: created.id } };
+        if (position !== undefined) {
+          await created.setPosition(position, { reason: `agent tool (by <@${ctx.userId}>)` }).catch(() => {});
+        }
+        const placed = categoryId ? ` dans <#${categoryId}>` : '';
+        return {
+          ok: true,
+          summary: `Salon **${name}** créé${placed} → <#${created.id}>`,
+          data: { channelId: created.id },
+        };
       },
     },
     {
-      name: 'discord.channel.rename',
+      name: 'setChannelPosition',
+      description: 'Déplace un salon dans la liste (position 1 = tout en haut) — la primitive « remonte le salon urgent en haut de la catégorie ».',
+      category: 'agent',
+      paramsSchema: z.object({ channelId: z.string().min(1), position: z.number().int().min(1).max(500) }),
+      requiredModules: [],
+      permissions: ['ManageChannels'],
+      destructive: false,
+      systemPrompt: 'Tier 2 (reversible). Position = slot dans la liste, 1 = sommet. Rate-limit Discord : regroupe les déplacements.',
+      handler: async (input, ctx) => {
+        const guild = guildOf(ctx);
+        if (!guild) return noGuild();
+        const { channelId, position } = input as { channelId: string; position: number };
+        const channel = await guild.channels.fetch(channelId).catch(() => null);
+        if (!channel || !('setPosition' in channel)) return { ok: false, summary: 'Salon introuvable.' };
+        const moved = await channel
+          .setPosition(position, { reason: `agent tool (by <@${ctx.userId}>)` })
+          .then(() => true)
+          .catch(() => false);
+        return moved
+          ? { ok: true, summary: `Salon <#${channelId}> déplacé à la position ${position}.` }
+          : { ok: false, summary: 'Déplacement impossible (permissions ou rate-limit).' };
+      },
+    },
+    {
+      name: 'renameChannel',
       description: 'Renomme un salon.',
       category: 'agent',
       paramsSchema: z.object({ channelId: z.string().min(1), name: z.string().min(1).max(100) }),
       requiredModules: [],
+      permissions: ['ManageChannels'],
       destructive: false,
-      systemPrompt: 'Tier 2 (reversible). Requires bot ManageChannels. Resolve the channel via channel.list first — never guess IDs.',
+      systemPrompt: 'Tier 2 (reversible). Requires bot ManageChannels. Resolve the channel via channel.list first, never guess IDs.',
       handler: async (input, ctx) => {
         const guild = guildOf(ctx);
         if (!guild) return noGuild();
@@ -143,16 +177,18 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
         if (!guild.members.me?.permissions.has(PermissionFlagsBits.ManageChannels)) {
           return { ok: false, summary: "Le bot n'a pas la permission ManageChannels." };
         }
+        const oldName = channel.name;
         await channel.setName(name, `agent tool (by <@${ctx.userId}>)`);
-        return { ok: true, summary: `Salon renommé en **${name}**.` };
+        return { ok: true, summary: `Salon renommé en **${name}**.`, data: { preState: { channelId: channel.id, oldName } } };
       },
     },
     {
-      name: 'discord.channel.archive',
+      name: 'archiveChannel',
       description: 'Archive un salon : renommé `archive-…`, contenu conservé (aucune suppression).',
       category: 'agent',
       paramsSchema: z.object({ channelId: z.string().min(1) }),
       requiredModules: [],
+      permissions: ['ManageChannels'],
       destructive: false,
       systemPrompt:
         'Preferred over deletion. Reversible. Requires bot ManageChannels. Explain to the user that nothing is deleted.',
@@ -170,7 +206,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       },
     },
     {
-      name: 'discord.role.create',
+      name: 'createRole',
       description: 'Crée un rôle (nom + couleur optionnelle en entier hex).',
       category: 'agent',
       paramsSchema: z.object({
@@ -178,6 +214,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
         color: z.number().int().min(0).max(0xffffff).optional(),
       }),
       requiredModules: [],
+      permissions: ['ManageRoles'],
       destructive: false,
       systemPrompt: 'Tier 2 (reversible). Requires bot ManageRoles. Ask the user for the color if ambiguous.',
       handler: async (input, ctx) => {
@@ -192,7 +229,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       },
     },
     {
-      name: 'discord.member.timeout',
+      name: 'muteMember',
       description: 'Met un membre en timeout temporaire (max 28 jours).',
       category: 'agent',
       paramsSchema: z.object({
@@ -201,9 +238,10 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
         reason: z.string().max(512).optional(),
       }),
       requiredModules: [],
-      destructive: false,
+      permissions: ['ModerateMembers'],
+      destructive: true,
       systemPrompt:
-        'Temporary sanction (max 28 days) — available to anyone with ModerateMembers, NOT whitelist-gated. Creates a moderation case. Requires bot ModerateMembers and a bot role above the target.',
+        'Temporary sanction (max 28 days), gated by ModerateMembers. Hiérarchie vérifiée : demandeur ET bot au-dessus de la cible. Pour une révocation AUTOMATIQUE, préfère temp.sanction (timeout auto-révoqué).',
       handler: async (input, ctx) => {
         const guild = guildOf(ctx);
         if (!guild) return noGuild();
@@ -230,53 +268,178 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       },
     },
     {
-      name: 'discord.channel.delete',
-      description: 'Supprime un salon — passe obligatoirement par un plan confirmé (snapshot archivé avant suppression).',
+      name: 'purgeMessages',
+      description:
+        "Supprime en masse les messages récents d'un salon. Filtre obligatoire par âge (days) pour ne JAMAIS toucher les vieux messages : days=1 = aujourd'hui/hier uniquement, days=14 maximum (limite Discord du bulk delete). Les messages plus vieux que la fenêtre sont comptés et laissés en place.",
+      category: 'agent',
+      paramsSchema: z.object({
+        channelId: z.string().min(1).optional(),
+        count: z.number().int().min(1).max(1000).default(100),
+        days: z
+          .number()
+          .int()
+          .min(1)
+          .max(14)
+          .default(1)
+          .describe("Fenêtre d'âge : ne supprime que les messages de moins de N jours (1 = aujourd'hui). Discord interdit le bulk delete au-delà de 14 jours."),
+        onlyWithAttachments: z.boolean().default(false).optional().describe('Ne cibler que les messages avec pièces jointes/images'),
+        onlyWithLinks: z.boolean().default(false).optional().describe('Ne cibler que les messages contenant un lien http(s)'),
+      }),
+      requiredModules: [],
+      permissions: ['ManageMessages'],
+      destructive: true,
+      systemPrompt:
+        'DESTRUCTIF mais borné : le filtre days protège les vieux messages — demande la fenêtre si l\u0029utilisateur ne la précise pas (« tout le salon » = days à demander quand même). Jamais de purge sans fenêtre d\u0029âge.',
+      handler: async (input, ctx) => {
+        const guild = guildOf(ctx);
+        if (!guild) return noGuild();
+        const { channelId, count, days, onlyWithAttachments, onlyWithLinks } = input as {
+          channelId?: string;
+          count?: number;
+          days?: number;
+          onlyWithAttachments?: boolean;
+          onlyWithLinks?: boolean;
+        };
+        const targetId = channelId || ctx.channelId || '';
+        const channel = await guild.channels.fetch(targetId).catch(() => null);
+        if (!channel || !channel.isTextBased()) return { ok: false, summary: 'Salon introuvable ou non textuel.' };
+        if (!guild.members.me?.permissions.has(PermissionFlagsBits.ManageMessages)) {
+          return { ok: false, summary: "Le bot n'a pas la permission ManageMessages." };
+        }
+        const budget = count ?? 100;
+        const windowMs = (days ?? 1) * 86_400_000;
+        const cutoff = Date.now() - windowMs;
+        let deleted = 0;
+        let skippedOld = 0;
+        for (let round = 0; round < 10 && deleted < budget; round++) {
+          const batch = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+          if (!batch || batch.size === 0) break;
+          // Filtrage STRICT par âge AVANT le bulkDelete : Discord refuse le
+          // bulk au-delà de 14 jours, et l'utilisateur demande une fenêtre
+          // précise (« aujourd'hui ») — jamais toucher les vieux messages.
+          // Filtres optionnels de CONTENU : pièces jointes / liens.
+          const inWindowAll = batch.filter(
+            (message) =>
+              message.createdTimestamp >= cutoff &&
+              !message.pinned &&
+              (!onlyWithAttachments || message.attachments.size > 0) &&
+              (!onlyWithLinks || /https?:\/\//iu.test(message.content)),
+          );
+          const tooOld = batch.filter((message) => message.createdTimestamp < cutoff);
+          skippedOld += tooOld.size;
+          if (inWindowAll.size === 0) break;
+          // Le budget count est respecté PAR LOT (l'ancien code pouvait
+          // supprimer jusqu'à 100 messages pour un count=5).
+          const inWindow = inWindowAll.first(budget - deleted);
+          const done = await channel.bulkDelete(inWindow, true).catch(() => null);
+          if (!done || done.size === 0) break;
+          deleted += done.size;
+        }
+        const note = skippedOld > 0 ? ` ${skippedOld} message(s) plus vieux que ${days ?? 1}j laissés en place.` : '';
+        return { ok: true, summary: `🧹 ${deleted} message(s) supprimé(s) dans <#${channel.id}> (fenêtre ${days ?? 1}j).${note}` };
+      },
+    },
+    {
+      name: 'deleteChannel',
+      description: 'Supprime un salon (snapshot archivé avant suppression). Exécution directe : permissions du demandeur vérifiées.',
       category: 'agent',
       paramsSchema: z.object({ channelId: z.string().min(1) }),
       requiredModules: [],
+      permissions: ['ManageChannels'],
       destructive: true,
       systemPrompt:
-        'Tier 3 / DESTRUCTIVE — never executes directly: it creates a PLAN requiring owner-or-whitelist approval within 5 minutes. The default alternative is discord.channel.archive — prefer it unless the user explicitly wants deletion.',
-      handler: async (input, ctx) => proposePlan(ctx, 'Suppression de salon', [input as Record<string, unknown>]),
+        'DESTRUCTIVE but EXECUTES DIRECTLY (no confirmation, no plan): permission-gated. The requester needs ManageChannels and the bot needs ManageChannels. archiveChannel is the gentler alternative unless the user explicitly wants deletion. Fail fast with the tool result if a permission is missing (requester OR bot), never invent obstacles.',
+      handler: async (input, ctx) => {
+        const { channelId } = input as { channelId: string };
+        return executeDirectOp(ctx, { type: 'channel.delete', channelId });
+      },
     },
     {
-      name: 'discord.role.delete',
-      description: 'Supprime un rôle — passe obligatoirement par un plan confirmé (snapshot stocké).',
+      name: 'channel.remove',
+      description:
+        'Supprime un salon immédiatement ou APRÈS UN DÉLAI (delayMinutes) via le moteur de jobs — survit aux redémarrages. Idéal pour les fermetures de tickets différées et les cleanups planifiés.',
+      category: 'agent',
+      paramsSchema: z.object({
+        channelId: z.string().min(1),
+        delayMinutes: z.number().int().min(0).max(10_080).default(0).describe('0 = immédiat ; sinon suppression différée'),
+      }),
+      requiredModules: [],
+      permissions: ['ManageChannels'],
+      destructive: true,
+      systemPrompt:
+        'Pour les suppressions différées (« supprime ce salon dans 10 minutes ») : delayMinutes + jobs.schedule runTool channel.remove à l\u0029échéance. Un snapshot est archivé avant.',
+      handler: async (input, ctx) => {
+        const { channelId, delayMinutes } = input as { channelId: string; delayMinutes?: number };
+        if (!delayMinutes) return executeDirectOp(ctx, { type: 'channel.delete', channelId });
+        const registry = getToolRegistry();
+        const scheduled = await registry.run(
+          'jobs.schedule',
+          {
+            name: `delete-${channelId}`,
+            kind: 'once',
+            runAtIso: new Date(Date.now() + delayMinutes * 60_000).toISOString(),
+            actions: [{ type: 'runTool', name: 'channel.remove', input: { channelId, delayMinutes: 0 } }],
+          },
+          ctx,
+        );
+        return {
+          ok: scheduled.ok,
+          summary: `Salon <#${channelId}> supprimé automatiquement dans ${delayMinutes} min.`,
+        };
+      },
+    },
+    {
+      name: 'deleteRole',
+      description: 'Supprime un rôle (snapshot stocké). Exécution directe : permissions du demandeur vérifiées.',
       category: 'agent',
       paramsSchema: z.object({ roleId: z.string().min(1) }),
       requiredModules: [],
+      permissions: ['ManageRoles'],
       destructive: true,
-      systemPrompt: 'Tier 3 / DESTRUCTIVE — creates a plan for human approval. Never guess the roleId: use role.list.',
-      handler: async (input, ctx) => proposePlan(ctx, 'Suppression de rôle', [input as Record<string, unknown>]),
+      systemPrompt:
+        'DESTRUCTIVE but EXECUTES DIRECTLY (no confirmation, no plan): permission-gated. Never guess the roleId: use getRoles. Fail fast with the tool result if a permission is missing, never invent obstacles.',
+      handler: async (input, ctx) => {
+        const { roleId } = input as { roleId: string };
+        return executeDirectOp(ctx, { type: 'role.delete', roleId });
+      },
     },
     {
-      name: 'discord.member.kick',
-      description: 'Expulse un membre — passe obligatoirement par un plan confirmé (whitelist).',
+      name: 'kickMember',
+      description: 'Expulse un membre du serveur (bots inclus). Exécution directe : permissions du demandeur vérifiées.',
       category: 'agent',
       paramsSchema: z.object({
         userId: z.string().min(1),
         reason: z.string().max(512).optional(),
       }),
       requiredModules: [],
+      permissions: ['KickMembers'],
       destructive: true,
       systemPrompt:
-        'Tier 3 / DESTRUCTIVE and WHITELIST-GATED (owner + whitelisted IDs only). Creates a plan for approval. Temporary alternative: discord.member.timeout.',
-      handler: async (input, ctx) => proposePlan(ctx, 'Expulsion de membre', [input as Record<string, unknown>]),
+        'EXECUTES DIRECTLY (no confirmation, no plan): permission-gated. Requires requester KickMembers and bot KickMembers, hierarchy applies. Temporary alternative: muteMember. Kicking ANOTHER BOT member is a normal Discord action.',
+      handler: async (input, ctx) => {
+        const { userId, reason } = input as { userId: string; reason?: string };
+        return executeDirectOp(ctx, { type: 'member.kick', userId, reason });
+      },
     },
     {
-      name: 'discord.member.ban',
-      description: 'Bannit un utilisateur — passe obligatoirement par un plan confirmé (whitelist).',
+      name: 'banMember',
+      description: 'Bannit un utilisateur du serveur. Exécution directe : permissions du demandeur vérifiées.',
       category: 'agent',
       paramsSchema: z.object({
         userId: z.string().min(1),
         reason: z.string().max(512).optional(),
       }),
       requiredModules: [],
+      permissions: ['BanMembers'],
       destructive: true,
       systemPrompt:
-        'Tier 3 / DESTRUCTIVE and WHITELIST-GATED. Creates a plan; a moderation case is created at execution time.',
-      handler: async (input, ctx) => proposePlan(ctx, 'Bannissement', [input as Record<string, unknown>]),
+        'EXECUTES DIRECTLY (no confirmation, no plan): permission-gated. A moderation case is created. Requires requester BanMembers and bot BanMembers. Fail fast with the tool result, never invent obstacles.',
+      handler: async (input, ctx) => {
+        const { userId, reason } = input as { userId: string; reason?: string };
+        return executeDirectOp(ctx, { type: 'member.ban', userId, reason });
+      },
     },
   ];
+
+  return [...baseTools, ...discordExtraTools(agent, client, { guildOf, noGuild })];
 }

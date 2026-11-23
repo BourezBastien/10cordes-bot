@@ -1,4 +1,4 @@
-import { Listener } from '@spraxium/common';
+import { Listener, On } from '@spraxium/common';
 import { Events, type Message, type PartialMessage } from 'discord.js';
 import { LoggingService } from '../logging.service';
 
@@ -13,6 +13,7 @@ function describe(message: Message | PartialMessage): string | null {
 export class MessageDeleteListener {
   constructor(private readonly logging: LoggingService) {}
 
+  @On()
   async onMessageDelete(message: Message | PartialMessage): Promise<void> {
     const guildId = message.guildId;
     if (!guildId) return;
@@ -31,6 +32,7 @@ export class MessageDeleteListener {
 export class MessageUpdateListener {
   constructor(private readonly logging: LoggingService) {}
 
+  @On()
   async onMessageUpdate(oldMessage: Message | PartialMessage, newMessage: Message): Promise<void> {
     const guildId = newMessage.guildId;
     if (!guildId || newMessage.partial || newMessage.author.bot) return;
@@ -41,7 +43,7 @@ export class MessageUpdateListener {
       title: '## ✏️ Message modifié',
       lines: [
         `<#${newMessage.channelId}> · **${newMessage.author.username}** (\`${newMessage.id}\`)`,
-        `**Avant** : ${cut(oldMessage.content ?? '—')}`,
+        `**Avant** : ${cut(oldMessage.content ?? '(vide)')}`,
         `**Après** : ${cut(newMessage.content)}`,
       ],
       accentColor: 0xd9_b3_6b,

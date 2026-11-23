@@ -1,10 +1,12 @@
-import { Injectable } from '@spraxium/common';
-import { PermissionFlagsBits, type Client, type Guild, type GuildMember, type User } from 'discord.js';
+import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
+import { PermissionFlagsBits, Client, type Guild, type GuildMember, type User } from 'discord.js';
 import { PermissionDeniedException, ValidationException } from '@spraxium/core';
+import { z } from 'zod';
+import type { BotTool } from '@10cordes/shared';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
-import { ModuleChannelException } from '../module-manager/module-channel.exception';
+import { getToolRegistry } from '../tool-registry/tool-registry.service';
 
 export type ModAction =
   | 'warn'
@@ -38,13 +40,55 @@ export class SanctionChannelException extends Error {
 }
 
 @Injectable()
-export class ModerationService {
+export class ModerationService implements SpraxiumOnBoot {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly config: GuildConfigService,
     private readonly client: Client,
   ) {}
+
+  /** Enregistre getCases : l'agent répond à « qui a été ban ce mois-ci, par qui, pourquoi ». */
+  onBoot(): void {
+    const registry = getToolRegistry();
+    const tool: BotTool = {
+      name: 'getCases',
+      description:
+        'Lit les cases de modération du serveur : filtres par action (warn/timeout/kick/ban/unban/derank/purge) et nombre de jours. Renvoie case #, membre, modérateur, raison, date.',
+      category: 'moderation',
+      paramsSchema: z.object({
+        action: z.enum(['warn', 'timeout', 'untimeout', 'kick', 'ban', 'unban', 'derank', 'purge']).optional(),
+        days: z.number().int().min(1).max(365).default(30),
+        limit: z.number().int().min(1).max(20).default(10),
+      }),
+      requiredModules: [],
+      permissions: ['ManageGuild'],
+      destructive: false,
+      systemPrompt:
+        'Read-only. Répond à « qui a été ban ce mois-ci », « liste les warns », etc. Cite la case #, le membre, le modérateur et la date de chaque entrée.',
+      handler: async (input, ctx) => {
+        if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
+        const { action, days, limit } = input as { action?: string; days?: number; limit?: number };
+        const since = new Date(Date.now() - (days ?? 30) * 24 * 60 * 60 * 1000);
+        const cases = await this.prisma.modCase.findMany({
+          where: {
+            guildId: ctx.guildId,
+            ...(action ? { action } : {}),
+            createdAt: { gte: since },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: limit ?? 10,
+        });
+        if (cases.length === 0) return { ok: true, summary: `Aucune case de modération sur les ${days ?? 30} derniers jours.` };
+        const lines = cases.map(
+          (entry) =>
+            `case #${entry.caseId} [${entry.action}] <@${entry.userId}> par <@${entry.moderatorId}> le ${entry.createdAt.toLocaleString('fr-FR')}${entry.reason ? ` : ${entry.reason}` : ''}`,
+        );
+        return { ok: true, summary: `${cases.length} case(s) : ${lines.join(' | ')}`, data: { count: cases.length } };
+      },
+    };
+    registry.register(tool);
+  }
 
   /** Les sanctions sont restreintes au salon dédié si configuré. */
   async assertSanctionChannel(guildId: string, channelId: string): Promise<void> {
@@ -117,7 +161,7 @@ export class ModerationService {
       action: 'warn',
       reason,
     });
-    await target.send(`⚠️ You were warned in **${guild.name}** — case #${entry.caseId} : ${reason}`).catch(() => {});
+    await target.send(`⚠️ You were warned in **${guild.name}** (case #${entry.caseId}) : ${reason}`).catch(() => {});
     return entry;
   }
 
@@ -174,7 +218,7 @@ export class ModerationService {
       reason,
     });
     await target
-      .send(`👢 You were kicked from **${guild.name}** — case #${entry.caseId}${reason ? ` : ${reason}` : ''}`)
+      .send(`👢 You were kicked from **${guild.name}** (case #${entry.caseId})${reason ? ` : ${reason}` : ''}`)
       .catch(() => {});
     await target.kick(reason ?? undefined);
     return entry;
@@ -194,10 +238,10 @@ export class ModerationService {
       reason,
     });
     await targetUser
-      .send(`⛔ You were banned from **${guild.name}** — case #${entry.caseId}${reason ? ` : ${reason}` : ''}`)
+      .send(`⛔ You were banned from **${guild.name}** (case #${entry.caseId})${reason ? ` : ${reason}` : ''}`)
       .catch(() => {});
     await guild.members.ban(targetUser.id, {
-      reason: `case #${entry.caseId}${reason ? ` — ${reason}` : ''}`,
+      reason: `case #${entry.caseId}${reason ? ` : ${reason}` : ''}`,
       deleteMessageSeconds: purgeMessages ? 24 * 60 * 60 : 0,
     });
     return entry;

@@ -1,15 +1,15 @@
 import { Module } from '@spraxium/common';
 import { GuildConfigModule } from '../guild-config/guild-config.module';
-import { LeaderboardCommand, LeaderboardHandler, RankCommand, RankHandler } from './levels.command';
-import { MessageXpListener } from './listeners/message-xp.listener';
+import { ToolRegistryModule } from '../tool-registry/tool-registry.module';
 import { LevelsService } from './levels.service';
+import { LevelsMessageListener } from './levels.listener';
 
+// XP et niveaux passifs (config levels.*, désactivé par défaut) : listener
+// XP/message avec cooldown, annonces de level-up, rôles-récompenses,
+// tools member.level / server.levels / levels.addXp.
 @Module({
-  imports: [GuildConfigModule],
-  commands: [RankCommand, LeaderboardCommand],
-  handlers: [RankHandler, LeaderboardHandler],
-  listeners: [MessageXpListener],
+  imports: [GuildConfigModule, ToolRegistryModule],
   providers: [LevelsService],
-  exports: [LevelsService],
+  listeners: [LevelsMessageListener],
 })
 export class LevelsModule {}

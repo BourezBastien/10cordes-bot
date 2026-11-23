@@ -1,0 +1,11 @@
+import { Module } from '@spraxium/common';
+import { ToolRegistryModule } from '../tool-registry/tool-registry.module';
+import { IntegrationModule } from '../integrations/integration.module';
+import { MusicService } from './music.service';
+
+// Génération musicale (kie.ai/Suno) : tool generateMusic, clé via intégration.
+@Module({
+  imports: [IntegrationModule, ToolRegistryModule],
+  providers: [MusicService],
+})
+export class MusicModule {}

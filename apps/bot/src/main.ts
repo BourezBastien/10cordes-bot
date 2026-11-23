@@ -1,28 +1,120 @@
-import { IntentPreset, SpraxiumFactory } from '@spraxium/core';
+import { createWriteStream } from 'node:fs';
+import { resolve } from 'node:path';
+import { SpraxiumFactory } from '@spraxium/core';
+import { GatewayIntentBits } from 'discord.js';
 import { EnvValidator } from '@spraxium/env';
-import { I18nStoreRegistry } from '@spraxium/i18n';
 import { Logger } from '@spraxium/logger';
 import { AppEnv } from './app.env';
 import { AppModule } from './app.module';
-import { PrismaI18nStore } from './i18n/store';
-import { ModuleEnabledGuard } from './modules/module-manager/module-enabled.guard';
 
 async function main(): Promise<void> {
   const logger = new Logger('Main');
-  const environment = EnvValidator.validate(AppEnv);
 
-  // Store i18n persisté (langue par utilisateur) — doit être enregistré avant le create.
-  I18nStoreRegistry.set(new PrismaI18nStore());
+  // Miroir de la sortie console vers un fichier : le CLI spraxium daemonise
+  // le process (--force-unlock) SANS stdio (process.stdout peut être absent),
+  // donc sans ce miroir tous les logs de boot et de crash seraient perdus.
+  // Jamais fatal : si le miroir échoue, on continue sur la sortie native.
+  try {
+    const mirrorPath = resolve(process.cwd(), 'bot-out.log');
+    const mirror = createWriteStream(mirrorPath, { flags: 'a' });
+    mirror.on('error', () => {});
+    const wrap = (original: typeof process.stdout.write) =>
+      ((...args: Parameters<typeof process.stdout.write>) => {
+        try {
+          mirror.write(typeof args[0] === 'string' ? args[0] : String(args[0]));
+        } catch {
+          /* le miroir ne doit jamais casser l'app */
+        }
+        try {
+          return original(...args);
+        } catch {
+          return true;
+        }
+      }) as typeof process.stdout.write;
+    if (typeof process.stdout?.write === 'function') process.stdout.write = wrap(process.stdout.write.bind(process.stdout));
+    if (typeof process.stderr?.write === 'function') process.stderr.write = wrap(process.stderr.write.bind(process.stderr));
+  } catch {
+    /* miroir indisponible : tant pis, on tourne sans */
+  }
+
+  const environment = EnvValidator.validate(AppEnv);
 
   const app = await SpraxiumFactory.create({ token: environment.token });
 
   app.useModule(AppModule);
   app.provide(AppEnv, environment);
-  app.useGlobalGuards(ModuleEnabledGuard);
-  app.intents(IntentPreset.Standard);
+  // (22/11) plus de guard global ModuleEnabledGuard : pipeline d'accès
+  // supprimé avec le refactor module-manager (toggles par serveur conservés).
+  // Audite complet : tous les events non privilégiés + MessageContent.
+  // GuildMembers est privilégié ET requis (audit joins/leaves, welcome,
+  // trust score) : à activer dans le portail développeur.
+  app.intents([
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildBans,
+    GatewayIntentBits.GuildInvites,
+    GatewayIntentBits.GuildModeration,
+    GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.GuildEmojisAndStickers,
+    GatewayIntentBits.GuildScheduledEvents,
+    GatewayIntentBits.AutoModerationExecution,
+  ]);
+
+  // Partials : les EventTrigger (réactions, suppressions) doivent fonctionner
+  // sur des messages/canaux antérieurs au reboot (hors cache gateway).
+  app.partials('Message', 'Channel', 'Reaction');
+
+  // Promesses rejetées sans catch (ex: écritures audit void) : visibles en console.
+  process.on('unhandledRejection', (reason) => {
+    logger.error(`Unhandled rejection: ${reason instanceof Error ? `${reason.message}\n${reason.stack}` : String(reason)}`);
+  });
+
+  // Exceptions synchrones non capturées : sans ce handler, Node tue le process
+  // sans trace utile dans le log (mort silencieuse observée le 16/11/2026).
+  process.on('uncaughtException', (error) => {
+    logger.error(`Uncaught exception: ${error?.stack ?? String(error)}`);
+  });
+
+  // Qui appelle process.exit ? Les morts silencieuses (exit 1 sans trace) de
+  // 2026-11-16 demandent l'appelant exact.
+  const originalExit = process.exit.bind(process);
+  process.exit = ((code?: number) => {
+    logger.error(`process.exit(${code ?? 0}) appelé\n${new Error('exit caller').stack}`);
+    return originalExit(code);
+  }) as typeof process.exit;
+
+  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGBREAK'] as const) {
+    process.on(signal, () => {
+      logger.error(`Signal ${signal} reçu\n${new Error('signal caller').stack}`);
+    });
+  }
 
   logger.info('Starting application...');
   await app.listen();
+
+  // R1c : PURGE des slash commands résiduelles. Le framework n'inscrit rien
+  // avec 0 commande mais ne purge JAMAIS les anciennes inscrites côté
+  // Discord — on vide explicitement (global + chaque guild), idempotent.
+  const client = (app as unknown as { state?: { client?: import('discord.js').Client } }).state?.client;
+  if (client?.application) {
+    try {
+      await client.application.commands.set([]);
+      for (const guild of client.guilds.cache.values()) {
+        await guild.commands.set([]).catch(() => {});
+      }
+      logger.info('Slash commands purgées (global + guilds) : aucune commande, tout par conversation.');
+    } catch (error) {
+      logger.warn(`Purge slash commands : ${(error as Error).message.slice(0, 100)}`);
+    }
+  }
 }
 
-main();
+main().catch((error) => {
+  // Sans ce catch, un crash de boot part en unhandledRejection : le process
+  // peut rester vivant sans bot ni trace claire.
+  console.error('[FATAL] boot échoué :', error);
+  process.exitCode = 1;
+});

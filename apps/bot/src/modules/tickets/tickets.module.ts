@@ -1,32 +1,48 @@
 import { Module } from '@spraxium/common';
 import { GuildConfigModule } from '../guild-config/guild-config.module';
-import { TicketCommand } from './tickets.handlers';
+import { ToolRegistryModule } from '../tool-registry/tool-registry.module';
 import {
-  TicketCategoryHandler,
-  TicketLogsHandler,
-  TicketPanelChannelHandler,
-  TicketSetupHandler,
-  TicketStaffHandler,
-  TicketPanelOpenHandler,
   TicketClaimHandler,
   TicketCloseHandler,
+  TicketPanelOpenHandler,
+  TicketHelpHandler,
+  TicketUnclaimHandler,
+  TicketRate1Handler,
+  TicketRate2Handler,
+  TicketRate3Handler,
+  TicketRate4Handler,
+  TicketRate5Handler,
 } from './tickets.handlers';
-import { TicketClaimButton, TicketCloseButton, TicketPanelButton } from './components/ticket.components';
+import {
+  TicketClaimButton,
+  TicketCloseButton,
+  TicketPanelButton,
+  TicketHelpButton,
+  TicketUnclaimButton,
+  TicketRate1,
+  TicketRate2,
+  TicketRate3,
+  TicketRate4,
+  TicketRate5,
+} from './components/ticket.components';
 import { TicketsService } from './tickets.service';
+import { TicketFirstResponseListener } from './listeners/ticket-first-response.listener';
 
 @Module({
-  imports: [GuildConfigModule],
-  commands: [TicketCommand],
+  imports: [GuildConfigModule, ToolRegistryModule],
   handlers: [
-    TicketCategoryHandler,
-    TicketStaffHandler,
-    TicketPanelChannelHandler,
-    TicketLogsHandler,
-    TicketSetupHandler,
     TicketPanelOpenHandler,
     TicketClaimHandler,
+    TicketUnclaimHandler,
     TicketCloseHandler,
+    TicketHelpHandler,
+    TicketRate1Handler,
+    TicketRate2Handler,
+    TicketRate3Handler,
+    TicketRate4Handler,
+    TicketRate5Handler,
   ],
+  listeners: [TicketFirstResponseListener],
   providers: [TicketsService],
 })
 export class TicketsModule {}

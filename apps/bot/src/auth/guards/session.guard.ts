@@ -1,7 +1,6 @@
 import type { HttpGuard } from '@spraxium/http';
 import type { Context } from 'hono';
-import type { AppEnv } from '../../app.env';
-import type { PrismaService } from '../../modules/database/prisma.service';
+import { getValidatedEnv } from '../env.accessor';
 import { getAuth } from '../auth.instance';
 
 /**
@@ -10,13 +9,8 @@ import { getAuth } from '../auth.instance';
  * Échoue fermé : si l'auth n'est pas configurée, l'accès API est refusé (401).
  */
 export class SessionGuard implements HttpGuard {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly env: AppEnv,
-  ) {}
-
   async canActivate(ctx: Context): Promise<boolean> {
-    const auth = getAuth(this.env);
+    const auth = getAuth(getValidatedEnv());
     const session = await auth.api.getSession({ headers: ctx.req.raw.headers });
     if (!session) return false;
     ctx.set('session', session);

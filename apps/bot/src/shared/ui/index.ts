@@ -1,13 +1,13 @@
 import {
   ContainerBuilder,
-  FileBuilder,
+  MessageFlags,
   SeparatorBuilder,
   SeparatorSpacingSize,
   TextDisplayBuilder,
 } from 'discord.js';
 
 /**
- * Helpers de rendu — Components V2 est le rendu de base de tous les messages du bot
+ * Helpers de rendu : Components V2 est le rendu de base de tous les messages du bot
  * (flag `IsComponentsV2`). Nommage naturel, sans suffixe technique.
  */
 
@@ -19,15 +19,10 @@ export function separator(): SeparatorBuilder {
   return new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small);
 }
 
-/** Fichier joint référencé dans un container — visible via le composant File. */
-export function fileComponent(attachmentName: string): FileBuilder {
-  return new FileBuilder().setURL(`attachment://${attachmentName}`);
-}
-
 export interface PanelOptions {
   /** Titre markdown du panneau (ex: "## 🧩 Modules"). */
   title: string;
-  /** Lignes markdown du corps — une entrée TextDisplay par ligne. */
+  /** Lignes markdown du corps : une entrée TextDisplay par ligne. */
   lines: string[];
   /** Couleur d'accent du container. */
   accentColor?: number;
@@ -48,4 +43,18 @@ export function panel(options: PanelOptions): ContainerBuilder {
     container.addTextDisplayComponents(text(`-# ${options.footer}`));
   }
   return container;
+}
+
+/**
+ * Notification courte en Components V2 (texte seul). Utilisée pour les
+ * confirmations, avertissements et erreurs — jamais de `content` brut.
+ */
+export function notice(
+  content: string,
+  ephemeral = false,
+): { flags: number; components: TextDisplayBuilder[] } {
+  return {
+    flags: ephemeral ? MessageFlags.Ephemeral | MessageFlags.IsComponentsV2 : MessageFlags.IsComponentsV2,
+    components: [new TextDisplayBuilder().setContent(content)],
+  };
 }

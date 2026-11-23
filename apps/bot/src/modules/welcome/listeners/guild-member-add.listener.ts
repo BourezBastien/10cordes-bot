@@ -1,4 +1,4 @@
-import { Listener } from '@spraxium/common';
+import { Listener, On } from '@spraxium/common';
 import { Events, type GuildMember } from 'discord.js';
 import { renderTemplate } from '@10cordes/shared';
 import { GuildConfigService } from '../../guild-config/guild-config.service';
@@ -8,6 +8,7 @@ import { pendingWelcomeMessages, welcomeCacheKey } from '../welcome.state';
 export class GuildMemberAddListener {
   constructor(private readonly config: GuildConfigService) {}
 
+  @On()
   async onGuildMemberAdd(member: GuildMember): Promise<void> {
     const config = await this.config.get(member.guild.id);
     const vars = {

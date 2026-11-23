@@ -6,10 +6,6 @@ export interface ModuleDescriptor {
   label: string;
   /** Description courte. */
   description: string;
-  /** Noms racines des slash commands contrôlées par ce module. */
-  commands: string[];
-  /** Groupe d'affichage optionnel (sous-modules rattachés à un module principal). */
-  group?: string;
   /** Modules obligatoires — si inactifs, ce module est bloqué. */
   dependsOn: string[];
   /**
