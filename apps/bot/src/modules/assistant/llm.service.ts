@@ -47,7 +47,7 @@ export interface ChatCompletionResult {
   usage?: ChatUsage;
 }
 
-export type ChatCause = 'reply' | 'web' | 'consolidation' | 'triage';
+export type ChatCause = 'reply' | 'web' | 'consolidation' | 'triage' | 'memory.ingestion';
 
 export interface ChatOptions {
   /** 'none' = forcer un tour final de synthèse sans tool_calls (R0.2). */

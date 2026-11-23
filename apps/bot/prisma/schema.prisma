@@ -47,6 +47,7 @@ model Guild {
   guildMemoryProfile GuildMemoryProfile?
   memberMemories    MemberMemory[]
   memberMemoryProfiles MemberMemoryProfile[]
+  ingestionCursors  IngestionCursor[]
 
   @@map("guilds")
 }
@@ -363,6 +364,23 @@ model GuildMemoryProfile {
   guild     Guild           @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@map("guild_memory_profiles")
+}
+
+// ── Ingestion historique (B1) : curseur de progression par salon ──
+
+model IngestionCursor {
+  id             String   @id @default(cuid())
+  guildId        String
+  channelId      String
+  channelName    String   @default("")
+  lastMessageId  String?  // null = salon terminé
+  status         String   @default("running") // running | done | error
+  errorMessage   String?
+  updatedAt      DateTime @updatedAt
+  guild          Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, channelId])
+  @@map("ingestion_cursors")
 }
 
 // ── Vie de serveur (birthdays, sticky, AFK, sanctions temporaires, activité) ──
