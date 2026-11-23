@@ -24,6 +24,8 @@ import { type AgentRequest } from './queue/types';
 import { AppEnv } from '../../app.env';
 import { PrismaService } from '../database/prisma.service';
 import { GuildRulesService } from '../rules/guild-rules.service';
+import { SkillPatternDetector } from '../agent/skill-pattern.detector';
+import { CacheStoreService } from '../../shared/cache/cache-store.service';
 
 const log = new Logger('Assistant');
 
@@ -266,6 +268,8 @@ export class AssistantService {
     private readonly prisma: PrismaService,
     private readonly responseCache: ResponseCacheService,
     private readonly guildRules: GuildRulesService,
+    private readonly patterns: SkillPatternDetector,
+    private readonly cacheStore: CacheStoreService,
   ) {
     queue.setProcessor((request) => this.processAgentRequest(request));
     this.registry.register(this.getLastSnapshotTool());
@@ -720,11 +724,20 @@ export class AssistantService {
             metadata: {
               ok: result.ok,
               summary: result.summary.slice(0, 200),
-              // État avant mutation (rename/move/overwrite...) : la clé du
-              // retour arrière demandé par l'owner.
               preState: (resultData as Record<string, unknown> | undefined)?.preState ?? undefined,
             },
           });
+          // P3.2 Learning Loop : empreinte d'intention (seuil 3, 14 j, ICacheStore).
+          if (result.ok && !name.startsWith('search_') && !name.startsWith('get') && !name.startsWith('records.read')) {
+            void this.patterns.record({
+              store: this.cacheStore.active,
+              guildId: guild.id,
+              userId: request.userId,
+              categories: [name.split('.')[0]],
+              toolNames: [name],
+              hadMutation: true,
+            }).catch(() => {});
+          }
         },
         onDelta: (text) => {
           if (!streamingActive) return;
