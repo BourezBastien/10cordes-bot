@@ -3,6 +3,7 @@ import { Logger } from '@spraxium/logger';
 import { ChannelType, Client, PermissionFlagsBits, type Guild, type Message, type TextChannel } from 'discord.js';
 import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { botPermissionPolicy } from '../../core/security/bot-permission.policy';
 import { getLlm } from '../assistant/llm.accessor';
 import { getToolRegistry } from '../tool-registry/tool-registry.service';
 import { fileLog } from '../logging/file-log.service';
@@ -117,11 +118,8 @@ export class GuildHistoryIngestionService implements SpraxiumOnBoot {
     const channels = guild.channels.cache
       .filter((channel): channel is TextChannel => {
         if (channel.type !== ChannelType.GuildText) return false;
-        const me = guild.members.me;
-        if (!me) return false;
-        const perms = channel.permissionsFor(me);
-        // arch:allow — self-permission (le bot vérifie SES droits de lecture), pas une décision d'accès utilisateur
-        return perms !== null && perms.has(PermissionFlagsBits.ViewChannel | PermissionFlagsBits.ReadMessageHistory);
+        // Le bot ne lit que les salons où il a le droit de lire l'historique.
+        return botPermissionPolicy.canAllInChannel(channel, ['ViewChannel', 'ReadMessageHistory']);
       })
       .sort((a, b) => a.rawPosition - b.rawPosition)
       .map((channel) => ({ id: channel.id, name: channel.name, channel }))

@@ -10,7 +10,8 @@ import {
   HttpQuery,
   ValidationError,
 } from '@spraxium/http';
-import { PermissionFlagsBits, Client } from 'discord.js';
+import { Client } from 'discord.js';
+import { guildAccessContext, guildManagerPolicy } from '../../core/security/access-policy';
 import { ZodError } from 'zod';
 import type { Context } from 'hono';
 import { PrismaService } from '../database/prisma.service';
@@ -59,16 +60,13 @@ export class GuildsController {
     for (const guild of this.client.guilds.cache.values()) {
       const member = await guild.members.fetch(userId).catch(() => null);
       if (!member) continue;
-      const canManage =
-        member.permissions.has(PermissionFlagsBits.ManageGuild) ||
-        member.permissions.has(PermissionFlagsBits.Administrator);
-      if (!canManage) continue;
+      if (!guildManagerPolicy.isAuthorized(guildAccessContext(guild, userId, member))) continue;
       guilds.push({
         id: guild.id,
         name: guild.name,
         icon: guild.iconURL(),
         memberCount: guild.memberCount,
-        canManage,
+        canManage: true,
       });
     }
     return { guilds };

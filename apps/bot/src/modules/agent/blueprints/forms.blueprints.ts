@@ -61,7 +61,7 @@ export const formsBlueprints: DomainBlueprints = [
       staffLogChannelId: chan('Salon staff avec l\u0027identité réelle'),
     },
     requiredTools: ['surface.create', 'webhook.post', 'records.create'],
-    workflow: '1. Bouton Se confesser + modal (texte). 2. webhook.post anonyme dans le salon public. 3. records.create collection confessions { realUserId, text } — l\u0027identité reste en DB pour la modération.',
+    workflow: '1. Bouton Se confesser + modal (texte). 2. webhook.post anonyme dans le salon public. 3. records.create collection confessions { realUserId, text } : l\u0027identité reste en DB pour la modération.',
   },
   {
     slug: 'partner-application-review',

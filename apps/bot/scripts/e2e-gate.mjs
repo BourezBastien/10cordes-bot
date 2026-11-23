@@ -94,7 +94,7 @@ let botId;
 const results = [];
 const verdict = (name, pass, note = '') => {
   results.push({ name, pass });
-  console.log(`[${pass ? 'PASS' : 'FAIL'}] ${name}${note ? ` — ${note}` : ''}`);
+  console.log(`[${pass ? 'PASS' : 'FAIL'}] ${name}${note ? ` : ${note}` : ''}`);
 };
 
 async function main() {
@@ -122,20 +122,28 @@ async function main() {
   }
   if (!channelId) throw new Error('aucun salon dédié IA');
 
-  // Webhook STAFF allowlisté (déjà en config E2E_STAFF_WEBHOOK_IDS) + intruder.
+  // Webhook STAFF : le guardian, que la gate reconnaît par son NOM quand
+  // E2E_ENABLED=true (plus d'allowlist d'IDs). Intrus : un run interrompu
+  // laisse le sien derrière lui, or Discord plafonne un salon à 15 webhooks
+  // (23/11 : salon saturé, le rig ne pouvait plus créer le sien). On
+  // réutilise le premier intrus trouvé et balaye les autres.
   const hooks = await rest(`/channels/${channelId}/webhooks`);
   let staffHook = hooks.find((h) => h.name === STAFF_HOOK_NAME && h.user?.id === botId);
   if (!staffHook) {
     staffHook = await rest(`/channels/${channelId}/webhooks`, { method: 'POST', body: JSON.stringify({ name: STAFF_HOOK_NAME }) });
   }
-  const staffIds = (env.E2E_STAFF_WEBHOOK_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-  if (!staffIds.includes(staffHook.id)) {
-    throw new Error(`webhook staff ${staffHook.id} absent de E2E_STAFF_WEBHOOK_IDS — le scénario mention ne passerait pas la gate`);
+  const staleIntruders = hooks.filter((h) => h.name === INTRUDER_HOOK_NAME && h.user?.id === botId);
+  for (const stale of staleIntruders.slice(1)) {
+    await rest(`/webhooks/${stale.id}`, { method: 'DELETE' }).catch(() => {});
   }
-  const intruderHook = await rest(`/channels/${channelId}/webhooks`, {
-    method: 'POST',
-    body: JSON.stringify({ name: INTRUDER_HOOK_NAME }),
-  });
+  if (staleIntruders.length > 1) console.log(`[CLEANUP] ${staleIntruders.length - 1} webhook(s) intrus abandonné(s) supprimé(s).`);
+  let intruderHook = staleIntruders[0];
+  if (!intruderHook) {
+    intruderHook = await rest(`/channels/${channelId}/webhooks`, {
+      method: 'POST',
+      body: JSON.stringify({ name: INTRUDER_HOOK_NAME }),
+    });
+  }
   const sendVia = (hook, content, extra = {}) =>
     rest(`/webhooks/${hook.id}/${hook.token}?wait=true`, {
       method: 'POST',
@@ -171,7 +179,8 @@ async function main() {
   if (!only || only.includes('gate.unaddressed')) {
     await sleep(COOLDOWN_MS);
     const guildHooks = await rest(`/guilds/${guildId}/webhooks`);
-    const movable = guildHooks.find((h) => staffIds.includes(h.id) && h.user?.id === botId);
+    // Le seul webhook staff est le guardian lui-même (reconnu par son nom).
+    const movable = guildHooks.find((h) => h.id === staffHook.id && h.user?.id === botId) ?? staffHook;
     if (!movable) {
       verdict('gate.unaddressed', false, 'aucun webhook staff déplaçable (ManageWebhooks ?)');
     } else {

@@ -1,5 +1,5 @@
 /**
- * SUITE E2E COMPLÈTE (E2) : 11 scénarios conversationnels réels via webhook
+ * SUITE E2E COMPLÈTE (E2) : 13 scénarios conversationnels réels via webhook
  * staff sur E2E_GUILD_ID, journalisés dans logs/e2e-suite-<guildId>.jsonl.
  *
  * 1. gate.noise        : bruit social ignoré (zéro LLM) même en salon dédié
@@ -14,6 +14,11 @@
  * 10. memory.forget    : opt-out mémoire (« oublie-moi ») + cleanup
  * 11. rule.confirm     : règle confirmDestructiveActions, une suppression demandée
  *                        à l'agent BLOQUÉE + surface ✅/❌ postée + salon intact
+ * 12. records.dynamic  : une recette écrit dans une collection dynamique
+ *                        (casino_balance), ligne vérifiée en base puis supprimée
+ * 13. surface.blackjack: rejoue la demande « blackjack » de l'incident du 23/11
+ *                        20:09 : aucune surface « probe », aucune fuite de
+ *                        balises internes, boutons câblés, plafond non atteint
  *
  * STRICT : un tool ne compte que s'il a RÉUSSI (ok:true dans l'audit). Les
  * échecs de tools restent affichés dans la note de chaque scénario.
@@ -97,16 +102,27 @@ async function newAuditSince(since, actionPrefix = 'assistant.') {
   );
 }
 
-async function waitQuiescent(watermark, { maxMs = 150_000, quietMs = 8_000 } = {}) {
+/**
+ * Attend la fin du traitement d'une demande : une réponse (ou une erreur) est
+ * audible dans l'audit ET plus aucune entrée n'apparaît pendant quietMs.
+ * La première version recalculait l'instant du dernier changement à chaque
+ * sondage dès qu'une entrée existait : chaque scénario attendait les 150 s
+ * maximales, même quand le bot avait répondu en 5 s.
+ */
+async function waitQuiescent(watermark, { maxMs = 150_000, quietMs = 5_000 } = {}) {
   const start = Date.now();
   let entries = [];
+  let lastCount = -1;
   let lastChange = Date.now();
   while (Date.now() - start < maxMs) {
     await sleep(4_000);
     entries = await newAuditSince(watermark);
-    if (entries.length > 0) lastChange = Date.now();
-    const hasTool = entries.some((e) => e.action.startsWith('assistant.tool.') || e.action === 'assistant.reply');
-    if (Date.now() - lastChange >= quietMs && hasTool) break;
+    if (entries.length !== lastCount) {
+      lastCount = entries.length;
+      lastChange = Date.now();
+    }
+    const answered = entries.some((e) => e.action === 'assistant.reply' || e.action === 'assistant.error');
+    if (answered && Date.now() - lastChange >= quietMs) break;
   }
   return entries;
 }
@@ -377,6 +393,82 @@ async function main() {
         }
       }
     }
+  }
+
+  // ---- 12. Collection dynamique : une recette écrit dans casino_balance ----
+  // Les recettes de la bibliothèque utilisent des collections absentes du
+  // registre natif (casino_balance, giveaway_entries...) : le store les accepte
+  // à la demande depuis le 23/11 au soir. On applique la PREMIÈRE étape de la
+  // recette du casino (le solde de départ) et on vérifie la ligne en base.
+  await scenario(
+    'records.dynamic',
+    'Applique uniquement la première étape de la recette de casino (cherche-la avec search_skills) : crée mon solde de départ dans la collection casino_balance avec records.create (userId = mon id, balance = 100). Réponds juste fait.',
+    async ({ entries, watermark }) => {
+      const created = ranTool(entries, 'records.create');
+      const rows = await prisma((p) =>
+        p.agentRecord.findMany({ where: { guildId: GUILD_ID, collection: 'casino_balance' }, select: { id: true, createdAt: true, data: true } }),
+      );
+      const fresh = rows.filter((row) => row.createdAt > watermark && row.data.includes('"balance":100'));
+      // Restaure : la ligne de test ne doit pas rester dans le casino du serveur.
+      if (fresh.length > 0) {
+        await prisma((p) => p.agentRecord.deleteMany({ where: { id: { in: fresh.map((row) => row.id) } } }));
+      }
+      return {
+        pass: created && fresh.length > 0,
+        note: `${created ? 'records.create réussi' : 'records.create sans succès'} · ${fresh.length} ligne(s) casino_balance créée(s) pendant le scénario, supprimée(s)`,
+      };
+    },
+  );
+
+  // ---- 13. Blackjack : ni sonde, ni fuite de balises internes, boutons câblés ----
+  // Incident du 23/11 à 20:09 : le modèle testait surface.create avec des
+  // surfaces « probe », puis, au plafond d'itérations, écrivait ses appels
+  // d'outil en texte brut (`<｜DSML｜...>`) publié tel quel dans le salon. On
+  // rejoue la même demande en live. Le clic sur un bouton exige une vraie
+  // interaction Discord (non simulable en REST) : l'acquittement des clics
+  // est couvert par surface.handlers.spec.ts, le clic réel reste à faire à la main.
+  if (!only || only.includes('surface.blackjack')) {
+    journal('scenario_start', { scenario: 'surface.blackjack' });
+    // E2E_KEEP_SURFACES=1 : le panneau reste en place pour un clic à la main.
+    // Son titre ne doit alors pas contenir « E2E » (le nettoyage global le supprimerait).
+    const keep = process.env.E2E_KEEP_SURFACES === '1';
+    const watermark = new Date(Date.now() - 2_000);
+    await sleep(COOLDOWN_MS);
+    await send(`Crée ici un jeu de blackjack jouable avec boutons contre la banque (cherche d\u0027abord la recette dans ta bibliothèque). Titre du panneau : « ${keep ? 'Blackjack, table de test clic' : 'E2E-suite blackjack'} ».`);
+    const entries = await waitQuiescent(watermark, { maxMs: 240_000 });
+    const surfaces = await prisma((p) =>
+      p.interactiveSurface.findMany({ where: { guildId: GUILD_ID, createdAt: { gt: watermark } }, select: { id: true, definition: true, messageId: true, channelId: true } }),
+    );
+    const definitions = surfaces.map((surface) => ({ ...surface, definition: JSON.parse(surface.definition) }));
+    const isProbe = (definition) =>
+      /^(?:probe|test|ping|todo|placeholder)$/iu.test((definition.title ?? '').trim()) || /^(?:probe|test|ping)$/iu.test((definition.description ?? '').trim());
+    const probes = definitions.filter((surface) => isProbe(surface.definition));
+    const unwired = definitions.filter((surface) =>
+      surface.definition.rows.some((row) => (row.kind === 'buttons' ? row.buttons : row.select.options).some((binding) => !Array.isArray(binding.pipeline) || binding.pipeline.length === 0)),
+    );
+    const messages = await rest(`/channels/${channelId}/messages?limit=50`).catch(() => []);
+    const botMessages = messages.filter((message) => message.author?.id === me.id && Date.parse(message.timestamp) > watermark.getTime());
+    const textOf = (message) => `${message.content ?? ''} ${JSON.stringify(message.components ?? '')}`;
+    const leaks = botMessages.filter((message) => /<[｜|]|<\/?tool_call/iu.test(textOf(message)));
+    const ceiling = botMessages.filter((message) => textOf(message).includes("Limite d'étapes atteinte"));
+    const created = ranTool(entries, 'surface.create');
+    const searches = entries.filter((entry) => entry.action === 'assistant.tool.search_tools').length;
+    const opened = ranTool(entries, 'openSkill');
+    // Restaure : triggers et solde de test ne restent pas dans le casino du serveur.
+    const ids = surfaces.map((surface) => surface.id);
+    if (!keep) {
+      for (const surface of surfaces) {
+        if (surface.messageId) await rest(`/channels/${surface.channelId}/messages/${surface.messageId}`, { method: 'DELETE' }).catch(() => {});
+      }
+      await prisma((p) => p.interactiveSurface.deleteMany({ where: { id: { in: ids } } }));
+    }
+    await prisma((p) => p.scheduledTrigger.updateMany({ where: { guildId: GUILD_ID, createdAt: { gt: watermark }, OR: [{ surfaceId: { in: ids } }, { cancelKey: { contains: 'blackjack' } }] }, data: { status: 'cancelled' } }));
+    await prisma((p) => p.agentRecord.deleteMany({ where: { guildId: GUILD_ID, collection: 'casino_balance', createdAt: { gt: watermark } } }));
+    verdict(
+      'surface.blackjack',
+      created && leaks.length === 0 && probes.length === 0 && unwired.length === 0 && ceiling.length === 0,
+      `${created ? 'surface.create réussi' : 'surface.create sans succès'} · ${surfaces.length} surface(s), ${probes.length} sonde(s), ${unwired.length} bouton(s) non câblé(s) · ${leaks.length} fuite(s) de balises internes sur ${botMessages.length} message(s) du bot · ${opened ? 'recette ouverte' : 'recette non ouverte'} · ${searches} search_tools · ${ceiling.length > 0 ? 'plafond d\u0027étapes atteint' : 'plafond non atteint'} · clic réel non simulable`,
+    );
   }
 
   // ---- CLEANUP ----

@@ -1,12 +1,16 @@
 import { Ctx } from '@spraxium/common';
 import { Button, ButtonHandler, ModalComponent, ModalHandler, ModalInput, ModalService } from '@spraxium/components';
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, type ButtonInteraction, type ModalSubmitInteraction } from 'discord.js';
+import { MessageFlags, type ButtonInteraction, type ModalSubmitInteraction } from 'discord.js';
 import { Logger } from '@spraxium/logger';
-import { guildAdminPolicy, type GuildAccessContext } from '../../../core/security/access-policy';
+import { guildAdminPolicy, interactionAccessContext } from '../../../core/security/access-policy';
 import { getLlm } from '../../assistant/llm.accessor';
 import { normalizeBaseUrl } from '../../assistant/llm.service';
 import { fileLog } from '../../logging/file-log.service';
-import { IntegrationStatusPresenter } from '../presenters/integration-status.presenter';
+import {
+  INTEGRATION_LLM_BUTTON_ID,
+  INTEGRATION_LLM_BUTTON_LABEL,
+  IntegrationStatusPresenter,
+} from '../presenters/integration-status.presenter';
 
 /**
  * Handlers d'intégrations : le seul point d'entrée UI pour connecter un
@@ -24,10 +28,6 @@ import { IntegrationStatusPresenter } from '../presenters/integration-status.pre
  */
 
 const log = new Logger('IntegrationHandlers');
-
-/** customId et label du bouton : source de vérité partagée avec le panneau d'accueil. */
-export const INTEGRATION_LLM_BUTTON_ID = 'integration:llm:open';
-export const INTEGRATION_LLM_BUTTON_LABEL = 'Connecter un fournisseur IA';
 
 @Button({ customId: INTEGRATION_LLM_BUTTON_ID, label: INTEGRATION_LLM_BUTTON_LABEL, style: 'primary' })
 export class IntegrationOpenButton {}
@@ -50,30 +50,12 @@ export class IntegrationConfigModal {
   model!: string;
 }
 
-/** Bouton d'ouverture en rangée, pour le panneau d'accueil (même customId que la classe décorée). */
-export function integrationOpenButton(): ActionRowBuilder<ButtonBuilder> {
-  return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(INTEGRATION_LLM_BUTTON_ID).setLabel(INTEGRATION_LLM_BUTTON_LABEL).setStyle(ButtonStyle.Primary),
-  );
-}
-
 /** Un échec de réponse à une interaction doit rester diagnostiquable (jamais avalé). */
 function report(step: string, interactionId: string) {
   return (error: unknown): void => {
     const message = error instanceof Error ? error.message : String(error);
     log.warn(`${step} impossible (${message.slice(0, 140)})`);
     fileLog()?.event('warn', 'integrations', 'interaction_failed', { step, interactionId, error: message.slice(0, 200) });
-  };
-}
-
-/** Contexte d'accès exigé par la Policy, dérivé du membre qui interagit. */
-function accessContext(interaction: ButtonInteraction | ModalSubmitInteraction): GuildAccessContext | null {
-  const guild = interaction.guild;
-  if (!guild) return null;
-  return {
-    userId: interaction.user.id,
-    guildOwnerId: guild.ownerId,
-    permissions: interaction.memberPermissions?.toArray() ?? [],
   };
 }
 
@@ -86,7 +68,7 @@ export class IntegrationOpenModalButtonHandler {
   constructor(private readonly modals: ModalService) {}
 
   async handle(@Ctx() interaction: ButtonInteraction): Promise<void> {
-    const ctx = accessContext(interaction);
+    const ctx = interactionAccessContext(interaction);
     if (!ctx) return;
     if (!guildAdminPolicy.isAuthorized(ctx)) {
       await interaction.reply(this.presenter.denied()).catch(report('refus', interaction.id));
@@ -103,7 +85,7 @@ export class IntegrationSaveModalHandler {
   private readonly presenter = new IntegrationStatusPresenter();
 
   async handle(@Ctx() interaction: ModalSubmitInteraction): Promise<void> {
-    const ctx = accessContext(interaction);
+    const ctx = interactionAccessContext(interaction);
     if (!ctx) return;
     if (!guildAdminPolicy.isAuthorized(ctx)) {
       await interaction.reply(this.presenter.denied()).catch(report('refus', interaction.id));

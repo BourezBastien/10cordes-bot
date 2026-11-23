@@ -6,13 +6,12 @@ const mocks = vi.hoisted(() => ({ applyConfig: vi.fn() }));
 
 vi.mock('../../assistant/llm.accessor', () => ({ getLlm: () => ({ applyConfig: mocks.applyConfig }) }));
 
+import { INTEGRATION_LLM_BUTTON_ID, integrationOpenButton } from '../presenters/integration-status.presenter';
 import {
-  INTEGRATION_LLM_BUTTON_ID,
   IntegrationConfigModal,
   IntegrationOpenButton,
   IntegrationOpenModalButtonHandler,
   IntegrationSaveModalHandler,
-  integrationOpenButton,
 } from './integration.handlers';
 
 /**

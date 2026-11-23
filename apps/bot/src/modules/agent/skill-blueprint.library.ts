@@ -192,7 +192,7 @@ export class SkillBlueprintLibrary implements SpraxiumOnBoot {
           requiredTools: blueprint.requiredTools,
           score,
         }));
-        const lines = cards.map((card) => `- **${card.slug}** [${card.domain}] : ${card.trigger} — tools: ${card.requiredTools.slice(0, 5).join(', ')}${card.requiredTools.length > 5 ? '...' : ''}`);
+        const lines = cards.map((card) => `- **${card.slug}** [${card.domain}] : ${card.trigger} · tools: ${card.requiredTools.slice(0, 5).join(', ')}${card.requiredTools.length > 5 ? '...' : ''}`);
         return {
           ok: true,
           summary: `${cards.length} recette(s) trouvée(s) :\n${lines.join('\n')}\nOuvre le skill correspondant (openSkill) pour le workflow complet.`,

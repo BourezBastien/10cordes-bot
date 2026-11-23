@@ -1,4 +1,4 @@
-import { PermissionFlagsBits } from 'discord.js';
+import { botPermissionPolicy } from '../../core/security/bot-permission.policy';
 import { registerComponentAction } from './registry';
 
 /**
@@ -31,8 +31,8 @@ export function registerDefaultComponentExecutors(): void {
     const me = guild.members.me;
     const role = guild.roles.cache.get(action.roleId);
     if (!role) return 'Rôle introuvable (supprimé ?).';
-    if (!me?.permissions.has(PermissionFlagsBits.ManageRoles)) return "Le bot n'a pas la permission ManageRoles.";
-    if (role.position >= me.roles.highest.position) return 'Ce rôle est au-dessus du mien : impossible de le donner.';
+    if (!me || !botPermissionPolicy.canInGuild(guild, 'ManageRoles')) return botPermissionPolicy.refusal('ManageRoles');
+    if (botPermissionPolicy.isRoleAboveBot(guild, role)) return 'Ce rôle est au-dessus du mien : impossible de le donner.';
     await ctx.member.roles.add(role, 'action de composant (panel agent)').catch(() => {});
     return `Rôle **${role.name}** ajouté.`;
   });
@@ -44,7 +44,7 @@ export function registerDefaultComponentExecutors(): void {
     const me = guild.members.me;
     const role = guild.roles.cache.get(action.roleId);
     if (!role) return 'Rôle introuvable (supprimé ?).';
-    if (!me?.permissions.has(PermissionFlagsBits.ManageRoles)) return "Le bot n'a pas la permission ManageRoles.";
+    if (!botPermissionPolicy.canInGuild(guild, 'ManageRoles')) return botPermissionPolicy.refusal('ManageRoles');
     await ctx.member.roles.remove(role, 'action de composant (panel agent)').catch(() => {});
     return `Rôle **${role.name}** retiré.`;
   });

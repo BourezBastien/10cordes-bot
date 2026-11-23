@@ -42,6 +42,12 @@ export class AppEnv extends SpraxiumBaseEnv {
   @IsString()
   BETTER_AUTH_SECRET?: string;
 
+  /** Identifiant OAuth Discord (application) — requis pour le login dashboard. */
+  @Env('DISCORD_CLIENT_ID', { secret: false })
+  @IsOptional()
+  @IsString()
+  DISCORD_CLIENT_ID?: string;
+
   /** Secret OAuth Discord — requis pour le login dashboard. */
   @Env('DISCORD_CLIENT_SECRET')
   @IsOptional()

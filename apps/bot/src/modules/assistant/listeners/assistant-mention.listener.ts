@@ -176,7 +176,7 @@ export class AssistantMentionListener {
     // ANTI-BRUIT : message qui n'interpelle PAS directement (ni mention, ni
     // nom, ni réponse) et qui est du pur bruit social → ignoré, zéro LLM.
     if (!mentioned && !repliesToBot && !byName && isSocialNoise(message.content)) {
-      log.info(`[GATE] ignoré (bruit-social-zone-libre) — ${message.author.username}`);
+      log.info(`[GATE] ignoré (bruit-social-zone-libre) : ${message.author.username}`);
       fileLog()?.event('info', 'gate', 'ignored_social_noise', {
         guildId,
         channelId: message.channelId,
@@ -187,7 +187,7 @@ export class AssistantMentionListener {
     }
 
     log.info(
-      `[GATE] accepté (dédié=${inDedicatedChannel} mention=${mentioned} nom=${byName && nameAllowed} réponse-bot=${repliesToBot} zone-libre=${freeZone}) — ${message.author.username}`,
+      `[GATE] accepté (dédié=${inDedicatedChannel} mention=${mentioned} nom=${byName && nameAllowed} réponse-bot=${repliesToBot} zone-libre=${freeZone}) : ${message.author.username}`,
     );
     fileLog()?.event('info', 'gate', 'accept', {
       guildId,

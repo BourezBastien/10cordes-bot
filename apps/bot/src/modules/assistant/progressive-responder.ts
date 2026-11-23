@@ -3,6 +3,8 @@ export interface ProgressiveChannel {
   send(options: { content: string; reply?: { messageReference: string; failIfNotExists?: boolean } }): Promise<{ id: string }>;
   messages: {
     edit(id: string, options: { content: string }): Promise<unknown>;
+    /** Retrait d'un brouillon rejeté (facultatif : absent des canaux de test qui n'en ont pas besoin). */
+    delete?(id: string): Promise<unknown>;
   };
 }
 
@@ -146,5 +148,24 @@ export class DiscordProgressiveResponder {
       this.firstFlushTimer = null;
     }
     this.buffer = '';
+  }
+
+  /**
+   * Tour REJETÉ (balises internes du modèle, conclusion sans texte) : le
+   * brouillon déjà visible est RETIRÉ du salon, car il ne sera pas la réponse.
+   * Contrairement à abort(), rien n'est finalisé.
+   */
+  async discard(): Promise<void> {
+    const publishedId = this.flushed ? this.currentMessageId : null;
+    this.closed = true;
+    if (this.firstFlushTimer) {
+      clearTimeout(this.firstFlushTimer);
+      this.firstFlushTimer = null;
+    }
+    this.buffer = '';
+    this.flushed = false;
+    this.currentMessageId = null;
+    this.currentContent = '';
+    if (publishedId) await this.channel.messages.delete?.(publishedId)?.catch(() => {});
   }
 }

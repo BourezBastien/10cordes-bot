@@ -132,7 +132,7 @@ export class ImagelabService implements SpraxiumOnBoot {
             ok: delivered,
             summary: delivered
               ? `Icône ${size}x${size} générée et envoyée dans le salon (${image.costUsd ? `$${image.costUsd}` : 'crédits consommés'}).`
-              : `Icône générée mais l'envoi dans le salon a échoué (surface sans fichiers) — ne dis PAS qu'elle est postée.`,
+              : `Icône générée mais l'envoi dans le salon a échoué (surface sans fichiers) : ne dis PAS qu'elle est postée.`,
             data: { size },
           };
         },
@@ -167,7 +167,7 @@ export class ImagelabService implements SpraxiumOnBoot {
             ok: delivered,
             summary: delivered
               ? "Émoji 64x64 généré et envoyé dans le salon. Propose un nom d'émoji court à l'utilisateur."
-              : "Émoji généré mais l'envoi dans le salon a échoué — ne dis PAS qu'il est posté.",
+              : "Émoji généré mais l'envoi dans le salon a échoué : ne dis PAS qu'il est posté.",
             data: { size: 64 },
           };
         },
@@ -175,7 +175,7 @@ export class ImagelabService implements SpraxiumOnBoot {
       {
         name: 'image.compose',
         description:
-          "Compose une CARTE visuelle en local (canvas, aucune clé requise) : titre, sous-titre, avatar optionnel — bannière de bienvenue, carte de rang, en-tête d'événement. Texte précis et fiable (contrairement à la génération IA).",
+          "Compose une CARTE visuelle en local (canvas, aucune clé requise) : titre, sous-titre, avatar optionnel : bannière de bienvenue, carte de rang, en-tête d'événement. Texte précis et fiable (contrairement à la génération IA).",
         category: 'imagelab',
         paramsSchema: z.object({
           title: z.string().min(1).max(80),

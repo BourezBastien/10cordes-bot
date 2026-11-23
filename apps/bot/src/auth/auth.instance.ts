@@ -16,7 +16,7 @@ function createAuth(env: AppEnv) {
     emailAndPassword: { enabled: false },
     socialProviders: {
       discord: {
-        clientId: process.env.DISCORD_CLIENT_ID ?? '',
+        clientId: env.DISCORD_CLIENT_ID ?? '',
         clientSecret: env.DISCORD_CLIENT_SECRET,
         scopes: ['identify', 'email', 'guilds'],
       },

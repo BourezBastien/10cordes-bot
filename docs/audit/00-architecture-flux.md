@@ -1,14 +1,14 @@
 # Audit 00 · Architecture & flux
 
-> Audit du 23/11/2026 en fin de journée, après les phases A (POO), B (ingestion), C (purge et 135 skills), D (docs) et les corrections du soir. Toutes les métriques sont mesurées sur le code.
+> Audit du 23/11/2026 en fin de journée, après les phases A (POO), B (ingestion), C (purge et 135 skills), D (docs) et les corrections du soir. Complété dans la nuit du 23 au 24/11 : arbitrage sur les 5 décisions ouvertes (dette d'architecture remboursée, store `Records` extensible, CI, AGENTS.md) et incident de 20:09. Toutes les métriques sont mesurées sur le code.
 
 ## 1. Vue d'ensemble
 
 | Métrique | Valeur |
 |---|---|
-| Fichiers TS hors tests (`apps/bot/src`) | 136, environ 18 700 lignes |
-| Fichiers de test unitaire | 5 (35 tests), plus 20 dans `packages/shared` |
-| Fichiers TS (`packages/shared/src`) | 13 (1 187 lignes) |
+| Fichiers TS hors tests (`apps/bot/src`) | 230, environ 21 850 lignes (aucun au-dessus de 300) |
+| Fichiers de test unitaire | 23 (211 tests), plus 3 (20 tests) dans `packages/shared` |
+| Fichiers TS (`packages/shared/src`) | 18 (1 123 lignes) |
 | Modules Spraxium (`src/modules/`) | 25 |
 | Handlers d'interaction décorés | 5 : le trio `surface:act`, `surface:select`, `surface:modal` et les 2 d'intégration (bouton et modale) |
 | Fichiers de listeners | 10 |
@@ -16,7 +16,7 @@
 | SkillBlueprint | 135 (10 domaines) |
 | Modèles Prisma | 33 |
 | Migrations | 30 |
-| Violations arch-audit | 60, toutes dans la baseline de dette acceptée (voir 04 §3) |
+| Violations arch-audit | **0** (60 au soir : toutes remboursées, voir 05 §3) |
 
 ## 2. Flux conversationnel
 
@@ -34,8 +34,10 @@ Message Discord
    6. ANTI-BRUIT : sans mention, ni nom, ni réponse, les rires et les messages
       de moins de 3 mots sans question sont ignorés, zéro appel LLM
 → AssistantQueue (FIFO par utilisateur, 3 parallèles, BullMQ ou mémoire)
-→ AgentLoop (12 itérations maximum, synthèse finale garantie)
-→ LlmService.chat (streaming SSE, watchdog d'inactivité, thinking adaptatif)
+→ AgentLoop (12 itérations maximum, dernier tour de conclusion ; un tool fuyant
+   ses balises internes est rejoué une fois, sinon la requête échoue proprement)
+→ LlmService.chatStream (SSE, watchdog d'inactivité, effort de raisonnement
+   décidé UNE fois par requête, filtre des jetons internes du modèle)
 → ToolRegistryService.run, pour chaque tool :
      modules requis actifs → node deny → permissions Discord → validation Zod
      → CONFIRMATION destructive si la règle du serveur l'exige → handler → audit
@@ -52,11 +54,12 @@ Garanties vérifiées :
 
 | Stéréotype | Emplacement | Rôle |
 |---|---|---|
-| Policy | `src/core/security/access-policy.ts` | `BaseAccessPolicy<TCtx>` abstraite + `GuildAdminPolicy` (owner ou Administrator). Seul endroit autorisé pour `PermissionFlagsBits` et `guild.ownerId` |
-| Presenter | `modules/*/presenters/` | Données vers payload Components V2, sans effet de bord (`IntegrationStatusPresenter`, `ConfigPanelPresenter`) |
+| Policy | `src/core/security/` | Le seul endroit où les permissions Discord, les rôles et la hiérarchie sont lus. `GuildAdminPolicy`, `GuildManagerPolicy` (`access-policy.ts`), `MemberPermissionPolicy`, `PermissionNamesPolicy` (listes de noms de `ToolRunContext`), `BotPermissionPolicy`, `AdminOpPolicy`, `CollectionQuotaPolicy` |
+| Presenter | `modules/*/presenters/` | Données vers payload Discord complet (drapeau `IsComponentsV2` compris), sans effet de bord (`IntegrationStatusPresenter`, `ConfigPanelPresenter`, `IntroPresenter`, `LogEntryPresenter`, `SurfaceNoticePresenter`) |
 | Handler | `modules/*/handlers/` | Garde Policy, message d'erreur, délégation au service. Décorateurs `@spraxium/components` obligatoires |
+| Service | `modules/*/*.service.ts` | Orchestrateur seul. Tools dans des factories `*.tools.ts`, logique pure dans son module, collaborateurs non injectables construits dans le constructeur |
 
-`pnpm arch:audit` applique 6 règles : UI_IN_SERVICE, PERMISSION_DISPERSED, GOD_CLASS (plus de 300 lignes), ANY_TYPE, PROCESS_ENV, LIFECYCLE_ON_MODULE. Il reste 60 violations de dette historique. Elles sont figées dans une baseline : `pnpm verify` échoue sur toute violation nouvelle, et la règle LIFECYCLE_ON_MODULE ne peut pas entrer dans la baseline (voir 04 §3 et 05 §3).
+`pnpm arch:audit` applique 6 règles : UI_IN_SERVICE, PERMISSION_DISPERSED (élargie aux listes de noms, aux permissions d'interaction et aux rôles), GOD_CLASS (plus de 300 lignes), ANY_TYPE, PROCESS_ENV, LIFECYCLE_ON_MODULE. Il est strict, sans baseline : 0 violation, exigé par `pnpm verify` et par la CI (voir 04 §3 et 05 §3).
 
 ## 4. Règle de cycle de vie du framework
 
@@ -68,7 +71,9 @@ Le framework n'instancie pas les classes de module. Il n'enregistre que les `pro
 - `InteractionBinding` : politique d'accès et pipeline typé (runTool, setState, updateComponent, sendMessage, replyEphemeral, openModal, record.write, trigger.schedule, trigger.cancelByKey, random, llm, if, forEach, claimOnce).
 - `ScheduledTrigger` : BullMQ, tick de 15 s, rattrapage garanti après redémarrage, sans fenêtre de grâce.
 - `EventTrigger` : 10 événements Discord (message create, update, delete ; member join, leave, update ; voice ; reaction add, remove ; présence).
-- Refus des surfaces vides : titre de moins de 3 caractères ou labels de type probe, test, ping.
+- Refus des surfaces vides et de sonde : titre de moins de 3 caractères, labels de type probe, test, ping, ou titre ou description réduit à un mot de sonde. Rien n'est posté.
+- L'état s'affiche en direct : `{{state.chemin}}` est interpolé dans le titre, la description, le pied et les labels à chaque rendu. `setState.value` accepte une référence (`{{steps.0.value}}`, `{{state.x}}`) et garde son type. L'étape `llm` peut ranger son résultat dans l'état (`saveTo`, `parseJson`).
+- Chaque clic est acquitté : surface ou binding disparu, pipeline refusé, réussi ou en erreur, le membre voit un message éphémère Components V2. La réponse d'un pipeline n'est jamais supprimée.
 
 Conséquence de la purge : tickets, captcha, panels, rôles, accueil, niveaux et invitations n'existent plus comme code. Ce sont des recettes composées de primitives. Au démarrage, seuls les trois handlers de surface et les deux d'intégration sont enregistrés.
 
@@ -78,6 +83,8 @@ Conséquence de la purge : tickets, captcha, panels, rôles, accueil, niveaux et
 
 ## 7. Points d'attention
 
-1. Dette d'architecture : 60 violations, dont 16 fichiers de plus de 300 lignes et 38 contrôles de permission hors des policies (voir 05 §3).
-2. Les blueprints citent des collections que le registre `records.*` ne connaît pas (voir 01 §3).
+1. Dette d'architecture : remboursée, 0 violation (voir 05 §3). La garantie tient tant que `pnpm verify` et la CI restent stricts.
+2. Les recettes citent des collections dynamiques : le store `records.*` les accepte désormais, sous quota (voir 01 §3).
 3. `GuildHistoryIngestionService.trigger()` exige un fournisseur LLM configuré.
+4. `pnpm lint` ne linte aucun fichier TypeScript (voir 04 §3).
+5. Le clic réel sur un bouton de surface ne se simule pas : les handlers sont couverts par 13 tests unitaires, le clic reste à faire à la main (un panneau « Blackjack, table de test clic » a été laissé dans le salon IA du serveur de dév à cet effet).

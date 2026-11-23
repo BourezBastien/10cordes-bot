@@ -70,11 +70,11 @@ export class MusicService implements SpraxiumOnBoot {
         systemPrompt:
           'Coûteux en crédits : UNE génération par demande, jamais de variantes non demandées. ' +
           'Durée : 90 secondes max (1 min 30). CALIBRE les paroles sur la durée cible : UN couplet + UN refrain + une fin ' +
-          '(tags [Verse]/[Chorus]/[Outro]) qui se termine NATURELLEMENT dans la durée — jamais de couplets supplémentaires, ' +
+          '(tags [Verse]/[Chorus]/[Outro]) qui se termine NATURELLEMENT dans la durée, jamais de couplets supplémentaires, ' +
           'sinon Suno coupe le morceau en plein texte. Adaptation requise : un son rapide (trap, drill) tient moins de texte ' +
           'qu\u0027une ballade ; réduis le nombre de lignes si le débit est élevé. ' +
-          'Si le thème est éditorial (la vie actuelle, actu, société, fait divers) : fais de VRAIES recherches d\u0027abord (searchInternet, getNews) et écris des paroles qui parlent du VRAI (faits concrets, références datées) — pas de paroles génériques. ' +
-          'Référence d\u0027artiste (« à la Booba », « style Simone »...) : ne passe JAMAIS le nom au prompt Suno (rejet copyright) — traduis en caractéristiques objectives : voix (grave, posée), époque (boom-bap 90s, trap moderne), ambiance, débit, instruments typiques. ' +
+          'Si le thème est éditorial (la vie actuelle, actu, société, fait divers) : fais de VRAIES recherches d\u0027abord (searchInternet, getNews) et écris des paroles qui parlent du VRAI (faits concrets, références datées), pas de paroles génériques. ' +
+          'Référence d\u0027artiste (« à la Booba », « style Simone »...) : ne passe JAMAIS le nom au prompt Suno (rejet copyright) : traduis en caractéristiques objectives : voix (grave, posée), époque (boom-bap 90s, trap moderne), ambiance, débit, instruments typiques. ' +
           'Le fichier audio est posté automatiquement dans le salon : ne répète pas l\u0027URL, commente le résultat en UN message court. ' +
           'data.audioUrl alimente voice.play si l\u0027utilisateur veut écouter en vocal.',
         handler: async (input, ctx) => {
@@ -136,7 +136,7 @@ export class MusicService implements SpraxiumOnBoot {
                 text ? text.replace(new RegExp(artist, 'giu'), 'inspired').replace(/\s{2,}/gu, ' ').trim() : text;
               effectiveStyle = strip(effectiveStyle) ?? effectiveStyle;
               effectivePrompt = strip(effectivePrompt);
-              await update(`musique : nom d'artiste refusé par Suno — nouvelle tentative en style « inspired » sans le nom`);
+              await update(`musique : nom d'artiste refusé par Suno : nouvelle tentative en style « inspired » sans le nom`);
               continue;
             }
             await update('musique : génération refusée par kie.ai');
@@ -168,7 +168,7 @@ export class MusicService implements SpraxiumOnBoot {
             if (track?.audio_url) {
               // Une seule livraison : le fichier ci-dessous, sans autre message.
               const seconds = Math.round(track.duration ?? 0);
-              await update(`musique prête (${seconds}s) — envoi du fichier`);
+              await update(`musique prête (${seconds}s) : envoi du fichier`);
               if (progressChannel?.isTextBased() && 'send' in progressChannel) {
                 const destination = progressChannel as import('discord.js').TextChannel;
                 const audio = await fetch(track.audio_url).then((res) => res.arrayBuffer()).catch(() => null);
@@ -186,13 +186,13 @@ export class MusicService implements SpraxiumOnBoot {
                 summary:
                   `Musique « ${track.title ?? title} » (${seconds}s) postée en pièce jointe dans le salon. ` +
                   (artistRefused
-                    ? `⚠️ PRÉVENS L'UTILISATEUR : Suno refuse le nom d'artiste « ${artistRefused} » — le style a été automatiquement adapté en style inspiré sans le nom. Une seule ligne d'avertissement, puis silence.`
+                    ? `⚠️ PRÉVENS L'UTILISATEUR : Suno refuse le nom d'artiste « ${artistRefused} » : le style a été automatiquement adapté en style inspiré sans le nom. Une seule ligne d'avertissement, puis silence.`
                     : 'NE RÉPONDS RIEN : le fichier et le titre suffisent (sauf si un titre manquait, donne-le en une ligne).'),
                 data: { audioUrl: track.audio_url, taskId, duration: seconds, artistRefused: artistRefused ?? undefined },
               };
             }
           }
-          await update('musique : dépasse 150s, le track arrivera — réessaie dans une minute');
+          await update('musique : dépasse 150s, le track arrivera, réessaie dans une minute');
           return { ok: false, summary: 'La génération dépasse 150 secondes : réessaie dans une minute, le track arrivera.' };
         },
       },

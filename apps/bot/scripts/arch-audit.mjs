@@ -4,16 +4,13 @@
  * Détecte : UI dans Service, permissions dispersées, God Classes, any,
  * process.env hors config/, cycle de vie dans une classe de module.
  *
- * Usage :
- *   node scripts/arch-audit.mjs                         rapport STRICT, exit 1 si une seule violation
- *   node scripts/arch-audit.mjs --baseline <fichier>    CLIQUET : exit 1 seulement sur une violation
- *                                                       absente de la baseline (dette acceptée)
- *   node scripts/arch-audit.mjs --write-baseline <fic>  écrit la baseline à partir de l'état actuel
+ * Usage : node apps/bot/scripts/arch-audit.mjs
+ * Rapport STRICT : exit 1 sur la moindre violation. Il n'y a ni baseline ni
+ * cliquet : une règle ne se contourne pas, le code se corrige.
  */
-import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execSync } from 'node:child_process';
 
 const BOT_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
 const ROOT = resolve(BOT_DIR, '../..');
@@ -42,17 +39,57 @@ function countLines(text) {
   return text.split('\n').length;
 }
 
+// Un `/` ouvre un littéral regex quand il suit un endroit où une expression commence.
+const REGEX_OPENER = /(?:[=(,:[!&|?{};]|\breturn|\bcase|\btypeof|=>)\s*$/u;
+
+/**
+ * Efface les littéraux regex d'une ligne de code : un `(?:any` dans un motif
+ * n'est pas une annotation de type. Sans ça, une regex de détection de
+ * silence (« without any reply ») était prise pour un `any`.
+ */
+function blankRegexLiterals(line) {
+  let out = '';
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === '/' && REGEX_OPENER.test(out)) {
+      let j = i + 1;
+      let inClass = false;
+      while (j < line.length) {
+        const c = line[j];
+        if (c === '\\') {
+          j += 2;
+          continue;
+        }
+        if (c === '[') inClass = true;
+        else if (c === ']') inClass = false;
+        else if (c === '/' && !inClass) break;
+        j += 1;
+      }
+      if (j < line.length) {
+        out += ' /re';
+        i = j;
+        continue;
+      }
+    }
+    out += line[i];
+  }
+  return out;
+}
+
 // ── Règles ──
 const UI_IMPORTS = /import\s+.*(?:ContainerBuilder|ButtonBuilder|ModalBuilder|EmbedBuilder|ActionRowBuilder|SectionBuilder|TextDisplayBuilder|SeparatorBuilder|MediaGalleryBuilder)/;
 const UI_FLAGS = /MessageFlags\.IsComponentsV2/;
-const PERMISSION_CHECK = /PermissionFlagsBits\.|guild\.ownerId\s*===?/;
+// Permission Discord lue ou comparée hors core/security/ : bitflags,
+// propriétaire du serveur, liste de noms (ToolRunContext.permissions),
+// permissions d'une interaction, appartenance à un rôle d'un MEMBRE
+// (l'existence d'un rôle, via guild.roles.cache, n'est pas une décision d'accès).
+const PERMISSION_CHECK =
+  /PermissionFlagsBits\.|guild\.ownerId\s*===?|permissions\.toArray\(\)|permissions\.has\(|memberPermissions|permissions\.includes\(|(?<!guild)\.roles\.cache\.has(?:Any)?\(/;
 const ANY_CAST = /:\s*any\b|as\s+any\b/;
 const PROCESS_ENV = /process\.env\./;
 
 function auditFile(file) {
   const text = readFileSync(file, 'utf8');
   const lines = text.split('\n');
-  const rel = relative(ROOT, file);
   const isService = /\.service\.ts$/.test(file);
   // Séparateurs [\\/] : sous Windows les chemins arrivent avec des backslashes.
   const isConfig = /[\\/]config[\\/]/.test(file) || file.endsWith('app.env.ts') || file.endsWith('http.config.ts') || file.endsWith('development.config.ts') || file.endsWith('components.config.ts');
@@ -63,10 +100,10 @@ function auditFile(file) {
   if (isService && !isTest) {
     for (let i = 0; i < lines.length; i++) {
       if (UI_IMPORTS.test(lines[i])) {
-        warn(file, i + 1, 'UI_IN_SERVICE', `Import de builder Discord UI dans un service — extraire un Presenter`);
+        warn(file, i + 1, 'UI_IN_SERVICE', `Import de builder Discord UI dans un service : extraire un Presenter`);
       }
       if (UI_FLAGS.test(lines[i])) {
-        warn(file, i + 1, 'UI_IN_SERVICE', `MessageFlags.IsComponentsV2 dans un service — déléguer au Presenter`);
+        warn(file, i + 1, 'UI_IN_SERVICE', `MessageFlags.IsComponentsV2 dans un service : déléguer au Presenter`);
       }
     }
   }
@@ -75,20 +112,22 @@ function auditFile(file) {
   if (!isSecurity && !isTest && !isConfig) {
     for (let i = 0; i < lines.length; i++) {
       if (PERMISSION_CHECK.test(lines[i]) && !lines[i].includes('// arch:allow')) {
-        warn(file, i + 1, 'PERMISSION_DISPERSED', `Check de permission hors core/security/ — utiliser une Policy`);
+        warn(file, i + 1, 'PERMISSION_DISPERSED', `Check de permission hors core/security/ : utiliser une Policy`);
       }
     }
   }
 
   // Règle 3 : God Classes (> 300 lignes par fichier)
   if (!isTest && countLines(text) > 300) {
-    warn(file, 0, 'GOD_CLASS', `${countLines(text)} lignes (seuil 300) — scinder`);
+    warn(file, 0, 'GOD_CLASS', `${countLines(text)} lignes (seuil 300) : scinder`);
   }
 
   // Règle 4 : any
   for (let i = 0; i < lines.length; i++) {
-    if (ANY_CAST.test(lines[i]) && !isTest) {
-      warn(file, i + 1, 'ANY_TYPE', `Type any détecté — typer proprement`);
+    const trimmed = lines[i].trim();
+    const isComment = trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*');
+    if (!isTest && !isComment && ANY_CAST.test(blankRegexLiterals(lines[i]))) {
+      warn(file, i + 1, 'ANY_TYPE', `Type any détecté : typer proprement`);
     }
   }
 
@@ -96,7 +135,7 @@ function auditFile(file) {
   if (!isConfig && !isTest) {
     for (let i = 0; i < lines.length; i++) {
       if (PROCESS_ENV.test(lines[i]) && !lines[i].includes('// arch:allow')) {
-        warn(file, i + 1, 'PROCESS_ENV', `process.env hors config/ — utiliser AppEnv`);
+        warn(file, i + 1, 'PROCESS_ENV', `process.env hors config/ : utiliser AppEnv`);
       }
     }
   }
@@ -139,98 +178,23 @@ const RULE_LABELS = {
   LIFECYCLE_ON_MODULE: 'Cycle de vie dans une classe de module (jamais exécuté)',
 };
 
-// Règles qui ne peuvent JAMAIS entrer dans une baseline : elles marquent du
-// code qui ne s'exécute pas ou une régression connue pour avoir coûté cher.
-const HARD_ZERO_RULES = new Set(['LIFECYCLE_ON_MODULE']);
-
 console.log(`\n=== ARCH AUDIT · ${allFiles.length} fichiers analysés ===\n`);
-
-function printViolations(items, { limit = 10 } = {}) {
-  const byRule = new Map();
-  for (const v of items) {
-    if (!byRule.has(v.rule)) byRule.set(v.rule, []);
-    byRule.get(v.rule).push(v);
-  }
-  for (const [rule, ruleItems] of byRule) {
-    console.log(`\n🔴 ${RULE_LABELS[rule] ?? rule} : ${ruleItems.length}`);
-    for (const item of ruleItems.slice(0, limit)) {
-      console.log(`  ${item.file}:${item.line} : ${item.detail}`);
-    }
-    if (ruleItems.length > limit) console.log(`  ... et ${ruleItems.length - limit} autre(s)`);
-  }
-}
-
-/** Clé stable d'une violation : règle + fichier (chemin à barres obliques), sans numéro de ligne. */
-function violationKey(violation) {
-  return `${violation.rule}:${violation.file.replace(/\\/gu, '/')}`;
-}
-
-function countByRule(items) {
-  const counts = new Map();
-  for (const v of items) {
-    const key = violationKey(v);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return counts;
-}
-
-function flagValue(flag) {
-  const index = process.argv.indexOf(flag);
-  return index >= 0 ? process.argv[index + 1] : undefined;
-}
-
-const baselinePath = flagValue('--baseline');
-const writeBaselinePath = flagValue('--write-baseline');
-
-// ── Écriture de la baseline (dette acceptée, à régénérer quand elle baisse) ──
-if (writeBaselinePath) {
-  const counts = Object.fromEntries([...countByRule(violations)].sort(([a], [b]) => a.localeCompare(b)));
-  writeFileSync(resolve(ROOT, writeBaselinePath), `${JSON.stringify(counts, null, 2)}\n`, 'utf8');
-  console.log(`Baseline écrite : ${violations.length} violation(s) acceptée(s) dans ${writeBaselinePath} (${Object.keys(counts).length} couples règle/fichier).\n`);
-  process.exit(0);
-}
 
 if (violations.length === 0) {
   console.log('✅ Zéro violation POO détectée.\n');
   process.exit(0);
 }
 
-// ── Mode cliquet : seules les violations ABSENTES de la baseline font échouer ──
-if (baselinePath) {
-  let baseline = {};
-  try {
-    baseline = JSON.parse(readFileSync(resolve(ROOT, baselinePath), 'utf8'));
-  } catch (error) {
-    console.error(`Baseline illisible (${baselinePath}) : ${error.message}. Régénère-la avec --write-baseline.`);
-    process.exit(1);
-  }
-  // Ordinale de chaque violation dans son couple règle/fichier : les `allowed`
-  // premières sont couvertes par la baseline, les suivantes sont nouvelles.
-  const seen = new Map();
-  const fresh = [];
-  for (const v of violations) {
-    const key = violationKey(v);
-    const ordinal = seen.get(key) ?? 0;
-    seen.set(key, ordinal + 1);
-    const allowed = HARD_ZERO_RULES.has(v.rule) ? 0 : (baseline[key] ?? 0);
-    if (ordinal >= allowed) fresh.push(v);
-  }
-  const accepted = violations.length - fresh.length;
-  if (fresh.length > 0) {
-    console.log(`❌ ${fresh.length} NOUVELLE(S) violation(s) par rapport à la baseline :\n`);
-    printViolations(fresh, { limit: 15 });
-    console.log(`\nDette acceptée par la baseline : ${accepted} violation(s). Corrige les nouvelles, ou assume-les explicitement via --write-baseline.\n`);
-    process.exit(1);
-  }
-  const actual = countByRule(violations);
-  const repaid = Object.entries(baseline).reduce((sum, [key, allowed]) => sum + Math.max(0, allowed - (actual.get(key) ?? 0)), 0);
-  console.log(`✅ Aucune nouvelle violation POO. Dette acceptée par la baseline : ${violations.length} violation(s) sur ${Object.keys(baseline).length} couples règle/fichier.`);
-  if (repaid > 0) console.log(`ℹ️  ${repaid} violation(s) remboursée(s) depuis la baseline : régénère-la (--write-baseline) pour baisser le plafond.`);
-  console.log('');
-  process.exit(0);
+const byRule = new Map();
+for (const v of violations) {
+  if (!byRule.has(v.rule)) byRule.set(v.rule, []);
+  byRule.get(v.rule).push(v);
 }
-
-// ── Mode strict : tout relevé fait échouer ──
-printViolations(violations);
+for (const [rule, ruleItems] of byRule) {
+  console.log(`\n🔴 ${RULE_LABELS[rule] ?? rule} : ${ruleItems.length}`);
+  for (const item of ruleItems) {
+    console.log(`  ${item.file}:${item.line} : ${item.detail}`);
+  }
+}
 console.log(`\n⚠️  TOTAL : ${violations.length} violation(s). Corrige pour un rapport propre.\n`);
 process.exit(1);

@@ -13,7 +13,7 @@ export const eventsBlueprints: DomainBlueprints = [
       reminderMinutes: num('Minutes avant l\u0027événement pour pinger les présents', 15),
     },
     requiredTools: ['surface.create', 'records.create', 'records.search', 'trigger.schedule', 'sendMessage'],
-    workflow: '1. Surface avec 3 boutons (Présent / Peut-être / Absent). 2. records.create collection event_rsvps { userId, status } — un par membre, modifiable. 3. Re-render avec la liste des pseudos sous chaque catégorie (live). 4. trigger.schedule 15 min avant : sendMessage ping tous les « Présent ».',
+    workflow: '1. Surface avec 3 boutons (Présent / Peut-être / Absent). 2. records.create collection event_rsvps { userId, status } : un par membre, modifiable. 3. Re-render avec la liste des pseudos sous chaque catégorie (live). 4. trigger.schedule 15 min avant : sendMessage ping tous les « Présent ».',
   },
   {
     slug: 'event-schedule-calendar',

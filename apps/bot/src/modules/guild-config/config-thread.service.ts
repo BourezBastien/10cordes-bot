@@ -147,7 +147,7 @@ export class ConfigThreadService implements SpraxiumOnBoot {
     return defineTool({
       name: 'config.panel',
       description:
-        'Ouvre (ou met à jour) le fil privé ⚙️┃config-bot : panneau V2 de CE qui est appliqué sur ce serveur — règles actives, skills appliqués, intégrations connectées avec leurs modèles (jamais les clés), mode thinking. C\u0027est LA réponse à « montre-moi la configuration ».',
+        'Ouvre (ou met à jour) le fil privé ⚙️┃config-bot : panneau V2 de CE qui est appliqué sur ce serveur : règles actives, skills appliqués, intégrations connectées avec leurs modèles (jamais les clés), mode thinking. C\u0027est LA réponse à « montre-moi la configuration ».',
       category: 'guild-config',
       paramsSchema: z.object({}),
       requiredModules: [],

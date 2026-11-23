@@ -1,6 +1,6 @@
 import { Injectable } from '@spraxium/common';
 import type { ToolResult, ToolRunContext } from '@10cordes/shared';
-import { LlmService, QuotaExhaustedError, toApiToolName, type ChatCause, type ChatMessage, type OpenAiTool } from './llm.service';
+import { LlmFormatLeakError, LlmService, QuotaExhaustedError, toApiToolName, type ChatCause, type ChatCompletionResult, type ChatMessage, type OpenAiTool } from './llm.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { fileLog } from '../logging/file-log.service';
 import { stringifySafe } from '../../shared/utils/object';
@@ -11,13 +11,17 @@ import { stringifySafe } from '../../shared/utils/object';
  */
 const MAX_ITERATIONS = 12;
 
+/** Relance du dernier tour, quand le plafond est atteint. */
+const SUMMARY_NUDGE =
+  'NB : la limite d\u0027étapes de cette demande est atteinte. N\u0027appelle plus aucun outil. Réponds maintenant au demandeur, en texte : ce qui a été fait, et ce qui reste à faire.';
+
 export interface AgentLoopHooks {
   /** Avant chaque appel LLM (iteration 0-based). */
   onIterationStart?(iteration: number, messages: ChatMessage[]): Promise<void> | void;
   /**
    * Avant l'exécution d'un tool : effet de bord libre (progression, snapshot)
    * et possibilité de COURT-CIRCUITER (retourner un ToolResult sans exécuter
-   * le tool — ex : skipReply). Retourner undefined = exécution normale.
+   * le tool : ex skipReply). Retourner undefined = exécution normale.
    * Un tool court-circuité n'entre PAS dans `executed`.
    */
   interceptToolCall?(name: string, input: unknown, iteration: number): Promise<ToolResult | undefined> | ToolResult | undefined;
@@ -26,11 +30,16 @@ export interface AgentLoopHooks {
   /**
    * Texte d'une itération SANS tool_calls, commis pour publication
    * progressive (R0.2 : le texte d'une itération AVEC tool_calls n'arrive
-   * JAMAIS ici — il va à onIntermediateText pour la narration LiveStatus).
+   * JAMAIS ici, il va à onIntermediateText pour la narration LiveStatus).
    */
   onDelta?(text: string): void;
   /** Texte intermédiaire d'une itération qui contient des tool_calls : narration LiveStatus uniquement, jamais publié. */
   onIntermediateText?(text: string): void;
+  /**
+   * Le texte déjà streamé d'un tour REJETÉ (balises internes du modèle, tour
+   * de conclusion sans texte) doit être retiré : il ne sera pas la réponse.
+   */
+  onStreamRejected?(): void;
   /** Message à produire quand les crédits sont épuisés (402). */
   quotaExhaustedMessage: string;
   /** Étiquette de cause pour la comptabilité llm.usage. */
@@ -48,7 +57,7 @@ export interface AgentLoopOutcome {
   completed: boolean;
   /** Vrai si les crédits du fournisseur étaient épuisés (402). */
   quotaExhausted?: boolean;
-  /** Vrai si le tour final de synthèse forcé (tool_choice none) a été utilisé. */
+  /** Vrai si le tour final de conclusion a été utilisé. */
   forcedSummary?: boolean;
 }
 
@@ -59,15 +68,38 @@ export interface AgentLoopToolset {
   byName: Map<string, OpenAiTool>;
 }
 
+export interface AgentLoopRequest {
+  userId: string;
+  guildId: string | null;
+  /**
+   * Effort de raisonnement de TOUTE la requête, décidé par l'appelant avant
+   * le premier tour. Absent : la boucle le décide elle-même une fois, avant
+   * le premier tour, et le garde identique sur tous les tours.
+   */
+  reasoningEffort?: string | null;
+}
+
+/** Message honnête au plafond : la demande n'est PAS terminée, on dit ce qui a été fait et comment reprendre. */
+export function ceilingMessage(executed: readonly string[]): string {
+  if (executed.length === 0) {
+    return 'J\u0027ai atteint ma limite d\u0027étapes sans pouvoir agir. Reformule ta demande de façon plus directe.';
+  }
+  const actions = [...new Set(executed)];
+  return (
+    `Limite d\u0027étapes atteinte après ${executed.length} action(s) : la demande n\u0027est pas terminée. ` +
+    `Dernières actions : ${actions.slice(-6).join(', ')}. Écris « continue » pour que je reprenne où je me suis arrêté.`
+  );
+}
+
 /**
  * AgentLoop (Template Method) : LA boucle LLM + tools unique, consommée par
  * les deux canaux (Discord via AssistantService, dashboard via
- * WebAgentService). R0.2 — FIN DES PHRASES COUPÉES :
+ * WebAgentService). R0.2 : FIN DES PHRASES COUPÉES.
  * - le texte d'une itération est BUFFERISÉ et ne va au responder que si
  *   l'itération ne contient AUCUN tool_call (sinon : LiveStatus uniquement) ;
- * - plafond 12 itérations ;
- * - tour final de synthèse GARANTI : si le plafond est atteint, un dernier
- *   appel avec tool_choice:'none' force le modèle à conclure proprement.
+ * - plafond 12 itérations, puis un dernier tour de conclusion ;
+ * - THINKING STABLE : l'effort de raisonnement se décide UNE fois, avant le
+ *   premier tour, et reste identique sur toute la requête.
  */
 @Injectable()
 export class AgentLoopService {
@@ -80,33 +112,34 @@ export class AgentLoopService {
     messages: ChatMessage[],
     toolset: AgentLoopToolset,
     ctx: ToolRunContext,
-    options: { userId: string; guildId: string | null },
+    options: AgentLoopRequest,
     hooks: AgentLoopHooks,
   ): Promise<AgentLoopOutcome> {
     const usage = { promptTokens: 0, completionTokens: 0 };
     const executed: string[] = [];
     const openAiTools = [...toolset.active];
 
+    const reasoningEffort =
+      options.reasoningEffort !== undefined
+        ? options.reasoningEffort
+        : await this.llm.planReasoningEffort({ userId: options.userId, guildId: options.guildId, cause: hooks.cause }, openAiTools.length > 0);
+    const callOptions = { userId: options.userId, guildId: options.guildId, cause: hooks.cause, reasoningEffort };
+
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
       await hooks.onIterationStart?.(iteration, messages);
       const iterationStartedAt = Date.now();
       let quotaExhausted = false;
-      // R0.2 : buffer PAR itération — les deltas ne sont commis au responder
-      // qu'à la fin de l'itération, et seulement sans tool_calls.
-      let iterationText = '';
-      const completion = await this.llm
-        .chatStream(messages, openAiTools, { userId: options.userId, guildId: options.guildId, cause: hooks.cause }, {
-          onDelta: (text) => {
-            iterationText += text;
-          },
-        })
-        .catch((error: unknown) => {
-          if (error instanceof QuotaExhaustedError) {
-            quotaExhausted = true;
-            return { content: hooks.quotaExhaustedMessage, toolCalls: [], reasoningContent: null, usage: undefined };
-          }
-          throw error;
-        });
+      // R0.2 : buffer PAR itération. Le texte d'un tour à tool_calls n'est
+      // JAMAIS publié (narration LiveStatus seulement).
+      const turn = await this.chatTurn(messages, openAiTools, callOptions).catch((error: unknown) => {
+        if (error instanceof QuotaExhaustedError) {
+          quotaExhausted = true;
+          return { completion: { content: hooks.quotaExhaustedMessage, toolCalls: [], reasoningContent: null, usage: undefined }, text: '' };
+        }
+        throw error;
+      });
+      const completion = turn.completion;
+      const iterationText = turn.text;
       if (completion.usage) {
         usage.promptTokens += completion.usage.promptTokens;
         usage.completionTokens += completion.usage.completionTokens;
@@ -127,9 +160,6 @@ export class AgentLoopService {
       });
 
       if (completion.toolCalls.length > 0) {
-        // Le texte de CE tour contient des tool_calls : il n'est JAMAIS
-        // publié — narration LiveStatus seulement (le récap viendra du tour
-        // final sans tool_calls).
         if (iterationText.trim().length > 0) hooks.onIntermediateText?.(iterationText);
         messages.push({
           role: 'assistant',
@@ -156,9 +186,11 @@ export class AgentLoopService {
             result = await this.registry.run(call.name, input, ctx);
             executed.push(call.name);
           }
-          // Tool routing : search_tools élargit le toolset ACTIF avec les
-          // tools trouvés — ils deviennent appelables à l'itération suivante.
-          if (call.name === 'search_tools') {
+          // Tool routing : search_tools ET openSkill élargissent le toolset
+          // ACTIF avec les tools annoncés dans `data.tools`. Ils deviennent
+          // appelables à l'itération suivante : une recette ouverte n'exige
+          // plus une recherche par tool (chaque recherche coûte un tour).
+          if (call.name === 'search_tools' || call.name === 'openSkill') {
             const found = (result.data?.tools as Array<{ name: string }> | undefined) ?? [];
             for (const card of found) {
               const openAiTool = toolset.byName.get(card.name);
@@ -192,32 +224,58 @@ export class AgentLoopService {
       };
     }
 
-    // Plafond atteint : TOUR FINAL DE SYNTHÈSE FORCÉ (tool_choice none) —
-    // le modèle DOIT conclure (récapitulatif complet), sans appel d'outil.
+    // Plafond atteint : DERNIER TOUR de conclusion. Sans `tool_choice: 'none'`
+    // (un modèle bridé par `none` au milieu d'un montage écrivait ses appels
+    // d'outil en texte brut) : il est prié de conclure, et tout tool_call est
+    // ignoré. Sans texte utilisable, un message honnête remplace le tour.
     await hooks.onIterationStart?.(MAX_ITERATIONS, messages);
     const summary = await this.llm
-      .chatStream(
-        messages,
-        openAiTools,
-        { userId: options.userId, guildId: options.guildId, cause: hooks.cause },
-        {
-          toolChoice: 'none',
-          onDelta: (text) => hooks.onDelta?.(text),
-        },
-      )
+      .chatStream([...messages, { role: 'user', content: SUMMARY_NUDGE }], openAiTools, callOptions, {
+        onDelta: (text) => hooks.onDelta?.(text),
+      })
       .catch(() => null);
     if (summary?.usage) {
       usage.promptTokens += summary.usage.promptTokens;
       usage.completionTokens += summary.usage.completionTokens;
     }
-    const finalText = summary?.content ?? 'Terminé (plafond d\u2019itérations atteint) : demande-moi le récapitulatif si besoin.';
+    const summaryText = summary && summary.toolCalls.length === 0 ? (summary.content?.trim() ?? '') : '';
+    if (!summaryText) hooks.onStreamRejected?.();
     return {
-      finalText,
+      finalText: summaryText || ceilingMessage(executed),
       executed,
       usage,
       error: null,
       completed: true,
       forcedSummary: true,
     };
+  }
+
+  /**
+   * Un tour LLM, texte bufferisé. Si le modèle laisse fuir ses balises
+   * internes (LlmFormatLeakError), le tour est rejoué UNE fois à identique,
+   * le texte déjà reçu étant jeté ; une seconde fuite fait échouer la requête.
+   */
+  private async chatTurn(
+    messages: ChatMessage[],
+    openAiTools: OpenAiTool[],
+    callOptions: { userId: string; guildId: string | null; cause: ChatCause; reasoningEffort: string | null },
+  ): Promise<{ completion: ChatCompletionResult; text: string }> {
+    let text = '';
+    const stream = async (): Promise<ChatCompletionResult> => {
+      text = '';
+      return this.llm.chatStream(messages, openAiTools, callOptions, {
+        onDelta: (delta) => {
+          text += delta;
+        },
+      });
+    };
+    try {
+      return { completion: await stream(), text };
+    } catch (error) {
+      if (!(error instanceof LlmFormatLeakError)) throw error;
+      fileLog()?.event('warn', 'loop', 'turn_leak_retried', { sample: error.sample });
+      const completion = await stream();
+      return { completion, text };
+    }
   }
 }

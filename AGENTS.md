@@ -17,9 +17,9 @@ Dependency rule: `apps/bot → @10cordes/shared ← apps/dashboard`. Nothing har
 
 ## Framework resources (read before adding features)
 
-- **Installed framework (what actually runs, and the only source present on this machine as of 2026-11-23):** `apps/bot/node_modules/@spraxium/core/dist/index.js` (readable compiled source) and `apps/bot/node_modules/@spraxium/components/dist/index.d.ts` (API signatures). `ModuleLoader.loadModule` in core is the reference for what the framework does with a module.
-- **Framework source checkout and docs:** used to live under `C:\Users\Bastien\Documents\Projects\Discord Bot Framework examples\` (spraxium, spraxium-docs, reference-bots). That folder no longer exists at this path. Ask for the new location before relying on it.
-- **Reference bots (inspiration, from the same former folder):** skyra (settings/i18n), discord-tickets (Prisma/i18n/tickets), Discord-AI-Bot (per-channel AI memory, typed tools), wardhive (typed action queue, RBAC guards, audit service).
+- **Installed framework (what actually runs):** `apps/bot/node_modules/@spraxium/core/dist/index.js` (readable compiled source) and `apps/bot/node_modules/@spraxium/components/dist/index.d.ts` (API signatures). `ModuleLoader.loadModule` in core is the reference for what the framework does with a module. It is the only framework source present on the machine.
+- **Context7 comes first** for signatures, options and official good practices: `resolve-library-id` (`/spraxium/spraxium` for the framework, `/discordjs/guide` for discord.js and Components V2), then `query-docs`. Fall back to the installed package above only when Context7 is unavailable in the session.
+- No local checkout of the framework sources or docs exists: never refer to one. Reference bots are public GitHub projects used as inspiration only (skyra for settings/i18n, discord-tickets for Prisma/i18n/tickets, Discord-AI-Bot for per-channel AI memory and typed tools, wardhive for typed action queues, RBAC guards and audit).
 
 ## Obligatory doc check: Context7 (before touching production packages)
 
@@ -35,14 +35,13 @@ pnpm build          # build all workspaces (shared → dist, then spraxium build
 pnpm typecheck      # tsc --noEmit in every workspace (bot typecheck builds shared first)
 pnpm test           # vitest (unit specs in apps/bot/src/**/*.spec.ts and packages/shared)
 pnpm lint           # eslint (@bluzzi/eslint-config, flat config in eslint.config.mjs)
-pnpm verify         # lint + typecheck + test + build + check:modules + arch:audit:ratchet
-pnpm arch:audit     # strict POO report: exits 1 on ANY violation (lists the whole debt)
-pnpm arch:audit:ratchet   # exits 1 only on a violation missing from the baseline
+pnpm verify         # lint + typecheck + test + build + check:modules + arch:audit (all strict)
+pnpm arch:audit     # strict POO report on apps/bot/src and packages/shared/src: exits 1 on ANY violation
 pnpm --filter 10cordes-bot exec prisma migrate dev   # DB migrations (Prisma 6 pinned)
 node apps/bot/scripts/diagnose.mjs [days]            # JSONL log forensics
 ```
 
-`apps/bot/scripts/arch-audit.baseline.json` freezes the accepted architecture debt. Never add a violation to it by reflex: fix the code, or state explicitly why the debt is accepted. Regenerate it with `node apps/bot/scripts/arch-audit.mjs --write-baseline apps/bot/scripts/arch-audit.baseline.json` only when the debt goes DOWN. The rule `LIFECYCLE_ON_MODULE` can never be baselined.
+`pnpm arch:audit` has no baseline and no ratchet: zero violation, enforced locally by `pnpm verify` and on every push by CI. Never weaken a rule or add an exception to pass it: fix the code.
 
 ## Architecture
 
@@ -58,12 +57,13 @@ Message → gate (ignore bots/webhooks unless the test allowlist; `GuildRule.blo
 
 Tool routing (Anthropic pattern): a small core set is always visible, `search_tools` expands it on demand.
 
-### POO layer (audited by `arch-audit`)
+### POO layer (audited by `arch-audit`, strict)
 
-- **Policy** (`src/core/security/access-policy.ts`): `BaseAccessPolicy<TCtx>` → `GuildAdminPolicy`. The ONLY place Discord permissions are checked.
-- **Presenter** (`modules/*/presenters/`): pure classes, data in → Components V2 payload out. No API calls, no side effects.
+- **Policy** (`src/core/security/`): the ONLY place Discord permissions, role membership and role hierarchy are read or compared. `GuildAdminPolicy` and `GuildManagerPolicy` (`access-policy.ts`, on a `GuildAccessContext`), `MemberPermissionPolicy` (a `GuildMember`), `PermissionNamesPolicy` (a list of permission names, i.e. `ToolRunContext.permissions` in jobs, triggers and the web channel), `BotPermissionPolicy` (the bot itself), `AdminOpPolicy`, `CollectionQuotaPolicy`. Elsewhere, build a context with `guildAccessContext`, `accessContextFromNames` or `interactionAccessContext`, and list names with `permissionsOf(member)`. The audit rejects any other read: `PermissionFlagsBits.`, `.permissions.toArray()`, `.permissions.has(`, `memberPermissions`, `.permissions.includes(`, `guild.ownerId ===`, `member.roles.cache.has(...)`.
+- **Presenter** (`modules/*/presenters/`): pure classes, data in → complete Discord payload out (flag `IsComponentsV2` included). No API calls, no side effects.
 - **Handler** (`modules/*/handlers/`): policy guard → error message → service delegation. Handlers MUST carry the `@spraxium/components` decorators.
-- Runtime accessors (`getLlm`, `getGuildRules`, `getIntegrations`, `getSurfaceRuntime`, `bindRegistryRuntimeDeps`) break DI cycles. They are bound in a **provider's** `onBoot`.
+- **No file over 300 lines** (rule `GOD_CLASS`), in the bot and in `packages/shared`. Agent tools live in `*.tools.ts` factories (`buildXTools(deps)`, see `records.tools.ts`, `surface.tools.ts`), pure logic in its own module, and a stateful collaborator is a class constructed in the DI service's constructor with explicit dependencies (a class field, never a constructor default). A service stays an orchestrator.
+- Runtime accessors (`getLlm`, `getGuildRules`, `getIntegrations`, `getSurfaceRuntime`, `getToolRegistry`, `bindRegistryRuntimeDeps`) break DI cycles. They are bound in a **provider's** `onBoot`.
 
 ### Generic interaction engine (`modules/surface/`)
 
@@ -80,10 +80,10 @@ All business UIs (tickets, polls, giveaways, verification, temp voice...) are bu
 - **Encrypted integrations** (`modules/integrations/`): `IntegrationService` + AES-256-GCM (`shared/crypto/secret-box.ts`). LLM/PixelLab/kie keys connectable from Discord by owner OR admin; DB config overrides env bootstrap. Saving the LLM key goes through `LlmService.applyConfig` (connection check + in-memory reload + encrypted persistence). `IntegrationService.upsert` alone only writes the DB.
 - **Guild rules** (`modules/rules/`): free zones, strictMentionElsewhere, confirmDestructiveActions, blockedChannelIds, custom instructions. Read in code by the gate and the registry, injected into the system prompt.
 - **Per-guild agent settings** (`modules/guild-config/`): `AgentSettingsService` (thinking mode, config thread) and `ConfigThreadService` (private `config-bot` thread; tools `config.panel`, `server.overview`, `config.thinking`). A request for "the configuration" shows only what is applied on that guild (rules, skills, integrations with their models, thinking mode): never keys, never the blueprint catalog, never the legacy config sections.
-- **Adaptive thinking** (`LlmService.shouldSendThinking`): `reasoning_effort` is sent only on tool-bearing turns that are not the final synthesis, and only to compatible endpoints. Per-guild setting, default `adaptive`.
+- **Adaptive thinking** (`modules/assistant/llm-thinking.ts`, applied by `LlmService`): `reasoning_effort` is sent only on tool-bearing turns that are not the final synthesis, and only to compatible endpoints (DeepSeek, Anthropic). Per-guild setting, default `adaptive`.
 - **Skills** (`modules/agent/`): 135 `SkillBlueprint` recipes in 10 domain files (tool references verified at compile time through `RegisteredToolName`), `search_skills`, learning loop (`SkillPatternDetector`).
 - **Memory** (`modules/memory/`): consolidated member/guild profiles (LLM curator with budget and anti-wipe guards), full opt-out, guild history ingestion at GuildCreate.
-- **Records** (`modules/records/`): typed store over Prisma with a CLOSED registry of collections (reminders, suggestions, quotes, faq, counters, notes, component_votes).
+- **Records** (`modules/records/`): typed store over Prisma. 7 native collections (reminders, suggestions, quotes, faq, counters, notes, component_votes) plus any well-formed dynamic collection a recipe needs (`CollectionQuotaPolicy`: 50 collections and 10 000 records per guild, bounded JSON document).
 
 ## Gotchas
 

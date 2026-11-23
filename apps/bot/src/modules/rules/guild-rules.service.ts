@@ -161,7 +161,7 @@ export class GuildRulesService implements SpraxiumOnBoot {
     if (rules.blockedChannelIds.length > 0) {
       lines.push(`Salons où je suis TOTALEMENT muet (ne réponds JAMAIS, même mentionné) : ${rules.blockedChannelIds.map((id) => `<#${id}>`).join(', ')}.`);
     }
-    if (rules.strictMentionElsewhere) lines.push('Hors zone libre : le membre doit me mentionner (@) ou me répondre — je ne réagis pas à mon nom en texte brut.');
+    if (rules.strictMentionElsewhere) lines.push('Hors zone libre : le membre doit me mentionner (@) ou me répondre : je ne réagis pas à mon nom en texte brut.');
     if (rules.seriousOnlyElsewhere) lines.push('Hors zone libre : ton sérieux uniquement, pas de blagues ni de bavardage hors-sujet.');
     if (rules.confirmDestructiveActions) lines.push('Actions destructives : une confirmation par boutons ✅/❌ est exigée AVANT exécution (gérée par le système, informe l\u0027utilisateur).');
     for (const instruction of rules.customInstructions) lines.push(`Règle du serveur : ${instruction}`);

@@ -1,6 +1,7 @@
 import type { HttpGuard } from '@spraxium/http';
 import type { Context } from 'hono';
-import { PermissionFlagsBits, Client } from 'discord.js';
+import { Client } from 'discord.js';
+import { guildAccessContext, guildManagerPolicy } from '../../core/security/access-policy';
 import { getValidatedEnv } from '../env.accessor';
 import { getAuth } from '../auth.instance';
 
@@ -33,15 +34,12 @@ export class GuildAccessGuard implements HttpGuard {
     const cached = GuildAccessGuard.cache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) return cached.allowed;
 
-    const member = await this.client.guilds
-      .fetch(guildId)
-      .then((guild) => guild.members.fetch(userId))
-      .catch(() => null);
+    const guild = await this.client.guilds.fetch(guildId).catch(() => null);
+    const member = guild ? await guild.members.fetch(userId).catch(() => null) : null;
 
-    const allowed =
-      member !== null &&
-      (member.permissions.has(PermissionFlagsBits.ManageGuild) ||
-        member.permissions.has(PermissionFlagsBits.Administrator));
+    // Seul un membre qui gère le serveur (ManageGuild, Administrator ou
+    // propriétaire) peut lire sa configuration : décision de GuildManagerPolicy.
+    const allowed = guild !== null && member !== null && guildManagerPolicy.isAuthorized(guildAccessContext(guild, userId, member));
 
     GuildAccessGuard.cache.set(cacheKey, { allowed, expiresAt: Date.now() + CACHE_TTL_MS });
     return allowed;

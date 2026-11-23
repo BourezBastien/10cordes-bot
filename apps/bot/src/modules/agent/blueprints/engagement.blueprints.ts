@@ -52,7 +52,7 @@ export const engagementBlueprints: DomainBlueprints = [
       prize: str('Lot du coffre', '100 pièces'),
     },
     requiredTools: ['surface.create', 'trigger.schedule', 'records.create', 'sendMessage'],
-    workflow: '1. trigger.schedule interval : surface.create avec bouton « Ouvrir le coffre ». 2. Pipeline du bouton : step claimOnce (SET NX — exactement un gagnant). 3. Si gagné : sendMessage annonce + records.create collection prizes { userId, prize }. 4. updateComponent : bouton désactivé affichant le gagnant.',
+    workflow: '1. trigger.schedule interval : surface.create avec bouton « Ouvrir le coffre ». 2. Pipeline du bouton : step claimOnce (SET NX : exactement un gagnant). 3. Si gagné : sendMessage annonce + records.create collection prizes { userId, prize }. 4. updateComponent : bouton désactivé affichant le gagnant.',
   },
   {
     slug: 'daily-streak-pointer',

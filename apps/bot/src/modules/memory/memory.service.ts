@@ -3,6 +3,7 @@ import type { BotTool } from '@10cordes/shared';
 import { z } from 'zod';
 import { PrismaService } from '../database/prisma.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
+import { permissionNamesPolicy } from '../../core/security/permission-names.policy';
 import { MemoryCuratorService, type ConsolidationResult } from './memory-curator.service';
 
 const MAX_ENTRIES = 200;
@@ -61,13 +62,13 @@ export class MemoryService implements SpraxiumOnBoot {
       permissions: [],
       destructive: true,
       systemPrompt:
-        "À appeler dès qu'un membre demande en langage naturel « oublie-moi », « efface mes données », « arrête de me mémoriser » — pour LUI-MÊME par défaut (userId omis = demandeur). Purger un AUTRE membre exige la permission ManageGuild (registry). Confirme ensuite simplement.",
+        "À appeler dès qu'un membre demande en langage naturel « oublie-moi », « efface mes données », « arrête de me mémoriser » : pour LUI-MÊME par défaut (userId omis = demandeur). Purger un AUTRE membre exige la permission ManageGuild (registry). Confirme ensuite simplement.",
       handler: async (input, ctx) => {
         if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
         const { userId } = (input ?? {}) as { userId?: string };
         const target = userId ?? ctx.userId;
         const isSelf = target === ctx.userId;
-        if (!isSelf && !ctx.permissions.includes('ManageGuild') && !ctx.permissions.includes('Administrator')) {
+        if (!isSelf && !permissionNamesPolicy.hasAny(ctx.permissions, ['ManageGuild', 'Administrator'])) {
           return { ok: false, summary: 'Purger la mémoire d\u0027un autre membre requiert ManageGuild.' };
         }
         const counts = await this.forgetMember(ctx.guildId, target);

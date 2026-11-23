@@ -1,6 +1,8 @@
 import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
-import { PermissionFlagsBits, Client, type Guild, type GuildMember, type User } from 'discord.js';
+import { Client, type Guild, type GuildMember, type User } from 'discord.js';
 import { opLabel, type AdminOp } from '@10cordes/shared';
+import { adminOpPolicy, requiredPermissionFor } from '../../core/security/admin-op.policy';
+import { botPermissionPolicy } from '../../core/security/bot-permission.policy';
 import { AuditService } from '../audit/audit.service';
 import { ModerationService } from '../moderation/moderation.service';
 import { agentTools } from './tools/discord.tools';
@@ -47,10 +49,8 @@ export class AgentService implements SpraxiumOnBoot {
     if (!guild) return { ok: false, label: opLabel(op), detail: 'Serveur introuvable.' };
 
     const requesterMember = await guild.members.fetch(requesterId).catch(() => null);
-    const required = REQUIRED_FLAGS[op.type];
-    const isOwner = guild.ownerId === requesterId;
-    const hasPermission = requesterMember?.permissions.has(required ?? PermissionFlagsBits.ManageGuild) ?? false;
-    if (!isOwner && !hasPermission) {
+    const required = requiredPermissionFor(op.type);
+    if (!adminOpPolicy.isRequesterAllowed(guild, requesterMember, requesterId, op.type)) {
       this.audit.record({
         guildId,
         source: 'agent',
@@ -75,14 +75,7 @@ export class AgentService implements SpraxiumOnBoot {
   }
 }
 
-/** Permission Discord exigée du DEMANDEUR par type d'op. */
-const REQUIRED_FLAGS: Partial<Record<AdminOp['type'], bigint>> = {
-  'channel.delete': PermissionFlagsBits.ManageChannels,
-  'role.delete': PermissionFlagsBits.ManageRoles,
-  'member.timeout': PermissionFlagsBits.ModerateMembers,
-  'member.kick': PermissionFlagsBits.KickMembers,
-  'member.ban': PermissionFlagsBits.BanMembers,
-};
+/** Permission Discord exigée du DEMANDEUR par type d'op : voir core/security/admin-op.policy.ts */
 
 interface OpContext {
   guild: Guild;
@@ -110,8 +103,8 @@ const fail = (label: string, detail: string): PlanOpResult => ({ ok: false, labe
 const OP_HANDLERS: Partial<Record<AdminOp['type'], OpHandler>> = {
   'channel.delete': async (op, { guild, client, requesterId }) => {
     const label = opLabel(op);
-    if (!guild.members.me?.permissions.has(PermissionFlagsBits.ManageChannels)) {
-      return fail(label, "Le bot n'a pas la permission ManageChannels.");
+    if (!botPermissionPolicy.canInGuild(guild, 'ManageChannels')) {
+      return fail(label, botPermissionPolicy.refusal('ManageChannels'));
     }
     const channel = await client.channels.fetch(asOp(op, 'channel.delete').channelId).catch(() => null);
     if (!channel || !('delete' in channel)) return fail(label, 'Salon introuvable.');
@@ -123,8 +116,8 @@ const OP_HANDLERS: Partial<Record<AdminOp['type'], OpHandler>> = {
   },
   'role.delete': async (op, { guild, requesterId }) => {
     const label = opLabel(op);
-    if (!guild.members.me?.permissions.has(PermissionFlagsBits.ManageRoles)) {
-      return fail(label, "Le bot n'a pas la permission ManageRoles.");
+    if (!botPermissionPolicy.canInGuild(guild, 'ManageRoles')) {
+      return fail(label, botPermissionPolicy.refusal('ManageRoles'));
     }
     const role = await guild.roles.fetch(asOp(op, 'role.delete').roleId).catch(() => null);
     if (!role) return fail(label, 'Rôle introuvable.');
@@ -155,8 +148,8 @@ const OP_HANDLERS: Partial<Record<AdminOp['type'], OpHandler>> = {
   },
   'member.ban': async (op, { guild, requesterId, client, moderation }) => {
     const label = opLabel(op);
-    if (!guild.members.me?.permissions.has(PermissionFlagsBits.BanMembers)) {
-      return fail(label, "Le bot n'a pas la permission BanMembers.");
+    if (!botPermissionPolicy.canInGuild(guild, 'BanMembers')) {
+      return fail(label, botPermissionPolicy.refusal('BanMembers'));
     }
     const user: User | null = await client.users.fetch(asOp(op, 'member.ban').userId).catch(() => null);
     if (!user) return fail(label, 'Utilisateur introuvable.');

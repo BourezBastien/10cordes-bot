@@ -1,13 +1,32 @@
-import { ContainerBuilder, MessageFlags, type TextDisplayBuilder } from 'discord.js';
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ContainerBuilder,
+  MessageFlags,
+  type MessageCreateOptions,
+  type TextDisplayBuilder,
+} from 'discord.js';
 import { notice, text, separator } from '../../../shared/ui';
 
 /**
- * IntegrationStatusPresenter (A2) — rendu V2 du panneau « fournisseur IA ».
- * POO pure : reçoit des données, retourne un payload Discord, zéro effet
- * de bord. Le design s'inspire de la hiérarchie visuelle du dashboard
- * ARCHIVE-9 (bloc titre clair → separator → corps → action) appliquée
- * à nos Components V2.
+ * IntegrationStatusPresenter (A2) : rendu V2 du panneau « fournisseur IA ».
+ * POO pure : reçoit des données, retourne un payload Discord prêt à envoyer
+ * (drapeau IsComponentsV2 compris), zéro effet de bord. Le design s'inspire
+ * de la hiérarchie visuelle du dashboard ARCHIVE-9 (bloc titre clair →
+ * separator → corps → action) appliquée à nos Components V2.
  */
+
+/** customId et label du bouton : source de vérité partagée avec la classe décorée du handler. */
+export const INTEGRATION_LLM_BUTTON_ID = 'integration:llm:open';
+export const INTEGRATION_LLM_BUTTON_LABEL = 'Connecter un fournisseur IA';
+
+/** Bouton d'ouverture en rangée (même customId que la classe décorée). */
+export function integrationOpenButton(): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(INTEGRATION_LLM_BUTTON_ID).setLabel(INTEGRATION_LLM_BUTTON_LABEL).setStyle(ButtonStyle.Primary),
+  );
+}
 
 export interface IntegrationStatusView {
   /** Nom lisible de l'intégration (ex : « Fournisseur IA »). */
@@ -24,15 +43,12 @@ export class IntegrationStatusPresenter {
   private static readonly ACCENT = 0xd9_59_26;
 
   /**
-   * Payload IS_COMPONENTS_V2 unique — jamais de double message.
-   * - Non connecté + admin → titre + explication + bouton « Connecter »
-   * - Non connecté + non-admin → titre + explication + ligne « admin requis »
-   * - Connecté → titre + statut + détail
+   * Payload IS_COMPONENTS_V2 unique, jamais de double message.
+   * - Non connecté + admin : titre + explication + bouton « Connecter »
+   * - Non connecté + non admin : titre + explication + ligne « admin requis »
+   * - Connecté : titre + statut + détail
    */
-  render(view: IntegrationStatusView): {
-    flags: MessageFlags;
-    components: ContainerBuilder[];
-  } {
+  render(view: IntegrationStatusView): MessageCreateOptions {
     const container = new ContainerBuilder().setAccentColor(IntegrationStatusPresenter.ACCENT);
 
     if (view.connected) {
@@ -47,15 +63,14 @@ export class IntegrationStatusPresenter {
         text(
           `Aucun modèle d'intelligence artificielle n'est encore configuré sur ce serveur. ` +
             'Tu peux connecter n\u0027importe quel fournisseur compatible OpenAI (OpenAI, DeepSeek, OpenRouter, etc.) ' +
-            '— la clé API est chiffrée en AES-256-GCM.',
+            ': la clé API est chiffrée en AES-256-GCM.',
         ),
       );
       if (view.canConfigure) {
-        // Le bouton est ajouté par le caller (ActionRow + DynamicButton)
-        // pour garder ce Presenter pur de tout import discord.js builder.
         container.addTextDisplayComponents(
           text('-# Clique le bouton ci-dessous pour ouvrir le formulaire de connexion.'),
         );
+        container.addActionRowComponents(integrationOpenButton());
       } else {
         container.addTextDisplayComponents(
           text('Seul un administrateur du serveur peut configurer le fournisseur IA.'),

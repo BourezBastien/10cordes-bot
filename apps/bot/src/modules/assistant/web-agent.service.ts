@@ -6,12 +6,17 @@ import { MemoryService } from '../memory/memory.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import { LlmService, type ChatMessage, type OpenAiTool } from './llm.service';
-import { buildSystemPrompt, fetchRecentActions, sanitizeTranscriptLine, selectRelevantTools, toolToOpenAiTool } from './assistant.service';
+import { fetchRecentActions } from './agent-history';
+import { sanitizeTranscriptLine } from './reply-text';
+import { buildSystemPrompt } from './system-prompt.builder';
+import { selectRelevantTools, toolToOpenAiTool } from './tool-selection';
+import { detectRequestIntent } from './request-intent';
 import { AgentLoopService } from './agent-loop.service';
 import { getSkillTriggers } from '../agent/skill.service';
 import { GuildRulesService } from '../rules/guild-rules.service';
 import { type ToolRunContext } from '@10cordes/shared';
 import { PrismaService } from '../database/prisma.service';
+import { permissionsOf } from '../../core/security/permission-name';
 
 const RATE_LIMIT_MS = 4_000;
 const MAX_MESSAGE_LENGTH = 2_000;
@@ -63,7 +68,7 @@ export class WebAgentService {
 
     const member = await guild.members.fetch(discordUserId).catch(() => null);
     if (!member) throw new Error("Tu n'es pas membre de ce serveur Discord.");
-    const permissions = member.permissions.toArray() as string[];
+    const permissions = permissionsOf(member);
 
     const guildConfig = await this.config.get(guildId).catch(() => null);
     const channelId = guildConfig?.assistant.channelId || null;
@@ -140,8 +145,13 @@ export class WebAgentService {
     };
 
     const executed: WebChatResult['tools'] = [];
+    // THINKING STABLE : l'effort se décide une fois, avant le premier tour.
+    const reasoningEffort = await this.llm.planReasoningEffort(
+      { userId: discordUserId, guildId, cause: 'web' },
+      detectRequestIntent(trimmed, relevant, skillTriggers).action,
+    );
     const outcome = await this.loop
-      .run(messages, toolset, ctx, { userId: discordUserId, guildId }, {
+      .run(messages, toolset, ctx, { userId: discordUserId, guildId, reasoningEffort }, {
         cause: 'web',
         quotaExhaustedMessage: 'IA désactivée : crédits DeepSeek épuisés. Recharge le compte API.',
         onToolResult: (name, result) => {

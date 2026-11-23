@@ -108,9 +108,10 @@ apps/dashboard/              Web dashboard (React 19, Vite 8)
 
 ## POO layer (new)
 
-- **Policies** (`core/security/`): `GuildAdminPolicy`, the ONLY place where Discord permissions are checked. `arch-audit` enforces this.
-- **Presenters** (`modules/*/presenters/`): pure classes that receive data and return Discord payloads. No side effects, no API calls.
+- **Policies** (`core/security/`): `GuildAdminPolicy`, `GuildManagerPolicy`, `MemberPermissionPolicy`, `PermissionNamesPolicy`, `BotPermissionPolicy`, `AdminOpPolicy`, `CollectionQuotaPolicy`. The ONLY place where Discord permissions, role membership and role hierarchy are read or compared. `arch-audit` enforces this.
+- **Presenters** (`modules/*/presenters/`): pure classes that receive data and return complete Discord payloads. No side effects, no API calls.
 - **Handlers** (`modules/*/handlers/`): interaction routing with policy guard → error handling → business logic delegation. Handlers need the `@spraxium/components` decorators: the framework routes interactions through class metadata.
+- **No file over 300 lines**, enforced by `arch-audit` (strict, 0 violation, run by `pnpm verify` and CI): agent tools in `*.tools.ts` factories, pure logic in its own module, stateful collaborators as classes built in the service's constructor, services as orchestrators.
 
 ## Diagnostic & logging
 

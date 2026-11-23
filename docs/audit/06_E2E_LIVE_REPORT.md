@@ -117,3 +117,48 @@ Démarrage de ce build à 19:07 : connecté, 135 recettes au catalogue, confirma
 1. **Clic sur ✅ Confirmer** lors d'une action destructive, sur un serveur où la règle est activée.
 2. **Bouton « Connecter un fournisseur IA »** : ouverture de la modale, enregistrement, effet immédiat. Le bouton n'apparaît que si aucun fournisseur n'est configuré.
 3. **Clic sur un bouton de surface** (tickets, sondage) : le rendu et les pipelines sont vérifiés en base, pas au clic.
+
+## 10. Nuit du 23 au 24/11 : arbitrages, incident de 20:09, build D
+
+### Build D
+
+`pnpm verify` vert trois fois dans la nuit (la dernière sur les sources finales) : typecheck, 231 tests (211 bot, 20 shared), build des trois workspaces, cohérence des modules, audit d'architecture strict à 0 violation. Démarrages vérifiés à 22:09, 23:00 et 23:04 : connecté sur 2 serveurs, aucun `ERROR`, tous les modules de tools enregistrés, 135 recettes, confirmation destructive opérationnelle.
+
+### Gate (22:12) : 5/5
+
+Première tentative arrêtée avant le premier scénario : le salon IA du serveur de dév avait atteint la limite de 15 webhooks. Tous étaient l'oeuvre du bot (8 de l'ancien harnais, 6 intrus abandonnés par un run interrompu). Nettoyés, et le rig réutilise désormais un intrus existant. Second passage : intrus ignoré, non-adressé ignoré hors salon dédié, mention et réponse-au-bot traitées. Le scénario « autre bot » est ignoré (aucun second bot sur le serveur).
+
+### Suite complète (22:13 à 22:57, build intermédiaire) : 12/13
+
+| Scénario | Verdict | Note |
+|---|---|---|
+| gate.noise | PASS | ignoré, zéro appel LLM |
+| rules.list | PASS | |
+| server.overview | PASS | |
+| config.panel | PASS | fil privé, panneau posté |
+| tickets.surface | PASS | surface créée pendant le scénario |
+| skills.voice | PASS | |
+| skills.casino | PASS avec échecs | 2 `surface.create` refusés (pipeline de plus de 10 étapes, `value` d'état d'un type refusé) |
+| ingest.status | PASS | |
+| memory.forget | PASS | |
+| polls.compose | PASS | résultats affichés |
+| rule.confirm | PASS | 1 tentative bloquée, confirmations affichées, salon intact |
+| records.dynamic | PASS | 1 ligne `casino_balance` créée puis supprimée |
+| surface.blackjack | **FAIL** | `surface.create` sans succès, 0 surface |
+
+L'échec du blackjack est le cœur de l'incident de 20:09, rejoué : zéro sonde, zéro fuite de balises internes, plafond non atteint, mais 7 `surface.create` refusés en 40 s pour des erreurs de forme (`rows` absent, puis à plat, `kind` invalide, `buttons` absent, `pipeline` en objet). Le modèle ne connaissait pas la forme exacte de la définition. La forme a été mise en tête de la description et de la consigne de l'outil, le plafond d'étapes par bouton est passé de 10 à 20 et `setState.value` accepte tout JSON.
+
+### Scénario rejoué sur le build final
+
+- `surface.blackjack` (23:01 et 23:04) : **PASS** deux fois. Une surface, 0 sonde, 0 bouton non câblé, 0 fuite, recette ouverte, 1 `search_tools` (7 dans l'incident), plafond non atteint.
+- `e2e-surface` (23:05) : **4/4**. Surface postée, trigger armé, bot tué pendant le timer, bouton passé au vert actif après le redémarrage (rattrapage).
+
+Le panneau du second passage a été laissé dans le salon IA du serveur de dév (« Blackjack, table de test clic ») pour un clic à la main : 4 boutons (Miser 10, Miser 50, Tirer, Rester), description liée à l'état.
+
+### Nettoyage
+
+13 webhooks de test supprimés (le salon en compte 2, le guardian et l'intrus réutilisé). 8 surfaces supprimées : 4 panneaux de tickets laissés par des runs antérieurs, 1 casino de test de la nuit, 3 sondes de l'incident de 20:09. Conservés : le panneau de test clic, et le blackjack de l'utilisateur dans son propre salon (construit pendant l'incident, état vide).
+
+### Limite
+
+Le clic réel n'est pas simulable en REST. L'acquittement des clics est couvert par 13 tests unitaires sur les handlers (`surface.handlers.spec.ts`).

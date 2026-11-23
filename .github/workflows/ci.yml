@@ -8,7 +8,7 @@ on:
 
 jobs:
   quality:
-    name: Lint · Modules · Typecheck · Test
+    name: Lint · Modules · Typecheck · Test · Build · Audit
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: file:../data/bot.db
@@ -31,6 +31,9 @@ jobs:
       - name: Module consistency
         run: node scripts/check-modules.mjs
 
+      - name: Architecture audit (strict, 0 violation)
+        run: pnpm arch:audit
+
       - name: Lint
         run: pnpm lint
 
@@ -39,3 +42,6 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      - name: Build (all workspaces)
+        run: pnpm build

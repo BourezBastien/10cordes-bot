@@ -1,19 +1,19 @@
 # Audit 05 · Vérification et anomalies
 
-> État du 23/11/2026 en fin de journée.
+> État du 23/11/2026 en fin de journée, complété dans la nuit du 23 au 24/11 (arbitrages owner et incident de 20:09).
 
 ## 1. État de vérification
 
 | Vérification | Résultat |
 |---|---|
 | `pnpm typecheck` | 0 erreur |
-| `pnpm lint` | 0 erreur |
-| `pnpm test` | 55 tests : 35 dans le bot (5 fichiers) et 20 dans `packages/shared` |
-| `pnpm build` | bundle complet |
-| `pnpm check:modules` | 25 dossiers cohérents |
-| `pnpm arch:audit` (strict) | 60 violations, toutes figurant dans la baseline de dette |
-| `pnpm arch:audit:ratchet` | aucune violation nouvelle |
-| CI `develop` | verte (lint, modules, typecheck, test) |
+| `pnpm lint` | 0 erreur, mais aucun fichier TypeScript n'est réellement linté (voir `04` §3) |
+| `pnpm test` | 231 tests : 211 dans le bot (23 fichiers) et 20 dans `packages/shared` |
+| `pnpm build` | bundle complet (shared, bot, dashboard) |
+| `pnpm check:modules` | dossiers de modules cohérents |
+| `pnpm arch:audit` (strict) | **0 violation** (60 au soir : toutes remboursées) |
+| `sync-tool-names --check` | OK, 163 tools, inchangés |
+| CI `develop` | lint, modules, audit d'architecture, typecheck, test, build |
 | grep des documents | 0 ancienne variable d'environnement, 0 référence de slash command |
 
 ## 2. Anomalie 1 : répétition de « An unexpected error occurred »
@@ -26,18 +26,20 @@
 
 **Leçon** : arrêter tous les processus du bot avant de supprimer une table.
 
-## 3. Dette d'architecture (60 violations)
+## 3. Dette d'architecture : remboursée (60 → 0)
 
-| Règle | Nombre | Où |
+Au soir, 60 violations étaient figées dans une baseline. Sur arbitrage du 23/11, elles ont toutes été traitées :
+
+| Règle | Avant | Traitement |
 |---|---|---|
-| PERMISSION_DISPERSED | 38 | `agent.service.ts` (11), `agent/tools/*`, `guild-access.guard.ts`, `surface.pipeline.ts`, modules Discord historiques |
-| GOD_CLASS (plus de 300 lignes) | 16 | `assistant.service.ts` (930), `serverlife.service.ts` (environ 800), `discord.tools.extra.ts` (762), `llm.service.ts` (551), `surface.pipeline.ts` (477), `discord.tools.ts` (446), `moderation.service.ts`, `skill.service.ts`, `jobs.service.ts`, `automations.service.ts`, et 6 autres |
-| UI_IN_SERVICE | 4 | `assistant.service.ts` (2), `logging.service.ts`, `surface.service.ts` |
-| PROCESS_ENV | 1 | `auth.instance.ts` |
-| ANY_TYPE | 1 | `assistant.service.ts` |
-| LIFECYCLE_ON_MODULE | 0 | règle ajoutée le 23/11, ne peut pas entrer dans la baseline |
+| PERMISSION_DISPERSED | 38, plus 9 invisibles | Toutes migrées dans `src/core/security/` : `GuildAdminPolicy`, `GuildManagerPolicy`, `MemberPermissionPolicy`, `PermissionNamesPolicy` (listes de noms de `ToolRunContext`), `BotPermissionPolicy`, `AdminOpPolicy`. L'inventaire initial ne voyait que `PermissionFlagsBits` ; 9 autres sites lisaient ou comparaient des permissions (`.permissions.includes(`, `memberPermissions` des interactions, rôles, hiérarchie) et ont été migrés au passage. La règle d'audit les détecte désormais |
+| GOD_CLASS (plus de 300 lignes) | 16 | Tous scindés, aucun fichier au-dessus du seuil. Convention : tools dans des factories `*.tools.ts`, logique pure dans son module, collaborateurs non injectables construits dans le constructeur du service, service orchestrateur |
+| UI_IN_SERVICE | 4 | Presenters dédiés, payload Discord complet en sortie (drapeau `IsComponentsV2` compris) |
+| PROCESS_ENV | 1 | `DISCORD_CLIENT_ID` déclaré dans `AppEnv` (il était lu hors schéma) |
+| ANY_TYPE | 1 | Faux positif : un `(?:any` dans une regex de détection de silence. L'audit ignore maintenant les littéraux regex |
+| LIFECYCLE_ON_MODULE | 0 | règle conservée, jamais contournable |
 
-Le plan approuvé demandait un audit d'architecture vert. Il ne l'est pas : la dette a baissé de 81 à 60, sans aller jusqu'au bout. Cette dette est figée dans `apps/bot/scripts/arch-audit.baseline.json`. `pnpm verify` échoue désormais sur toute violation nouvelle. Pour la rembourser : scinder les 16 fichiers trop longs, faire passer les 38 contrôles de permission par des policies, extraire les 4 presenters manquants.
+Contrôle du découpage : signatures des 92 classes gérées par injection identiques avant et après, 163 noms de tools identiques, 43 exports du paquet `shared` identiques à l'exécution, littéraux de chaînes comparés avant et après (seuls écarts : tirets cadratins remplacés), 4 requêtes SQL brutes de `activity.summary` identiques octet par octet.
 
 ## 4. Anomalie 2 : le résumé d'activité plantait
 
@@ -100,13 +102,40 @@ Le panneau lui-même listait les 136 compétences de la bibliothèque (soit le c
 
 **Effet de bord et seconde correction** : reformuler le trigger d'une recette fait créer une nouvelle ligne par le seed et purger l'ancienne. La recette du système AFK, ainsi purgée à 14:02 lorsque sa coquille est apparue, n'est pas revenue à 19:03 lorsque la coquille a été corrigée : le seed assimilait toute ligne supprimée à une suppression du staff. Le seed distingue désormais les deux (le staff supprime par le tool `deleteSkills`, qui laisse une trace d'audit). Vérification après redémarrage : voir `06_E2E_LIVE_REPORT.md` §7.
 
+## 8c. Anomalie 8 : incident de 20:09 (fuite de balises internes, surfaces « probe », boutons sans effet)
+
+**Symptômes rapportés** : du texte brut `<｜DSML｜ calls>` publié dans le salon, deux messages « probe », des boutons qui ne font rien au clic, un message « 🔧 Construction... » resté sans suite.
+
+**Ce que disent les journaux** (`logs/bot-2026-11-23.jsonl`, `logs/llm.jsonl`, table d'audit, demande `req-co5jln9s`, 20:08:32 à 20:09:26) : le bot ne s'est pas bloqué et la boucle n'a pas planté. La demande se termine normalement et les suivantes passent.
+
+1. **La fuite vient du dernier tour forcé.** Le modèle a dépensé ses 12 itérations (7 `search_tools`, 3 `surface.create` refusés pour schéma invalide). Au plafond, la boucle lançait un dernier appel avec `tool_choice: 'none'` : le modèle, au milieu d'un montage, a écrit ses appels d'outil en texte brut, publié tel quel.
+2. **Les « probe » étaient volontaires.** Deux surfaces à `description: "probe"` (boutons A, B, C) : le modèle testait le moteur, parce que ses tentatives sérieuses étaient refusées et que les textes d'une surface ne savaient pas afficher l'état. Seul le titre était contrôlé.
+3. **Les clics étaient reçus** (`surface.interaction ok=true` à 20:09:34, 20:09:37, 20:09:40, 20:09:42, puis 20:21:48 et 20:21:53). Sans effet visible pour deux raisons : les pipelines de sonde n'avaient rien de visible, et les handlers appelaient `deleteReply()` sans condition après le pipeline, donc **la réponse éphémère était effacée dès qu'elle apparaissait** (le bouton ✅ de confirmation était concerné aussi).
+4. **Lacune du moteur** : les textes d'une surface n'interpolaient pas `{{state.x}}`, `setState.value` ne référençait pas le résultat d'une étape, aucune étape n'écrivait un JSON de LLM dans l'état. La recette blackjack n'était pas réalisable.
+
+**Correctifs** :
+
+- Effort de raisonnement décidé UNE fois par requête et identique sur tous ses tours (`llm-thinking.ts`, `ReasoningEffortPlanner`). Chez DeepSeek, omettre `reasoning_effort` laisse l'effort par défaut (`high`) : couper exige `none`, avec repli si l'endpoint le refuse.
+- `LlmStreamSanitizer` : les jetons internes (`<｜`, `<|`, balises `<tool_call>`) sont coupés dans le client LLM et une seconde fois dans `ReplySession`, dernière barrière avant Discord. Un tour qui fuit est rejoué une fois, sinon la requête échoue avec une erreur typée et une notice.
+- Dernier tour sans `tool_choice: 'none'` : le modèle est relancé par un message, tout appel d'outil est ignoré, et le message `ceilingMessage` dit honnêtement que la demande n'est pas terminée et comment la reprendre.
+- Garantie anti-blocage : `AssistantService.converse` retire toujours la ligne de statut et le brouillon non finalisé dans un `finally`.
+- Surfaces de sonde refusées avant toute création (titre ou description réduit à un mot de sonde), règle « jamais de surface de test » dans le prompt système.
+- Handlers de surfaces réécrits : acquittement systématique, réponse éphémère Components V2 jamais supprimée, exceptions rattrapées et répondues.
+- Moteur : état interpolé dans les textes au rendu, `setState.value` à référence typée, étape `llm` avec `saveTo` et `parseJson`.
+- Itérations économisées : `openSkill` rend les tools de la recette appelables sans recherche, la description de `surface.create` donne la forme exacte de la définition et les champs de chaque étape, un `surfaceId` tronqué est accepté par préfixe unique.
+
+**Preuve live** : voir `06_E2E_LIVE_REPORT.md` §10.
+
+**Leçon** : le diagnostic collé au départ (bascule du thinking en cours de boucle, boucle bloquée, boutons orphelins) était en partie faux. Les journaux et l'audit donnent la vérité ; les corriger avant de coder.
+
 ## 9. Limites connues
 
-1. **Blueprints et collections** : les workflows des 135 recettes citent des collections (`casino_balance`, `giveaway_entries`, `streaks`...) que le registre fermé de `records.*` refuse. Seuls les noms de tools sont vérifiés à la compilation. À trancher : registre extensible par blueprint avec vérification, ou rédaction des workflows sur les collections existantes.
+1. **Blueprints et collections** : traité le 23/11 au soir. Le store `records.*` accepte désormais toute collection dynamique bien formée (`CollectionQuotaPolicy` : 50 collections et 10 000 enregistrements par serveur), vérifié en live par le scénario `records.dynamic`.
 2. **Tirage aléatoire** : sans l'intent privilégié « Membres du serveur », `members.pickRandom` travaille sur les membres connus du bot (repli sur le cache, signalé dans le résultat).
-3. **CI** : le workflow ne lance ni `build` ni l'audit d'architecture. Le cliquet (`arch:audit:ratchet`) n'est pas exécuté sur les pushes.
-4. **Sources du framework** : le dossier référencé dans `AGENTS.md` n'existe plus sur la machine. Les vérifications s'appuient sur le paquet installé.
+3. **CI** : traité. Le workflow lance maintenant l'audit d'architecture strict et le build des trois workspaces.
+4. **Sources du framework** : traité. `AGENTS.md` renvoie au paquet installé (`node_modules/@spraxium/core`, `@spraxium/components`) et à Context7, plus au dossier local disparu.
 5. **Dérive Prisma** : deux migrations historiques ont été éditées après application, `prisma migrate dev` proposera un reset sur la base de dev. Poursuivre la méthode manuelle.
+6. **Lint TypeScript inactif** : `pnpm lint` ne linte aucun `.ts` (voir `04` §3). À décider : accorder les règles puis activer.
 
 ## 10. Risques résiduels acceptés
 
