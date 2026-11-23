@@ -255,6 +255,11 @@ export async function fetchRecentActions(prisma: PrismaService, guildId: string,
 export class AssistantService {
   private readonly cooldowns = new Map<string, number>();
 
+  // Presenter PUR (zéro dépendance) : champ de classe, PAS un paramètre de
+  // constructeur — une valeur par défaut dans la signature rend le token DI
+  // « Object » et fait échouer le ModuleLoader (gotcha Spraxium récurrent).
+  private readonly integrationPresenter = new IntegrationStatusPresenter();
+
   constructor(
     private readonly llm: LlmService,
     private readonly loop: AgentLoopService,
@@ -270,7 +275,6 @@ export class AssistantService {
     private readonly responseCache: ResponseCacheService,
     private readonly guildRules: GuildRulesService,
     private readonly patterns: SkillPatternDetector,
-    private readonly integrationPresenter = new IntegrationStatusPresenter(),
     private readonly cacheStore: CacheStoreService,
   ) {
     queue.setProcessor((request) => this.processAgentRequest(request));
