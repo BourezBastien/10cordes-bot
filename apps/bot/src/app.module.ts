@@ -30,7 +30,6 @@ import { WelcomeModule } from './modules/welcome/welcome.module';
 import { WebToolsModule } from './modules/webtools/webtools.module';
 import { MusicModule } from './modules/music/music.module';
 import { VoiceModule } from './modules/voice/voice.module';
-import { PollsModule } from './modules/polls/polls.module';
 import { ServerlifeModule } from './modules/serverlife/serverlife.module';
 import { SecurityModule } from './modules/security/security.module';
 import { InvitesModule } from './modules/invites/invites.module';
@@ -65,7 +64,6 @@ import { UtilityModule } from './modules/utility/utility.module';
     WebToolsModule,
     MusicModule,
     VoiceModule,
-    PollsModule,
     ServerlifeModule,
     SecurityModule,
     InvitesModule,

@@ -81,7 +81,9 @@ export class ServerlifeService implements SpraxiumOnBoot {
 
   /** Capture un message supprimé/édité pour le tool snipe (ring buffer 25/salon). */
   captureSnipe(message: Message, action: 'deleted' | 'edited', newContent?: string): void {
-    if (!message.guildId || message.author.bot) return;
+    // Les messages partiels (hors cache après restart) n'ont pas d'author :
+    // ignorer plutôt que crasher (fix du crash « Cannot read null.bot »).
+    if (!message.guildId || !message.author || message.author.bot) return;
     if (action === 'edited' && !message.content) return;
     const buffer = this.snipes.get(message.channelId) ?? [];
     buffer.push({

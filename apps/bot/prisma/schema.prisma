@@ -507,6 +507,7 @@ model GuildRule {
   guildId                 String   @id
   freeCategoryIds         String   @default("[]") // JSON string[] : zone libre agents (réponse sans mention)
   freeChannelIds          String   @default("[]") // JSON string[]
+  blockedChannelIds       String   @default("[]") // JSON string[] : MUET total, meme mention
   strictMentionElsewhere  Boolean  @default(true) // hors zone libre : seule une vraie @mention/reply déclenche
   seriousOnlyElsewhere    Boolean  @default(false) // hors zone libre : ton sérieux uniquement
   confirmDestructiveActions Boolean @default(false) // ✅/❌ avant tools destructifs

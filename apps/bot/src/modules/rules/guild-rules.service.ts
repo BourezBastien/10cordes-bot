@@ -19,6 +19,7 @@ import { getToolRegistry } from '../tool-registry/tool-registry.service';
 export interface GuildRules {
   freeCategoryIds: string[];
   freeChannelIds: string[];
+  blockedChannelIds: string[];
   strictMentionElsewhere: boolean;
   seriousOnlyElsewhere: boolean;
   confirmDestructiveActions: boolean;
@@ -28,6 +29,7 @@ export interface GuildRules {
 const DEFAULT_RULES: GuildRules = {
   freeCategoryIds: [],
   freeChannelIds: [],
+  blockedChannelIds: [],
   strictMentionElsewhere: true,
   seriousOnlyElsewhere: false,
   confirmDestructiveActions: false,
@@ -66,7 +68,7 @@ export class GuildRulesService implements SpraxiumOnBoot {
     this.cache.delete(guildId);
   }
 
-  private parse(row: { freeCategoryIds: string; freeChannelIds: string; customInstructions: string; strictMentionElsewhere: boolean; seriousOnlyElsewhere: boolean; confirmDestructiveActions: boolean }): GuildRules {
+  private parse(row: { freeCategoryIds: string; freeChannelIds: string; blockedChannelIds: string; customInstructions: string; strictMentionElsewhere: boolean; seriousOnlyElsewhere: boolean; confirmDestructiveActions: boolean }): GuildRules {
     const json = (value: string, fallback: string[]): string[] => {
       try {
         const parsed = JSON.parse(value) as unknown;
@@ -78,11 +80,18 @@ export class GuildRulesService implements SpraxiumOnBoot {
     return {
       freeCategoryIds: json(row.freeCategoryIds, []),
       freeChannelIds: json(row.freeChannelIds, []),
+      blockedChannelIds: json(row.blockedChannelIds, []),
       strictMentionElsewhere: row.strictMentionElsewhere,
       seriousOnlyElsewhere: row.seriousOnlyElsewhere,
       confirmDestructiveActions: row.confirmDestructiveActions,
       customInstructions: json(row.customInstructions, []),
     };
+  }
+
+  /** Le salon est-il BLOQUÉ (MUET total : le bot ne répond JAMAIS ici, même mentionné) ? */
+  async isBlocked(guildId: string, channelId: string): Promise<boolean> {
+    const rules = await this.get(guildId);
+    return rules.blockedChannelIds.includes(channelId);
   }
 
   /** Le salon est-il en ZONE LIBRE (catégorie ou salon listé) ? */
@@ -137,6 +146,9 @@ export class GuildRulesService implements SpraxiumOnBoot {
       const chans = rules.freeChannelIds.map((id) => `<#${id}>`).join(', ') || 'aucun';
       lines.push(`Zone libre agents (réponse sans mention, liberté totale) : catégories ${cats}, salons ${chans}.`);
     }
+    if (rules.blockedChannelIds.length > 0) {
+      lines.push(`Salons où je suis TOTALEMENT muet (ne réponds JAMAIS, même mentionné) : ${rules.blockedChannelIds.map((id) => `<#${id}>`).join(', ')}.`);
+    }
     if (rules.strictMentionElsewhere) lines.push('Hors zone libre : le membre doit me mentionner (@) ou me répondre — je ne réagis pas à mon nom en texte brut.');
     if (rules.seriousOnlyElsewhere) lines.push('Hors zone libre : ton sérieux uniquement, pas de blagues ni de bavardage hors-sujet.');
     if (rules.confirmDestructiveActions) lines.push('Actions destructives : une confirmation par boutons ✅/❌ est exigée AVANT exécution (gérée par le système, informe l\u0027utilisateur).');
@@ -154,6 +166,7 @@ export class GuildRulesService implements SpraxiumOnBoot {
       paramsSchema: z.object({
         freeCategoryIds: z.array(z.string().min(15)).max(20).optional(),
         freeChannelIds: z.array(z.string().min(15)).max(50).optional(),
+        blockedChannelIds: z.array(z.string().min(15)).max(50).optional().describe('Salons où le bot est TOTALEMENT muet (même mentionné)'),
         strictMentionElsewhere: z.boolean().optional(),
         seriousOnlyElsewhere: z.boolean().optional(),
         confirmDestructiveActions: z.boolean().optional(),
@@ -170,6 +183,7 @@ export class GuildRulesService implements SpraxiumOnBoot {
         const {
           freeCategoryIds,
           freeChannelIds,
+          blockedChannelIds,
           strictMentionElsewhere,
           seriousOnlyElsewhere,
           confirmDestructiveActions,
@@ -178,6 +192,7 @@ export class GuildRulesService implements SpraxiumOnBoot {
         } = input as {
           freeCategoryIds?: string[];
           freeChannelIds?: string[];
+          blockedChannelIds?: string[];
           strictMentionElsewhere?: boolean;
           seriousOnlyElsewhere?: boolean;
           confirmDestructiveActions?: boolean;
@@ -192,6 +207,7 @@ export class GuildRulesService implements SpraxiumOnBoot {
           {
             ...(freeCategoryIds !== undefined ? { freeCategoryIds } : {}),
             ...(freeChannelIds !== undefined ? { freeChannelIds } : {}),
+            ...(blockedChannelIds !== undefined ? { blockedChannelIds } : {}),
             ...(strictMentionElsewhere !== undefined ? { strictMentionElsewhere } : {}),
             ...(seriousOnlyElsewhere !== undefined ? { seriousOnlyElsewhere } : {}),
             ...(confirmDestructiveActions !== undefined ? { confirmDestructiveActions } : {}),

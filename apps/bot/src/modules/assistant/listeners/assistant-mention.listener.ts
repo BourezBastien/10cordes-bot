@@ -111,6 +111,10 @@ export class AssistantMentionListener {
       if (mentionsOtherBot) return;
     }
 
+    // MUET TOTAL : si le salon est dans blockedChannelIds (règle serveur),
+    // le bot ne répond JAMAIS ici — même pas à une mention @.
+    if (await this.rules.isBlocked(guildId, message.channelId)) return;
+
     const inDedicatedChannel = (await this.assistant.dedicatedChannelId(guildId)) === message.channelId;
 
     // R0.1 : zone libre (GuildRule) — catégorie parente ou salon listé.
