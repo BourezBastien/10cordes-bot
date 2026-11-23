@@ -55,6 +55,8 @@
 
 ### 2.3 Thème dashboard (inspiré Tenkai + TailAdmin, vos préférences)
 
+> **Inspiration visuelle principale : [ARCHIVE-9](https://github.com/LeoBdt/ARCHIVE-9)** (repo de LeoBdt). Le dashboard n'est pas une copie, mais son langage graphique a été délibérément repris : thème sombre, hiérarchie par accents, structure des vues. Ce même langage guide aussi nos panneaux Discord Components V2.
+
 - **Tokens** (mode dark par défaut) : `--color-canvas #111114`, `--color-surface #19191E`, `--color-border #303038`, texte `#F2F2F5`, muted `#A0A0AD`, accent vert `#72C99B` (série de charts 1-8 reprise pour les graphs).
 - **Typo** : IBM Plex Sans (variable) + IBM Plex Mono.
 - **Radius** : controls `.375rem`, cards `.5rem`, overlays `.75rem` (vos screenshots) - **pas de rounded-2xl TailAdmin sur les overlays**.

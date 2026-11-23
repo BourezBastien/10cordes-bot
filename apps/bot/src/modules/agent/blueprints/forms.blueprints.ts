@@ -1,0 +1,168 @@
+import type { SkillBlueprint } from '@10cordes/shared';
+import { chan, num, role, str, type DomainBlueprints } from './blueprint.helpers';
+
+/** FORMULAIRES & CANDIDATURES (14) : candidatures, suggestions, bugs, tournois, quiz. */
+export const formsBlueprints: DomainBlueprints = [
+  {
+    slug: 'staff-application-vote',
+    domain: 'forms',
+    tags: ['candidature', 'recrutement', 'staff', 'modérateur', 'vote', 'pour contre'],
+    trigger: 'Système de candidature staff avec vote et décision finale',
+    params: {
+      formFields: str('Champs du formulaire séparés par virgules', 'Âge, Disponibilités, Expérience, Motivation'),
+      voteChannelId: chan('Salon où poster les candidatures'),
+      decisionRole: role('Rôle donné au candidat accepté'),
+    },
+    requiredTools: ['surface.create', 'records.create', 'records.update', 'addRoleToMember', 'sendMessage'],
+    workflow: '1. Surface avec bouton « Postuler » + modal (formFields). 2. records.create collection applications { userId, ...formData }. 3. Post dans voteChannelId : surface avec Pour (compteur) / Contre (compteur) / Décision finale (admin only). 4. Accepter : addRoleToMember + DM félicitations + verrouiller les boutons de vote. 5. Refuser : DM + refus 14 jours (records).',
+  },
+  {
+    slug: 'suggestion-vote-staff',
+    domain: 'forms',
+    tags: ['suggestion', 'idée', 'boîte à idées', 'staff', 'approuver refuser'],
+    trigger: 'Boîte à idées avec votes publics et statut staff',
+    params: {
+      channelStaffId: chan('Salon staff pour trier'),
+    },
+    requiredTools: ['surface.create', 'records.create', 'records.update'],
+    workflow: '1. Surface avec bouton « Proposer une idée » + modal (Titre, Description). 2. Post public : 👍/👎 avec compteurs live. 3. Boutons staff (AccessPolicy ManageGuild) : Approuver / Refuser + modal raison. 4. records.update status + embed mis à jour.',
+  },
+  {
+    slug: 'bug-report-tracking',
+    domain: 'forms',
+    tags: ['bug', 'signaler', 'issue', 'statut', 'ouvert corrigé'],
+    trigger: 'Système de signalement de bugs avec suivi de statut',
+    params: {
+      bugChannelId: chan('Salon des bugs'),
+      statuses: str('Statuts possibles', 'Ouvert, En cours, Corrigé'),
+    },
+    requiredTools: ['surface.create', 'records.create', 'records.update'],
+    workflow: '1. Bouton Signaler + modal (Version, Étapes, Sévérité). 2. Post dans bugChannelId avec select menu de statut (AccessPolicy devs). 3. records.create collection bugs { reporterId, ...fields, status }. 4. Changement de statut : records.update + embed couleur mise à jour.',
+  },
+  {
+    slug: 'tournament-bracket',
+    domain: 'forms',
+    tags: ['tournoi', 'bracket', '8 joueurs', 'élimination', 'vainqueur'],
+    trigger: 'Tournoi à élimination directe avec bracket de N joueurs',
+    params: {
+      playerCount: num('Nombre de joueurs (puissance de 2)', 8),
+      gameName: str('Nom du jeu', 'À définir'),
+    },
+    requiredTools: ['surface.create', 'records.create', 'records.update', 'surface.updateComponent'],
+    workflow: '1. Inscription : bouton + modal (pseudo en jeu, rang). 2. records.create collection tournament_players. 3. Surface bracket : N/2 matchs avec boutons « Déclarer vainqueur » par joueur. 4. Chaque victoire : updateComponent du match suivant avec le gagnant. 5. records.update pour suivre les rounds.',
+  },
+  {
+    slug: 'anonymous-confession',
+    domain: 'forms',
+    tags: ['confession', 'anonyme', 'secret', 'compte à rebours'],
+    trigger: 'Confessions anonymes avec traçabilité staff',
+    params: {
+      confessionChannelId: chan('Salon public des confessions'),
+      staffLogChannelId: chan('Salon staff avec l\u0027identité réelle'),
+    },
+    requiredTools: ['surface.create', 'webhook.post', 'records.create'],
+    workflow: '1. Bouton Se confesser + modal (texte). 2. webhook.post anonyme dans le salon public. 3. records.create collection confessions { realUserId, text } — l\u0027identité reste en DB pour la modération.',
+  },
+  {
+    slug: 'partner-application-review',
+    domain: 'forms',
+    tags: ['partenariat', 'partenaire', 'pub', 'échange', 'revue'],
+    trigger: 'Candidatures de partenariat entre serveurs avec revue staff',
+    params: {
+      reviewChannelId: chan('Salon staff des partenariats'),
+    },
+    requiredTools: ['surface.create', 'discordInviteResolve', 'records.create', 'records.update', 'sendMessage'],
+    workflow: '1. Formulaire : lien d\u0029invitation, description, membres estimés. 2. discordInviteResolve : stats réelles du serveur (nom, membres) vérifiées automatiquement. 3. Post staff avec Accepter / Refuser. 4. Accepter : sendMessage du lien partenaire dans le salon dédié + rôle Partenaire.',
+  },
+  {
+    slug: 'event-registration-form',
+    domain: 'forms',
+    tags: ['inscription', 'événement', 'formulaire', 'tournoi', 'places'],
+    trigger: 'Inscription à un événement avec formulaire et places limitées',
+    params: {
+      totalSlots: num('Places totales', 32),
+      waitlistSlots: num('Places en liste d\u0029attente', 8),
+    },
+    requiredTools: ['surface.create', 'records.create', 'records.search', 'records.update', 'surface.updateComponent'],
+    workflow: '1. Surface avec bouton S\u0027inscrire + modal (pseudo, niveau). 2. records.create collection event_registrations { userId, slot }. 3. Compteur live : X/Y places (updateComponent). 4. Complet : bascule en liste d\u0029attente numérotée. 5. Désinscription : records.update + promotion du premier en attente + DM.',
+  },
+  {
+    slug: 'feedback-survey-likert',
+    domain: 'forms',
+    tags: ['sondage', 'enquête', 'satisfaction', 'likert', 'échelle', '1 à 5'],
+    trigger: 'Enquête de satisfaction à échelle de Likert avec rapport',
+    params: {
+      questions: str('Questions séparées par point-virgule', 'Clarté du règlement; Qualité de l\u0029accueil; Pertinence des salons'),
+      scaleMax: num('Maximum de l\u0029échelle', 5),
+    },
+    requiredTools: ['surface.create', 'records.create', 'records.search', 'surface.patchState'],
+    workflow: '1. Surface à N questions, N rangées de boutons 1..scaleMax. 2. records.create collection survey_answers { userId, question, score }. 3. Un seul vote par question et membre (upsert). 4. surface.patchState : moyennes live affichées sous chaque question.',
+  },
+  {
+    slug: 'quiz-trivia-champion',
+    domain: 'forms',
+    tags: ['quiz', 'trivia', 'culture', 'questions', 'champion', 'score'],
+    trigger: 'Quiz à questions avec score et champion du serveur',
+    params: {
+      questionCount: num('Nombre de questions par partie', 5),
+      secondsPerQuestion: num('Secondes par question', 30),
+    },
+    requiredTools: ['getTrivia', 'surface.create', 'records.create', 'records.search', 'trigger.schedule'],
+    workflow: '1. getTrivia (questionCount questions). 2. Surface : question + 4 boutons réponses. 3. trigger.schedule secondsPerQuestion : clôture, bonne réponse révélée, scores records par membre. 4. Fin de partie : podium + champion (records.search top).',
+  },
+  {
+    slug: 'application-status-tracking',
+    domain: 'forms',
+    tags: ['candidature', 'statut', 'suivi', 'en attente', 'accepté refusé'],
+    trigger: 'Suivi du statut de sa candidature en temps réel',
+    params: {},
+    requiredTools: ['records.search', 'surface.create', 'sendDirectMessage'],
+    workflow: '1. Bouton « Ma candidature » : records.search par userId. 2. Affichage du statut (en attente / en revue / acceptée / refusée) + date + étapes restantes. 3. Chaque changement de statut : sendDirectMessage de notification.',
+  },
+  {
+    slug: 'mass-mailing-segmented',
+    domain: 'forms',
+    tags: ['annonce', 'segmentée', 'rôle', 'DM de masse', 'campagne'],
+    trigger: 'Envoyer une annonce ciblée par DM aux membres selon leurs rôles',
+    params: {
+      targetRoleIds: str('Rôles ciblés (IDs, virgules ; vide = tous)', ''),
+      message: str('Contenu du DM', ''),
+    },
+    requiredTools: ['getRoleMembers', 'sendDirectMessage', 'records.create'],
+    workflow: '1. getRoleMembers pour chaque rôle cible (union, dédup). 2. sendDirectMessage séquentiel avec délai anti-rate-limit. 3. records.create collection mailing_log { messageId, sent, failed }. 4. Rapport final (envoyés/échecs) au staff demandeur.',
+  },
+  {
+    slug: 'interview-scheduler-slots',
+    domain: 'forms',
+    tags: ['entretien', 'créneau', 'planning', 'staff', 'candidature'],
+    trigger: 'Planification d\u0029entretiens avec créneaux à réserver',
+    params: {
+      slots: str('Créneaux au format JJ/MM HHh séparés par virgules', ''),
+    },
+    requiredTools: ['surface.create', 'records.create', 'records.update', 'sendDirectMessage'],
+    workflow: '1. Surface avec un bouton par créneau (label date/heure). 2. claimOnce : un membre par créneau. 3. records.create collection interviews { userId, slot }. 4. DM de confirmation au candidat ET au staff interrogateur. 5. Annulation : records.update + libération du créneau.',
+  },
+  {
+    slug: 'form-response-export-csv',
+    domain: 'forms',
+    tags: ['export', 'CSV', 'réponses', 'formulaire', 'tableur'],
+    trigger: 'Exporter toutes les réponses d\u0029un formulaire en fichier',
+    params: {
+      collection: str('Nom de la collection à exporter', 'applications'),
+    },
+    requiredTools: ['records.search', 'generatePdf', 'sendMessage'],
+    workflow: '1. records.search sur toute la collection. 2. Mise en forme tabulaire (en-têtes = champs). 3. generatePdf (ou CSV selon demande) + sendMessage en pièce jointe unique au staff demandeur.',
+  },
+  {
+    slug: 'double-blind-review',
+    domain: 'forms',
+    tags: ['revue', 'double aveugle', 'anonymat', 'évaluation', 'concours'],
+    trigger: 'Évaluation à double aveugle : les juges ne voient pas les auteurs',
+    params: {
+      judgeRole: role('Rôle juge'),
+      submissionForm: str('Champs de la soumission', 'Titre, Contenu'),
+    },
+    requiredTools: ['surface.create', 'records.create', 'records.search', 'webhook.post'],
+    workflow: '1. Soumission via modal (identité stockée en DB, jamais affichée). 2. webhook.post anonyme de chaque soumission dans le salon juges. 3. Notes 1-10 par juge (claimOnce par soumission). 4. Moyenne + révélation des auteurs à la fin uniquement.',
+  },
+];

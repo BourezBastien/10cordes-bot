@@ -337,7 +337,10 @@ export class LlmService implements SpraxiumOnBoot {
             content: typeof message.content === 'string' ? stripLoneSurrogates(message.content) : message.content,
           })),
           user_id: options.guildId ?? options.userId,
-          reasoning_effort: this.env.LLM_EFFORT,
+          // Champ optionnel : envoyé SEULEMENT s'il est configuré — OpenRouter,
+          // Groq, Gemini et la plupart des proxys rejettent reasoning_effort
+          // (même vide) sur les modèles non-reasoning avec un 400.
+          ...(this.env.LLM_EFFORT ? { reasoning_effort: this.env.LLM_EFFORT } : {}),
           ...(apiTools.length > 0 ? { tools: apiTools, tool_choice: mergedOptions.toolChoice ?? 'auto' } : {}),
         }),
       });
@@ -463,7 +466,8 @@ export class LlmService implements SpraxiumOnBoot {
           content: typeof message.content === 'string' ? stripLoneSurrogates(message.content) : message.content,
         })),
         user_id: options.guildId ?? options.userId,
-        reasoning_effort: this.env.LLM_EFFORT,
+        // Idem appel streaming : champ omis sauf configuration explicite.
+        ...(this.env.LLM_EFFORT ? { reasoning_effort: this.env.LLM_EFFORT } : {}),
         ...(apiTools.length > 0 ? { tools: apiTools, tool_choice: options.toolChoice ?? 'auto' } : {}),
       }),
     });

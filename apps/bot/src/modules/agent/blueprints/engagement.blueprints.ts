@@ -1,0 +1,173 @@
+import type { SkillBlueprint } from '@10cordes/shared';
+import { bool, chan, dur, num, role, str, type DomainBlueprints } from './blueprint.helpers';
+
+/** ENGAGEMENT & JEUX (14) : sondages, giveaways, comptage, streaks, casinos. */
+export const engagementBlueprints: DomainBlueprints = [
+  {
+    slug: 'poll-multi-choice-timed',
+    domain: 'engagement',
+    tags: ['sondage', 'vote', 'scrutin', 'boutons', 'clôture auto', 'pourcentages'],
+    trigger: 'Sondage avec boutons, un vote modifiable par personne, clôture automatique',
+    params: {
+      closeDelay: dur('Délai avant clôture automatique', '2h'),
+      options: str('Options séparées par virgules', 'Option A, Option B, Option C'),
+    },
+    requiredTools: ['surface.create', 'records.create', 'records.search', 'trigger.schedule', 'surface.updateComponent'],
+    workflow: '1. Surface avec un bouton par option (action record.write dans component_votes). 2. Chaque vote modifiable (records.search par messageId + userId, records.update si existant). 3. trigger.schedule à closeDelay avec runTool records.search (collection component_votes, filtre messageId) pour dépouiller. 4. Clôture : surface.patchState (state.closed = true, affiche pourcentages, barres, gagnant) + surface.updateComponent pour désactiver chaque bouton.',
+  },
+  {
+    slug: 'giveaway-reaction-random',
+    domain: 'engagement',
+    tags: ['giveaway', 'concours', 'nitro', 'tirage', 'gagnant', 'aléatoire'],
+    trigger: 'Giveaway avec bouton Participer et tirage aléatoire à l\u0029échéance',
+    params: {
+      prize: str('Lot à gagner', '1 mois de Nitro'),
+      duration: dur('Durée du giveaway', '24h'),
+      winnerCount: num('Nombre de gagnants', 1),
+      requiredRoleId: role('Rôle requis pour participer (optionnel)'),
+      boosterBonus: bool('Les boosters ont 2 chances', false),
+    },
+    requiredTools: ['surface.create', 'records.create', 'records.search', 'trigger.schedule', 'members.pickRandom', 'sendMessage'],
+    workflow: '1. Surface « 🎉 Giveaway » avec bouton Participer + compteur live. 2. records.create collection giveaway_entries { userId } (AccessPolicy : requiredRoleId si défini). 3. trigger.schedule à duration avec : members.pickRandom parmi les participants. 4. sendMessage annonce du gagnant + surface.updateComponent bouton désactivé « Terminé ». 5. Bouton Reroll (admin) pour retirer.',
+  },
+  {
+    slug: 'counting-game',
+    domain: 'engagement',
+    tags: ['compter', 'jeu', '1 2 3', 'compteur', 'record', 'chaîne'],
+    trigger: 'Jeu de comptage où les membres comptent sans double-post',
+    params: {
+      channelId: chan('Salon du jeu de comptage'),
+      resetOnError: bool('Remettre à 0 en cas d\u0027erreur', true),
+    },
+    requiredTools: ['surface.create', 'records.create', 'records.update', 'records.search', 'sendMessage'],
+    workflow: '1. EventTrigger message.create dans le salon. 2. Vérifier : le nombre est == state.lastCount + 1 ET le membre != state.lastUserId. 3. Correct : setState lastCount++ + lastUserId. 4. Incorrect : reaction.add ❌ + annonce du record + reset si demandé.',
+  },
+  {
+    slug: 'treasure-chest-first-click',
+    domain: 'engagement',
+    tags: ['coffre', 'trésor', 'premier clic', 'gagnant', 'apparaît'],
+    trigger: 'Coffre au trésor qui apparaît périodiquement, premier clic gagne',
+    params: {
+      intervalHours: num('Heures entre chaque apparition', 2),
+      prize: str('Lot du coffre', '100 pièces'),
+    },
+    requiredTools: ['surface.create', 'trigger.schedule', 'records.create', 'sendMessage'],
+    workflow: '1. trigger.schedule interval : surface.create avec bouton « Ouvrir le coffre ». 2. Pipeline du bouton : step claimOnce (SET NX — exactement un gagnant). 3. Si gagné : sendMessage annonce + records.create collection prizes { userId, prize }. 4. updateComponent : bouton désactivé affichant le gagnant.',
+  },
+  {
+    slug: 'daily-streak-pointer',
+    domain: 'engagement',
+    tags: ['daily', 'streak', 'pointer', 'série', 'jours consécutifs', 'bonus'],
+    trigger: 'Système de streak quotidien avec bouton Pointer',
+    params: {
+      channelId: chan('Salon du daily'),
+      streakResetHours: num('Heures sans pointage avant reset de la série', 48),
+    },
+    requiredTools: ['surface.create', 'records.create', 'records.update', 'records.search', 'trigger.schedule'],
+    workflow: '1. Surface permanente avec bouton Pointer. 2. records.search collection streaks { userId, count, lastAt }. 3. Si lastAt < streakResetHours : count++. Sinon : count = 1. 4. records.update + confirmation avec la série actuelle.',
+  },
+  {
+    slug: 'casino-blackjack-surface',
+    domain: 'engagement',
+    tags: ['casino', 'blackjack', '21', 'cartes', 'mise', 'pièces'],
+    trigger: 'Jeu de blackjack jouable avec boutons contre la banque',
+    params: {
+      startingBalance: num('Solde de départ en pièces', 100),
+      minBet: num('Mise minimum', 10),
+    },
+    requiredTools: ['surface.create', 'surface.patchState', 'records.create', 'records.update', 'records.search', 'trigger.schedule'],
+    workflow: '1. records.create collection casino_balance { userId, balance } au premier jeu. 2. Surface : boutons Miser (modal montant) → Tirer / Rester. 3. État : main joueur + main banque (cartes cachées), step random pour piocher. 4. Blackjack/buste : règlement automatique du solde. 5. Solde à 0 : recharge quotidienne via trigger.schedule cron.',
+  },
+  {
+    slug: 'roulette-bet-color',
+    domain: 'engagement',
+    tags: ['roulette', 'rouge noir', 'pari', 'casino', 'x2'],
+    trigger: 'Roulette simplifiée : parier rouge/noir/vert avec gains automatiques',
+    params: {
+      cooldownSeconds: num('Secondes entre deux tours', 60),
+    },
+    requiredTools: ['surface.create', 'records.create', 'records.update', 'records.search', 'trigger.schedule'],
+    workflow: '1. Surface permanente : boutons Rouge (x2), Noir (x2), Vert (x14) + modal mise. 2. records.update du solde (débit de la mise). 3. trigger.schedule cooldownSeconds : step random (18/18/1 cases) + règlement des mises du tour. 4. Historique des 10 derniers tirages affiché en continu.',
+  },
+  {
+    slug: 'word-chain-game',
+    domain: 'engagement',
+    tags: ['wordle', 'mot', 'chaîne', 'dernière lettre', 'dictionnaire'],
+    trigger: 'Jeu de chaîne de mots (le mot suivant commence par la dernière lettre)',
+    params: {
+      channelId: chan('Salon du jeu'),
+      minWordLength: num('Longueur minimum des mots', 4),
+    },
+    requiredTools: ['defineWord', 'records.create', 'records.update', 'sendMessage'],
+    workflow: '1. EventTrigger message.create dans le salon. 2. Vérifs : commence par la dernière lettre du mot précédent + longueur >= min. 3. defineWord : le mot existe vraiment. 4. records.search : pas déjà dit dans la partie en cours. 5. Validé : setState lastWord + score++. Sinon : message d\u0029erreur explicite.',
+  },
+  {
+    slug: 'riddle-daily-reward',
+    domain: 'engagement',
+    tags: ['énigme', 'devinette', 'quotidien', 'premier à trouver', 'récompense'],
+    trigger: 'Énigme quotidienne : le premier à trouver gagne des pièces',
+    params: {
+      postCron: str('Horaire de publication', '0 12 * * *'),
+      prize: num('Pièces pour le gagnant', 50),
+    },
+    requiredTools: ['trigger.schedule', 'surface.create', 'records.create', 'sendMessage'],
+    workflow: '1. trigger.schedule cron : post de l\u0029énigme (surface avec bouton Répondre + modal). 2. claimOnce sur la bonne réponse (comparaison normalisée). 3. Gagnant : records.update solde + sendMessage annonce. 4. Indice supplémentaire toutes les 30 min (trigger imbriqué) tant que non résolue.',
+  },
+  {
+    slug: 'shop-items-purchase',
+    domain: 'engagement',
+    tags: ['boutique', 'shop', 'pièces', 'acheter', 'articles'],
+    trigger: 'Boutique d\u0029articles achetables avec les pièces gagnées en jeu',
+    params: {
+      items: str('Articles au format nom:prix séparés par virgules', 'Rôle doré:500, Emoji custom:200'),
+    },
+    requiredTools: ['surface.create', 'records.search', 'records.update', 'addRoleToMember', 'createRole'],
+    workflow: '1. Surface : un bouton par article (label avec prix). 2. Au clic : records.search solde ; si insuffisant, refus avec le manque. 3. Sinon : records.update (débit) + effet (rôle, emoji, privilège). 4. Bouton Mon solde : affichage éphémère du solde et de l\u0029historique d\u0029achats.',
+  },
+  {
+    slug: 'duel-challenge-pvp',
+    domain: 'engagement',
+    tags: ['duel', 'pvp', 'défi', 'pile ou face', 'mise'],
+    trigger: 'Défis 1v1 avec mise : les deux membres acceptent, le hasard tranche',
+    params: {
+      maxBet: num('Mise maximum', 100),
+    },
+    requiredTools: ['surface.create', 'records.search', 'records.update', 'trigger.schedule', 'sendMessage'],
+    workflow: '1. Surface « Défier » + select du membre + modal mise. 2. DM au défié : Accepter / Refuser (expire en 5 min via trigger.schedule). 3. Accepté : step random 50/50 + transfert de la mise + sendMessage du résultat. 4. Vérif des soldes AVANT l\u0029acceptation.',
+  },
+  {
+    slug: 'reaction-lottery-mega',
+    domain: 'engagement',
+    tags: ['loterie', 'mega', 'cagnotte', 'tickets', 'tirage hebdo'],
+    trigger: 'Loterie à cagnotte : tickets achetables, tirage hebdomadaire',
+    params: {
+      ticketPrice: num('Prix d\u0029un ticket', 20),
+      maxTicketsPerUser: num('Tickets maximum par membre', 10),
+      drawCron: str('Horaire du tirage', '0 20 * * 5'),
+    },
+    requiredTools: ['surface.create', 'records.create', 'records.search', 'records.update', 'trigger.schedule', 'members.pickRandom'],
+    workflow: '1. Surface permanente : bouton Acheter un ticket (vérif solde + max). 2. records.create collection lottery_tickets { userId, drawWeek }. 3. Cagnotte = prix × tickets vendus (live). 4. trigger.schedule cron : members.pickRandom pondéré (1 chance par ticket) + records.update du solde du gagnant + reset.',
+  },
+  {
+    slug: 'mini-game-tic-tac-toe',
+    domain: 'engagement',
+    tags: ['morpion', 'tic tac toe', 'grille', '1v1', 'tour par tour'],
+    trigger: 'Jouer au morpion à deux via boutons sur une grille',
+    params: {},
+    requiredTools: ['surface.create', 'surface.patchState', 'surface.updateComponent', 'sendMessage'],
+    workflow: '1. Surface « Défier au morpion » + select adversaire. 2. Grille 3x3 (9 boutons). 3. Tour alterné : surface.updateComponent du bouton cliqué (❌/⭕ + disabled). 4. surface.patchState : vérification victoire/égalité après chaque coup. 5. Fin : annonce + bouton Revanche.',
+  },
+  {
+    slug: 'level-xp-activity',
+    domain: 'engagement',
+    tags: ['xp', 'niveau', 'level', 'activité', 'messages', 'palier'],
+    trigger: 'Système de niveaux par activité (messages et vocal) avec annonces de passage',
+    params: {
+      xpPerMessage: num('XP par message', 15),
+      cooldownSeconds: num('Secondes entre deux gains', 60),
+      curveFactor: num('Facteur de progression des paliers', 1.5),
+    },
+    requiredTools: ['records.create', 'records.update', 'records.search', 'sendMessage', 'addRoleToMember'],
+    workflow: '1. EventTrigger message.create + cooldown par membre. 2. records.update collection levels { userId, xp, level }. 3. Palier franchi (xp >= level^curveFactor × 100) : sendMessage annonce + rôle du palier si configuré. 4. Commande conversationnelle « mon niveau » : progression et prochain palier.',
+  },
+];

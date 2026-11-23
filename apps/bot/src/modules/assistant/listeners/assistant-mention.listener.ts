@@ -61,6 +61,22 @@ function mentionsBotByName(username: string, content: string): boolean {
   return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu').test(cleanForNameDetection(content));
 }
 
+/**
+ * ANTI-BRUIT SOCIAL : même en salon dédié ou zone libre, un message qui
+ * n'interpelle PAS le bot (ni mention, ni nom, ni réponse) et qui est du
+ * pur bruit entre humains (rires, onomatopées, moins de 3 mots sans
+ * question) ne déclenche JAMAIS d'appel LLM.
+ */
+const PURE_NOISE_RE = /^(?:(?:[ha]{2,}h?|[xj]{2,}|hihi|héhé|lo+l+|md+r*|ptdr+|xd+|xp?tdr|ok+|ouais|oui|non|no+|yes|yep|nop|hein|quoi|wesh|gtg|brb|afk)[\s!?.,…]*)+$/iu;
+function isSocialNoise(content: string): boolean {
+  const text = content.trim().toLowerCase();
+  if (text.length === 0) return true;
+  if (PURE_NOISE_RE.test(text)) return true;
+  const words = text.split(/\s+/u).filter((word) => /[\p{L}\p{N}]/u.test(word));
+  if (words.length < 3 && !text.includes('?')) return true;
+  return false;
+}
+
 @Listener(Events.MessageCreate)
 export class AssistantMentionListener {
   constructor(
@@ -90,6 +106,24 @@ export class AssistantMentionListener {
 
   @On()
   async onMessageCreate(message: Message): Promise<void> {
+    // CEILING GLOBAL : une exception ici remonte au handler par défaut de
+    // Spraxium qui poste « An unexpected error occurred » dans le salon.
+    // On avale TOUT après log structuré (FileLog + console).
+    try {
+      await this.handleMessage(message);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      log.error(`[GATE] exception interceptée : ${detail.slice(0, 200)}`);
+      fileLog()?.event('error', 'gate', 'listener_exception', {
+        guildId: message.guildId ?? null,
+        channelId: message.channelId,
+        error: detail.slice(0, 300),
+        stack: error instanceof Error ? (error.stack ?? '').slice(0, 900) : null,
+      });
+    }
+  }
+
+  private async handleMessage(message: Message): Promise<void> {
     const me = message.client.user;
     const guildId = message.guildId;
     if (!me || !guildId) return;
@@ -118,6 +152,8 @@ export class AssistantMentionListener {
     const inDedicatedChannel = (await this.assistant.dedicatedChannelId(guildId)) === message.channelId;
 
     // R0.1 : zone libre (GuildRule) — catégorie parente ou salon listé.
+    // Sans règle enregistrée, isFreeZone est TOUJOURS false (défauts vides)
+    // : hors mention/réponse, le bot se tait strictement.
     const channel = message.channel;
     const parentCategoryId = channel.isThread() ? channel.parentId : ('parentId' in channel ? channel.parentId : null);
     const freeZone = await this.rules.isFreeZone(guildId, message.channelId, parentCategoryId);
@@ -136,6 +172,19 @@ export class AssistantMentionListener {
     const byName = !mentioned && mentionsBotByName(me.username, message.content);
     const nameAllowed = freeZone || inDedicatedChannel || !(await this.rules.get(guildId)).strictMentionElsewhere;
     if (!inDedicatedChannel && !mentioned && !repliesToBot && !(byName && nameAllowed)) return;
+
+    // ANTI-BRUIT : message qui n'interpelle PAS directement (ni mention, ni
+    // nom, ni réponse) et qui est du pur bruit social → ignoré, zéro LLM.
+    if (!mentioned && !repliesToBot && !byName && isSocialNoise(message.content)) {
+      log.info(`[GATE] ignoré (bruit-social-zone-libre) — ${message.author.username}`);
+      fileLog()?.event('info', 'gate', 'ignored_social_noise', {
+        guildId,
+        channelId: message.channelId,
+        dedicated: inDedicatedChannel,
+        freeZone,
+      });
+      return;
+    }
 
     log.info(
       `[GATE] accepté (dédié=${inDedicatedChannel} mention=${mentioned} nom=${byName && nameAllowed} réponse-bot=${repliesToBot} zone-libre=${freeZone}) — ${message.author.username}`,

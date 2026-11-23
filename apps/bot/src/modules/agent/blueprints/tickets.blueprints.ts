@@ -1,0 +1,157 @@
+import type { SkillBlueprint } from '@10cordes/shared';
+import { chan, dur, emoji, num, role, str, type DomainBlueprints } from './blueprint.helpers';
+
+/** TICKETS & SUPPORT (13) : files, escalade, feedback, modmail, priorités, stats. */
+export const ticketsBlueprints: DomainBlueprints = [
+  {
+    slug: 'tickets-multi-category-escalate',
+    domain: 'tickets',
+    tags: ['ticket', 'support', 'catégories', 'relancer', 'escalade', '24h', 'bouton rouge vert'],
+    trigger: 'Créer un système de tickets multi-catégories avec Claim, Fermer et bouton Relancer évolutif',
+    params: {
+      categories: str('Liste des catégories de tickets séparées par des virgules', 'Commercial, Technique, Boutique'),
+      escalateDelay: dur('Délai avant activation du bouton Relancer si non claim', '24h'),
+      escalateEmoji: emoji('Emoji du bouton Relancer', '🔔'),
+      initialStyle: str('Couleur initiale du bouton Relancer', 'danger'),
+      readyStyle: str('Couleur du bouton Relancer une fois le délai écoulé', 'success'),
+      staffRoleId: role('Rôle staff ayant accès aux tickets et mentionné lors de la relance'),
+    },
+    requiredTools: ['surface.create', 'surface.patchState', 'surface.updateComponent', 'trigger.schedule', 'createChannel', 'deleteChannel', 'sendMessage'],
+    workflow: '1. Créer une surface V2 avec un bouton par catégorie (action ouvrant un salon privé). 2. Sur chaque ouverture : salon privé accessible au demandeur et au staff + surface avec état { claimedBy: null, escalated: false } et boutons Claim / Fermer / Relancer (désactivé, style initial). 3. Planifier trigger.schedule (delaySec = escalateDelay, cancelKey = ticket-esc-{{surfaceId}}) avec condition state.claimedBy == null qui exécute updateComponent : bouton Relancer passe au style readyStyle et s\u0027active. 4. Binding Claim : setState claimedBy = actor.id + annuler le trigger. 5. Binding Relancer : mentionner staffRoleId + setState escalated = true. 6. Binding Fermer : supprimer le salon (trigger.schedule différé court).',
+  },
+  {
+    slug: 'tickets-single-button-claim',
+    domain: 'tickets',
+    tags: ['ticket', 'bouton unique', 'simple', 'claim', 'fermer'],
+    trigger: 'Un seul bouton de ticket simple avec salon privé et boutons Claim/Fermer',
+    params: {
+      staffRoleId: role('Rôle staff'),
+      channelNameTemplate: str('Modèle de nom du salon ({{actor.username}} interpolé)', 'ticket-{{actor.username}}'),
+    },
+    requiredTools: ['surface.create', 'createChannel', 'setChannelOverwrite', 'deleteChannel'],
+    workflow: '1. Surface avec un bouton « Ouvrir un ticket ». 2. Au clic : createChannel avec overwrites (demandeur + staff only). 3. Surface de gestion dans le salon : Claim (setState), Fermer (suppression différée 60s avec annulation possible). 4. Anti double-clic : AccessPolicy cooldown par utilisateur.',
+  },
+  {
+    slug: 'tickets-panel-select-menu',
+    domain: 'tickets',
+    tags: ['ticket', 'select menu', 'panneau', 'dropdown', 'choix'],
+    trigger: 'Panneau de tickets avec menu déroulant au lieu de boutons',
+    params: {
+      options: str('Options au format label:description séparées par virgules', 'Bug:quelque chose est cassé, Question:besoin d\u0027aide, Autre:autre sujet'),
+    },
+    requiredTools: ['surface.create', 'createChannel', 'setChannelOverwrite'],
+    workflow: '1. Surface avec select menu (une option par type de ticket). 2. Au choix : createChannel nommé selon l\u0027option + overwrites. 3. Message d\u0027accueil avec le motif sélectionné + bouton Fermer.',
+  },
+  {
+    slug: 'tickets-priority-triage',
+    domain: 'tickets',
+    tags: ['ticket', 'priorité', 'triage', 'urgent', 'critique', 'couleur'],
+    trigger: 'Tickets avec priorités colorées et tri automatique',
+    params: {
+      priorities: str('Priorités au format nom:couleur séparées par virgules', 'Critique:red, Haute:orange, Normale:grey'),
+    },
+    requiredTools: ['surface.create', 'surface.patchState', 'createChannel', 'renameChannel', 'setChannelOverwrite'],
+    workflow: '1. Surface d\u0027ouverture avec un bouton par priorité (style couleur correspondant). 2. createChannel avec préfixe [CRIT]/[HAUT]/[NORM]. 3. Le staff peut changer la priorité via surface.updateComponent (renommage du salon inclus). 4. Salon critique : ping staffRoleId supplémentaire.',
+  },
+  {
+    slug: 'tickets-stale-auto-remind',
+    domain: 'tickets',
+    tags: ['ticket', 'inactif', 'rappel', 'relance', 'fermeture auto', '48h'],
+    trigger: 'Rappels automatiques puis fermeture des tickets sans activité',
+    params: {
+      reminderHours: num('Heures d\u0027inactivité avant rappel', 48),
+      closeHours: num('Heures après le rappel avant fermeture auto', 24),
+    },
+    requiredTools: ['trigger.schedule', 'sendMessage', 'records.update'],
+    workflow: '1. Après chaque message staff : re-programmer trigger.schedule (delaySec = reminderHours * 3600, cancelKey = stale-{{channelId}}). 2. À l\u0029échéance : sendMessage rappel au membre + second trigger (closeHours). 3. Second trigger : fermer le ticket + archive.',
+  },
+  {
+    slug: 'tickets-feedback-embed',
+    domain: 'tickets',
+    tags: ['ticket', 'satisfaction', 'note', 'étoiles', 'feedback', 'notation'],
+    trigger: 'Demander une note de satisfaction à la fermeture du ticket',
+    params: {
+      maxStars: num('Nombre d\u0027étoiles', 5),
+      logChannelId: chan('Salon où archiver les notes'),
+    },
+    requiredTools: ['surface.create', 'records.create', 'sendMessage'],
+    workflow: '1. À la fermeture : DM avec surface à maxStars boutons. 2. records.create collection ticket_feedback { userId, ticketId, rating }. 3. Résumé mensuel dans le salon de logs.',
+  },
+  {
+    slug: 'tickets-transcript-archive',
+    domain: 'tickets',
+    tags: ['ticket', 'transcript', 'archive', 'historique', 'html', 'fermeture'],
+    trigger: 'Archiver le transcript complet du ticket à sa fermeture',
+    params: {
+      archiveChannelId: chan('Salon des archives'),
+      keepDays: num('Jours avant purge des salons archivés', 30),
+    },
+    requiredTools: ['messages.export', 'deleteChannel', 'sendMessage', 'records.create'],
+    workflow: '1. Au clic Fermer : messages.export du salon (transcript HTML). 2. sendMessage dans archiveChannelId avec le fichier + records.create collection ticket_archive { channelId, closedBy, at }. 3. Suppression du salon après confirmation.',
+  },
+  {
+    slug: 'tickets-modmail-anonymous',
+    domain: 'tickets',
+    tags: ['modmail', 'DM', 'anonyme', 'contact staff', 'boîte aux letuvres'],
+    trigger: 'Modmail : les membres contactent le staff depuis un panneau public, échanges par DM',
+    params: {
+      panelChannelId: chan('Salon du panneau modmail'),
+    },
+    requiredTools: ['surface.create', 'records.create', 'records.update', 'sendDirectMessage', 'sendMessage'],
+    workflow: '1. Surface publique avec bouton « Contacter le staff en privé ». 2. Au clic : sendDirectMessage au membre (ouverture du fil) + records.create collection modmail { userId, status: open }. 3. Chaque réponse du membre : relayée au salon staff via webhook anonymisé. 4. Réponse staff : sendDirectMessage au membre. 5. Bouton Clore (staff) : records.update status.',
+  },
+  {
+    slug: 'tickets-sliding-hour-quota',
+    domain: 'tickets',
+    tags: ['ticket', 'quota', 'limite', 'anti-abus', 'par jour', '3 tickets'],
+    trigger: 'Limiter le nombre de tickets ouverts par membre par jour',
+    params: {
+      maxPerDay: num('Tickets maximum par membre et par jour', 3),
+    },
+    requiredTools: ['surface.create', 'records.create', 'records.search'],
+    workflow: '1. Au clic d\u0029ouverture : records.search collection tickets_open { userId, windowSec 24h }. 2. Si count >= maxPerDay : replyEphemeral refus avec le délai restant. 3. Sinon : createChannel + records.create (incrément). 4. À la fermeture : records.update status (libère le quota).',
+  },
+  {
+    slug: 'tickets-claim-queue-position',
+    domain: 'tickets',
+    tags: ['ticket', 'file d\u0027attente', 'position', 'temps moyen', 'stats'],
+    trigger: 'File d\u0027attente de tickets avec position affichée en direct',
+    params: {
+      queueChannelId: chan('Salon de la file d\u0027attente'),
+    },
+    requiredTools: ['surface.create', 'records.create', 'records.search', 'surface.updateComponent', 'trigger.schedule'],
+    workflow: '1. Chaque ticket ouvert : records.create collection ticket_queue { position }. 2. Surface « file d\u0027attente » affichant N en attente + temps moyen de prise en charge. 3. Au claim : records.update + surface.updateComponent (positions décalées). 4. trigger.schedule interval 5 min : rafraîchissement des stats.',
+  },
+  {
+    slug: 'tickets-multi-staff-claim-race',
+    domain: 'tickets',
+    tags: ['ticket', 'claim', 'course', 'premier staff', 'verrou'],
+    trigger: 'Claim concurrentiel : le premier staff qui clique prend le ticket, les autres voient déjà pris',
+    params: {},
+    requiredTools: ['surface.create', 'surface.patchState', 'surface.updateComponent'],
+    workflow: '1. Binding Claim avec step claimOnce (SET NX : exactement un gagnant même en clic simultané). 2. Gagnant : setState claimedBy + updateComponent bouton gris « Pris par X ». 3. Perdants : replyEphemeral « déjà pris ».',
+  },
+  {
+    slug: 'tickets-faq-deflection',
+    domain: 'tickets',
+    tags: ['ticket', 'FAQ', 'détournement', 'self-service', 'réponse auto'],
+    trigger: 'Proposer la FAQ avant l\u0029ouverture : si une réponse existe, éviter le ticket',
+    params: {
+      faqItems: str('Questions fréquentes au format question:réponse séparées par point-virgule', ''),
+    },
+    requiredTools: ['surface.create', 'records.search', 'openSkill'],
+    workflow: '1. Surface d\u0029ouverture avec select des catégories. 2. Avant createChannel : step llm qui cherche une réponse dans les skills FAQ existants. 3. Si confiance haute : replyEphemeral avec la réponse + boutons « Ça m\u0027a aidé » / « Ouvrir quand même le ticket ». 4. Sinon : ouverture normale.',
+  },
+  {
+    slug: 'tickets-satisfaction-report-monthly',
+    domain: 'tickets',
+    tags: ['ticket', 'satisfaction', 'rapport', 'mensuel', 'moyenne', 'stats'],
+    trigger: 'Rapport mensuel automatique des notes de satisfaction des tickets',
+    params: {
+      reportChannelId: chan('Salon du rapport'),
+      reportDay: num('Jour du mois (1-28)', 1),
+    },
+    requiredTools: ['trigger.schedule', 'records.search', 'surface.create'],
+    workflow: '1. trigger.schedule cron (jour reportDay à 9h). 2. records.search collection ticket_feedback sur les 30 derniers jours. 3. surface.create panneau V2 : moyenne, distribution, pire/meilleur ticket, temps de réponse moyen.',
+  },
+];

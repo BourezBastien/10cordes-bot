@@ -153,6 +153,8 @@ docs/             Architecture docs, roadmap, audit reports
 
 Dependency rule: `apps/bot → @10cordes/shared ← apps/dashboard`
 
+**Dashboard design credits:** the web dashboard's graphic style (dark theme, accent hierarchy, layout patterns) draws heavy inspiration from [ARCHIVE-9 by LeoBdt](https://github.com/LeoBdt/ARCHIVE-9) — not a copy, but its visual language was deliberately reused. The same language also guides our Discord Components V2 panels.
+
 ## License
 
 MIT — see [LICENSE](./LICENSE)
