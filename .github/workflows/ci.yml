@@ -8,7 +8,10 @@ on:
 
 jobs:
   quality:
-    name: Lint · Modules · Typecheck · Test · Build · Audit
+    # Ce nom est le contrôle requis par la protection des branches main et
+    # develop : ne pas le renommer sans mettre à jour cette protection.
+    # Le job couvre aussi l'audit d'architecture et le build.
+    name: Lint · Modules · Typecheck · Test
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: file:../data/bot.db

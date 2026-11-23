@@ -34,7 +34,7 @@ Stack : Vite 8 + React 19 + Tailwind 4 + TanStack (Router, Query, Table) + shadc
 
 ## 3. CI et vérification
 
-La CI (workflow `ci.yml`, contrôle requis « Lint · Modules · Typecheck · Test · Build · Audit ») lance, dans l'ordre : `check:modules`, `arch:audit` (strict, 0 violation), `lint`, `typecheck`, `test`, puis `build` des trois workspaces. Une violation d'architecture casse donc le push.
+La CI (workflow `ci.yml`, contrôle requis « Lint · Modules · Typecheck · Test ») lance, dans l'ordre : `check:modules`, `arch:audit` (strict, 0 violation), `lint`, `typecheck`, `test`, puis `build` des trois workspaces. Une violation d'architecture casse donc le push. Le nom du job est le contrôle exigé par la protection des branches `main` et `develop` : il ne change pas quand on ajoute une étape.
 
 `pnpm verify` (local) enchaîne lint, typecheck, test, build, check:modules, puis `arch:audit` en mode strict. Il n'y a plus de baseline ni de cliquet : une règle ne se contourne pas, le code se corrige.
 

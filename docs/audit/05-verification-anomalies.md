@@ -13,7 +13,7 @@
 | `pnpm check:modules` | dossiers de modules cohérents |
 | `pnpm arch:audit` (strict) | **0 violation** (60 au soir : toutes remboursées) |
 | `sync-tool-names --check` | OK, 163 tools, inchangés |
-| CI `develop` | lint, modules, audit d'architecture, typecheck, test, build |
+| CI `develop` | modules, audit d'architecture strict, lint, typecheck, test, build (contrôle requis « Lint · Modules · Typecheck · Test ») |
 | grep des documents | 0 ancienne variable d'environnement, 0 référence de slash command |
 
 ## 2. Anomalie 1 : répétition de « An unexpected error occurred »
