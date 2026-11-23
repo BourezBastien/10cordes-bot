@@ -3,6 +3,7 @@ import { AuditModule } from '../audit/audit.module';
 import { DatabaseModule } from '../database/database.module';
 import { ToolRegistryModule } from '../tool-registry/tool-registry.module';
 import { IntegrationService } from './integration.service';
+import { IntegrationOpenModalButtonHandler, IntegrationSaveModalHandler } from './handlers/integration.handlers';
 
 /**
  * Intégrations chiffrées (R2) : catalogue de fournisseurs (LLM, image,
@@ -12,7 +13,11 @@ import { IntegrationService } from './integration.service';
 @Global()
 @Module({
   imports: [AuditModule, DatabaseModule, ToolRegistryModule],
-  providers: [IntegrationService],
+  providers: [
+    IntegrationService,
+    IntegrationOpenModalButtonHandler,
+    IntegrationSaveModalHandler,
+  ],
   exports: [IntegrationService],
 })
 export class IntegrationModule {}

@@ -7,7 +7,6 @@ import { GuildRulesModule } from '../rules/guild-rules.module';
 import { IntegrationModule } from '../integrations/integration.module';
 import { CacheModule } from '../../shared/cache/cache.module';
 import { SkillPatternDetector } from '../agent/skill-pattern.detector';
-import { IaConfigureButtonHandler, IaConfigureModalSubmitHandler } from './handlers/ia-config.handlers';
 import { ToolsNextHandler, ToolsPrevHandler } from './handlers/tools-page.handlers';
 import { AssistantMentionListener } from './listeners/assistant-mention.listener';
 import { AssistantQueue } from './assistant.queue';
@@ -29,7 +28,7 @@ import { BootRecoveryService } from './boot-recovery.service';
 @Module({
   imports: [AuditModule, CacheModule, GuildConfigModule, GuildRulesModule, ImagelabModule, IntegrationModule, ToolRegistryModule],
   listeners: [AssistantMentionListener],
-  handlers: [IaConfigureButtonHandler, IaConfigureModalSubmitHandler, ToolsPrevHandler, ToolsNextHandler],
+  handlers: [ToolsPrevHandler, ToolsNextHandler],
   providers: [AssistantQueue, AgentLoopService, SkillPatternDetector, AssistantService, LlmService, WebAgentService, ResponseCacheService, BootRecoveryService],
   exports: [LlmService, AssistantQueue, WebAgentService, ResponseCacheService],
 })

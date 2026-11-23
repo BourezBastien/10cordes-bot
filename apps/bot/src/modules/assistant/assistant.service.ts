@@ -7,7 +7,6 @@ import { LlmService, ProviderAuthError, ProviderUnavailableError, QuotaExhausted
 import { AgentLoopService } from './agent-loop.service';
 import { DiscordProgressiveResponder } from './progressive-responder';
 import { getSkillTriggers } from '../agent/skill.service';
-import { IA_CONFIG_BUTTON_ID } from './components/ia-config.components';
 import { notice, panel, text } from '../../shared/ui';
 import { detectLocale } from '../../shared/utils/locale-detect';
 import { ResponseCacheService } from './response-cache.service';
@@ -24,6 +23,9 @@ import { type AgentRequest } from './queue/types';
 import { AppEnv } from '../../app.env';
 import { PrismaService } from '../database/prisma.service';
 import { GuildRulesService } from '../rules/guild-rules.service';
+import { guildAdminPolicy } from '../../core/security/access-policy';
+import { IntegrationStatusPresenter } from '../integrations/presenters/integration-status.presenter';
+import { integrationOpenButton } from '../integrations/handlers/integration.handlers';
 import { SkillPatternDetector } from '../agent/skill-pattern.detector';
 import { CacheStoreService } from '../../shared/cache/cache-store.service';
 
@@ -269,6 +271,7 @@ export class AssistantService {
     private readonly responseCache: ResponseCacheService,
     private readonly guildRules: GuildRulesService,
     private readonly patterns: SkillPatternDetector,
+    private readonly integrationPresenter = new IntegrationStatusPresenter(),
     private readonly cacheStore: CacheStoreService,
   ) {
     queue.setProcessor((request) => this.processAgentRequest(request));
@@ -403,31 +406,27 @@ export class AssistantService {
     requestId: string,
   ): Promise<void> {
     if (!this.llm.configured) {
-      // Le staff connecte l'IA via le bouton dédié (portal éphémère), sans slash.
+      // A4 : délégation au Presenter — un SEUL message V2, plus de double
+      // envoi ni de check ownerId inline (GuildAdminPolicy s'en charge).
       const member = await guild.members.fetch(request.userId).catch(() => null);
-      const staff = guild.ownerId === request.userId || (member?.permissions.has(PermissionFlagsBits.ManageGuild) ?? false);
-      if (staff) {
-        await channel
-          .send({
-            components: [
-              new ContainerBuilder()
-                .setAccentColor(0xd9_59_26)
-                .addTextDisplayComponents(text('Le module IA n\u0027est pas encore connecté.'))
-                .addActionRowComponents(
-                  new ActionRowBuilder<ButtonBuilder>().addComponents(
-                    new ButtonBuilder()
-                      .setCustomId(IA_CONFIG_BUTTON_ID)
-                      .setLabel("Connecter l'IA")
-                      .setStyle(ButtonStyle.Primary),
-                  ),
-                ),
-            ],
-            flags: MessageFlags.IsComponentsV2,
-          })
-          .catch(() => {});
-      } else {
-        await channel.send(notice("Le module IA n'est pas encore connecté : l'owner du serveur peut le faire en me mentionnant ici.", true)).catch(() => {});
+      const canConfigure = guildAdminPolicy.isAuthorized({
+        userId: request.userId,
+        guildOwnerId: guild.ownerId,
+        permissions: member ? (member.permissions.toArray() as string[]) : [],
+      });
+      const payload = this.integrationPresenter.render({
+        label: 'Fournisseur IA',
+        connected: false,
+        canConfigure,
+      });
+      const components = payload.components;
+      if (canConfigure) {
+        // Le bouton d'action est ajouté par le handler (pas dans le Presenter pur).
+        components[0].addActionRowComponents(integrationOpenButton());
       }
+      await channel
+        .send({ flags: MessageFlags.IsComponentsV2, components })
+        .catch(() => {});
       return;
     }
 
