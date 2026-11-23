@@ -1,58 +1,67 @@
-# Audit 03 — Modules & tools
+# Audit 03 · Modules & tools
 
-## 1. Inventory des 25 modules
+> Mesures du 23/11/2026 en fin de journée.
+
+## 1. Inventaire des 25 modules
 
 | Module | Rôle | Tools (catégorie) |
 |---|---|---|
-| agent | tools Discord + skills | 42+7 (agent) |
+| agent | tools Discord + skills | 50 (agent), 2 (skills) |
 | assistant | boucle conversationnelle | 3 (assistant) |
-| audit | journal unifié fire-and-forget | — |
-| automations | EventTrigger → actions | — |
-| database | Prisma | — |
-| guild-config | config typée + cache | 2 (guild-config) |
-| health | /healthz + moniteur | — |
-| imagelab | PixelLab | web |
+| audit | journal unifié fire-and-forget | 1 |
+| automations | EventTrigger vers actions | aucun |
+| database | Prisma | aucun |
+| guild-config | configuration par serveur + fil de config | 5 (guild-config) |
+| health | `/healthz` + moniteur | aucun |
+| imagelab | PixelLab | 1 |
 | integrations | clés chiffrées | 1 (integrations.status) |
 | jobs | planificateur générique | 4 (jobs) |
-| logging | FileLogService + listeners | — |
-| memory | fiches + curator + ingestion | 4+2 (memory) |
+| logging | FileLogService + listeners | 1 |
+| memory | fiches, curator, ingestion | 7 (memory) |
 | moderation | sanctions + cases | 1 (moderation) |
 | module-manager | catalogue + guard | 3 (module-manager) |
-| music | lecture vocale | voice |
+| music | lecture vocale | 1 |
 | records | store typé | 7 (records) |
 | rules | GuildRule | 2 (rules) |
-| security | nodes RBAC | 3 (security) — captcha retiré C1 |
-| serverlife | snapshot serveur | 16 (serverlife) |
+| security | nodes RBAC (le captcha a été retiré en C1) | 3 (security) |
+| serverlife | vie du serveur, activité | 16 (serverlife) |
 | surface | moteur générique | 6 (surface) |
 | tool-registry | registry + search_tools | 2 (tool-registry) |
-| utility | fun/divers | 12 (utility) |
+| utility | utilitaires génériques | 12 (utility) |
 | voice | vocaux | 6 (voice) |
-| webtools | search/fetch web | 27+2 (web) |
+| webtools et web | recherche et lecture web | 29 |
 
-**Supprimés en C1** : tickets, roles, levels, invites, welcome (+ panels agent, pagination tools assistant, skills.library plat).
+**Supprimés en C1** : tickets, roles, levels, invites, welcome, ainsi que les panels d'agent, la pagination des tools de l'assistant et l'ancienne bibliothèque de skills plate.
 
-## 2. Registry & routing
+## 2. Registry et exécution
 
-- 160 tools. Routing façon Anthropic : noyau de ~14 tools toujours présents + `search_tools` qui expose le reste à la demande (économie de contexte).
-- Permissions vérifiées EN CODE au registry (`permissions: ['ManageGuild']` etc. + nodes RBAC allow/deny par rôle/membre, deny prioritaire même pour un Administrator Discord).
-- `defineTool<T>` partout dans le nouveau code (plus de cast manuel).
+- 163 tools. Routing façon Anthropic : noyau de quelques tools toujours présents + `search_tools` qui expose le reste à la demande (économie de contexte).
+- Permissions vérifiées en code au registry : `permissions: ['ManageGuild']`, etc., et nodes RBAC allow/deny par rôle ou membre (deny prioritaire, même pour un Administrator Discord).
+- Porte de confirmation destructive (règle serveur) avant le handler : voir `02-bot-core-moteur.md` §3.
+- `defineTool<T>` dans tout le code récent (plus de cast manuel).
 
-## 3. Skills (P3)
+## 3. Skills
 
-- **47 → 135 SkillBlueprint** en 10 fichiers de domaine (`blueprints/*.blueprints.ts`), agrégés par `skills.blueprints.ts` (37 l.).
+- 135 `SkillBlueprint` en 10 fichiers de domaine (`blueprints/*.blueprints.ts`), agrégés par `skills.blueprints.ts`.
 - `requiredTools` vérifié à la compilation : chaque recette ne référence que des tools du `REGISTERED_TOOL_NAMES`.
-- `SkillBlueprintLibrary.search_skills` : scoring tags/trigger/params ; `SkillPatternDetector` (Learning Loop) propose une recette après 3 patterns similaires (cache ICacheStore).
+- `SkillBlueprintLibrary.search_skills` : scoring sur tags, trigger et params. `SkillPatternDetector` (Learning Loop) propose une recette après 3 motifs similaires.
 - Domaines : tickets 13 · voice 13 · moderation 14 · onboarding 13 · forms 14 · engagement 14 · events 14 · automation 13 · monitoring 13 · community 14.
+- Aucune compétence active en base ne cite un tool supprimé (vérifié sur les 276 compétences des deux serveurs).
+
+**Limite connue** : les noms de collections cités dans les workflows ne sont pas vérifiés, et le store `records.*` est un registre fermé à 7 collections. Une recette qui écrit dans `casino_balance` ou `giveaway_entries` se heurte à « Collection inconnue » (voir `01-prisma-shared.md` §3).
 
 ## 4. Conventions transverses
 
-1. `@Global()` pour les services consommés cross-module (memory, rules, integrations, assistant) — sinon exports confinés au premier chargeur.
-2. VALUE imports (pas `import type`) pour toute classe injectée : `design:paramtypes` sinon devient `Object` → ModuleLoader échoue. Récurrence x5 dans le projet.
-3. `SpraxiumOnBoot` (pas `OnModuleInit`) pour l'enregistrement des tools.
-4. Tool = schema (paramsSchema Zod) + `systemPrompt` dédié + handler court déléguant au service.
+1. `@Global()` pour les services consommés cross-module (memory, rules, integrations, assistant, guild-config), sinon les exports restent confinés au premier chargeur.
+2. Imports VALEUR (pas `import type`) pour toute classe injectée : `design:paramtypes` devient `Object` sinon, et le ModuleLoader échoue. Un paramètre de constructeur avec valeur par défaut provoque la même erreur.
+3. `SpraxiumOnBoot` sur les PROVIDERS pour enregistrer les tools et lier les accès runtime. **Jamais de `onBoot` ni de `constructor` dans une classe de module** : le framework n'instancie pas les modules, ce code ne s'exécute pas (règle `LIFECYCLE_ON_MODULE` de `arch-audit`).
+4. Les handlers d'interaction ont besoin des décorateurs de `@spraxium/components` (`@ButtonHandler`, `@ModalHandler`) : sans métadonnées, le dispatcher ne leur envoie rien.
+5. Un tool renvoie des nombres, jamais de BigInt : les agrégats SQL de Prisma sur SQLite sont des BigInt et `JSON.stringify` nu lève dessus.
+6. Tool = schéma (`paramsSchema` Zod) + `systemPrompt` dédié + handler court déléguant au service.
 
 ## 5. Dettes identifiées
 
-- `agent.service.ts` (~1 000 l.) : Dieu du domaine — découpage par familles de tools (channels/roles/members/modération) recommandé.
-- 42 tools catégorie `agent` dans un seul service : disperser dans `agent/tools/*.ts`.
-- Catalogue modules minimal (logging, moderation) : les modules techniques restants ne sont pas togglables (choix assumé : ils portent l'agent).
+- `agent.service.ts` et `agent/tools/discord.tools.ts` : à découper par familles de tools (salons, rôles, membres, modération).
+- 50 tools de catégorie `agent` répartis sur peu de fichiers.
+- Catalogue de modules minimal (logging, moderation) : les modules techniques ne sont pas activables par serveur (choix assumé, ils portent l'agent).
+- `members.pickRandom` : sans l'intent privilégié « Membres du serveur », le tirage se fait sur les membres connus du bot (repli sur le cache, signalé dans le résultat).

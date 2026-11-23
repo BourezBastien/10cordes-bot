@@ -1,4 +1,6 @@
-# Audit 02 — Bot core & moteur
+# Audit 02 · Bot core & moteur
+
+> Mesures du 23/11/2026 en fin de journée.
 
 ## 1. Bootstrap (`main.ts`)
 
@@ -6,42 +8,58 @@
 
 `app.module.ts` : 24 modules importés (tickets/roles/levels/invites/welcome retirés en C1). `@HttpClientModule` sur LA MÊME classe (règle framework : un second module HTTP serait ignoré).
 
+**Règle de cycle de vie (apprise le 23/11)** : le framework n'instancie jamais les classes de module. Il n'enregistre que les `providers`, `listeners` et `handlers` (`ModuleLoader.loadModule`, puis `registerLifecycle`). Un `onBoot`, un `onReady` ou un `constructor` écrit dans une classe `@Module` ne s'exécute JAMAIS. Toute liaison runtime se fait donc dans le `onBoot` d'un provider, et `pnpm arch:audit` refuse désormais ce motif (règle `LIFECYCLE_ON_MODULE`).
+
 ## 2. Assistant (le cœur)
 
 | Composant | Fichier | Points clés |
 |---|---|---|
 | Gate | `listeners/assistant-mention.listener.ts` | Chaîne courte zéro-LLM ; try/catch global ; anti-bruit social ; zone-libre false par défaut |
-| Queue | `assistant.queue.ts` + `queue/` | Driver BullMQ (Redis) / memory fallback (sonde 5 s, bascule à chaud avec ré-enregistrement du handler) ; FIFO par user, 3 parallèles, caps 10/user et 200 total |
-| Boucle | `agent-loop.service.ts` | Template Method partagé Discord/web ; 12 itérations max ; synthèse finale sans tools si boucle épuisée |
-| Prompt | `system-prompt.builder.ts` | XML par sections (`<SERVER_RULES>`, `<SKILLS>`, ...) ; préfixe statique pour le cache provider DeepSeek |
-| Streaming | `llm.service.ts` | SSE + watchdog inactivité ; `reasoning_effort` conditionnel ; erreurs typées (QuotaExhausted, ProviderAuth, ProviderUnavailable) |
-| Rendu | `progressive-responder.ts` | Édition unique throttlée 1,8 s ; médias = UNE pièce jointe réelle (jamais d'URL dans progression/summary) |
+| Queue | `assistant.queue.ts` + `queue/` | Driver BullMQ (Redis) / memory fallback (sonde 5 s, bascule à chaud) ; FIFO par user, 3 parallèles |
+| Boucle | `agent-loop.service.ts` | Template Method partagé Discord/web ; 12 itérations max ; synthèse finale sans tools si boucle épuisée ; résultats de tools sérialisés avec `stringifySafe` (tolérant aux BigInt) |
+| Prompt | `system-prompt.builder.ts` | XML par sections (`<SERVER_RULES>`, `<SKILLS>`) ; préfixe statique pour le cache provider DeepSeek |
+| Streaming | `llm.service.ts` | SSE + watchdog inactivité ; thinking adaptatif ; erreurs typées (QuotaExhausted, ProviderAuth, ProviderUnavailable) ; repli de `baseUrl` sur l'env |
+| Rendu | `progressive-responder.ts` | Édition unique throttlée 1,8 s ; médias = UNE pièce jointe réelle |
 | Reprise | `boot-recovery.service.ts` | Watermark par salon dédié + relance des jobs persistés |
 
-## 3. Moteur de surfaces (`modules/surface/`)
+**Thinking adaptatif** (`LlmService.shouldSendThinking`, réglage par serveur dans `guild_agent_settings`, défaut `adaptive`) : `reasoning_effort` n'est envoyé que sur les tours qui portent des tools et qui ne sont pas la synthèse finale (`toolChoice !== 'none'`), et uniquement aux endpoints compatibles (DeepSeek, Anthropic). Le champ est omis sinon : plusieurs fournisseurs le rejettent avec un 400.
 
-- `surface.service.ts` : CRUD surfaces + re-rendu ; 6 tools (`surface.create/patchState/updateComponent/get` + triggers).
-- `surface.handlers.ts` : le trio générique — `SurfaceActHandler` (boutons), `SurfaceSelectHandler`, `SurfaceModalHandler`. **Ce sont les seuls handlers d'interaction métier du bot.**
+## 3. Registry et exécution d'un tool (`tool-registry.service.ts`)
+
+Ordre réel des portes dans `ToolRegistryService.run` : modules requis actifs → node `deny` → permissions Discord (sauf node `allow`) → validation Zod → **confirmation destructive** → handler → audit.
+
+La confirmation destructive (règle serveur `confirmDestructiveActions`) dépend de quatre liaisons runtime : `rules` (liées par `GuildRulesService.onBoot`), `cache`, `prisma` et `renderSurface` (liées par `ToolRegistryService.onBoot`, le rendu par `SurfaceService.onBoot`). Le démarrage le vérifie et affiche « confirmation destructive opérationnelle » ou un avertissement explicite. Comportement couvert par `tool-registry.confirm.spec.ts` (7 tests).
+
+## 4. Moteur de surfaces (`modules/surface/`)
+
+- `surface.service.ts` : CRUD surfaces + re-rendu ; 6 tools (`surface.create/patchState/updateComponent/get` + triggers). Les tools d'édition identifient une surface par `surfaceId` OU `messageId`.
+- `surface.errors.ts` : messages d'erreur actionnables (chemin du champ Zod fautif, liste des clés de binding valides, rappel de l'identifiant fourni).
+- `surface.handlers.ts` : le trio générique, `SurfaceActHandler` (boutons), `SurfaceSelectHandler`, `SurfaceModalHandler`. **Ce sont les seuls handlers d'interaction métier du bot.**
 - `surface.pipeline.ts` : exécuteur de pipeline typé (14 kinds de steps) ; `claimOnce` = SET NX (course concurrentielle sûre).
-- Triggers : `ScheduledTrigger` BullMQ + catchup au boot (testé par rig `e2e-surface` avec reboot en cours de timer) ; `EventTrigger` route 10 événements Discord.
+- Triggers : `ScheduledTrigger` BullMQ + rattrapage au boot (testé par le rig `e2e-surface` avec reboot en cours de timer) ; `EventTrigger` route 10 événements Discord.
 
-### Anti-régressions notables (fixés, vérifiés en code)
-- R0.3 : surfaces coquille-vide refusées (titre/labels réels exigés).
-- Probe/ping : le placeholder ne passe plus la validation.
-- `captureSnipe` : null-guard sur `message.author` (messages partiels après restart).
+Anti-régressions notables : surfaces coquille-vide refusées (titre et labels réels exigés) ; placeholders probe/ping refusés ; null-guard sur `message.author` dans `captureSnipe`.
 
-## 4. Règles serveur (`modules/rules/`)
+## 5. Règles serveur (`modules/rules/`)
 
-`GuildRulesService` : store DB + cache 60 s ; consommé par la Gate (zones/blocked), le ToolRegistry (confirmation destructive ✅/❌) et le SystemPrompt (`<SERVER_RULES>`). Tools `rules.set` (ManageGuild, résolution des IDs via getChannels imposée) / `rules.list`.
+`GuildRulesService` : store DB + cache 60 s ; consommé par la Gate (zones, salons muets), le registry (confirmation destructive) et le SystemPrompt (`<SERVER_RULES>`). Tools `rules.set` (ManageGuild) et `rules.list`. Son `onBoot` lie le service au registry et à l'accesseur `getGuildRules`.
 
-## 5. Intégrations chiffrées (`modules/integrations/`)
+## 6. Intégrations chiffrées (`modules/integrations/`)
 
-`IntegrationService` (catalogue llm/pixellab/kie) + `secret-box.ts` AES-256-GCM (clé dérivée `ENCRYPTION_SECRET ?? BETTER_AUTH_SECRET ?? token`). Flux UI : `IntegrationStatusPresenter` (panneau V2 pur) → bouton `integration:llm:open` → `IntegrationOpenModalButtonHandler` (garde `GuildAdminPolicy`) → modale 3 champs → `IntegrationSaveModalHandler` → confirmation. La config DB prime sur le bootstrap env.
+`IntegrationService` (catalogue llm/pixellab/kie) + `secret-box.ts` AES-256-GCM (clé dérivée `ENCRYPTION_SECRET ?? BETTER_AUTH_SECRET ?? token`).
 
-## 6. Ingestion (Phase B, `modules/memory/`)
+Flux UI : `IntegrationStatusPresenter` (panneau V2 pur) → bouton `integration:llm:open` (`@Button`) → `IntegrationOpenModalButtonHandler` (`@ButtonHandler`, garde `GuildAdminPolicy`) → modale `integration-config` (`@ModalComponent`, 3 champs) → `IntegrationSaveModalHandler` (`@ModalHandler`) → `LlmService.applyConfig` : contrôle `GET /models`, rechargement immédiat du runtime, persistance chiffrée.
 
-Voir 00 §5. Découpage : service (263 l.) / distiller (82 l.) / tools (61 l.) / listener (36 l.) — tous sous le seuil God Class.
+`IntegrationService.upsert` seul ne suffit pas : il persiste et vide son cache, mais `LlmService` garde sa configuration en mémoire depuis le boot. C'est `applyConfig` qui fait les deux.
 
-## 7. Memory & curator
+Couverture : `integration.handlers.spec.ts` (9 tests : métadonnées de routage, garde Policy, appel à `applyConfig`, jamais la clé dans la réponse). Le clic réel reste à confirmer à la main : un rig REST ne peut pas produire d'interaction de composant.
 
-Fiches consolidées ≤2 000 car. avec gardes en code : budget, anti-wipe (réduction >50 % refusée au-delà de 200 car.), sujet (la fiche membre référence `<@userId>`), zone de données anti-injection. Opt-out total (« oublie-moi ») → purge + blocage futur.
+## 7. Configuration par serveur (`modules/guild-config/`)
+
+`AgentSettingsService` (thinking, fil de config) et `ConfigThreadService` (fil privé `config-bot`, tools `config.panel`, `server.overview`, `config.thinking`). Le panneau montre uniquement ce qui est appliqué : règles, skills, intégrations avec leurs modèles, mode thinking. Jamais les clés, jamais la liste des blueprints ni la configuration legacy.
+
+## 8. Mémoire, curator et ingestion (`modules/memory/`)
+
+Fiches consolidées ≤2 000 caractères avec gardes en code : budget, anti-wipe (réduction de plus de 50 % refusée au-delà de 200 caractères), sujet référencé, zone de données anti-injection. Opt-out total (« oublie-moi ») : purge et blocage futur.
+
+Ingestion de l'historique au premier join : curseur par salon, reprise après crash, plafonds (40 salons, 600 messages par salon, 20 appels LLM).

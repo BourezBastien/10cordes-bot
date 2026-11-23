@@ -1,52 +1,119 @@
-# Audit 06 — Rapport E2E live (serveur 1550835980116824136)
+# Audit 06 · Rapport E2E live
 
-> Sessions du 23/11/2026 (14:03 → 16:08). Bot builds successifs post-Phase A/B/C/D + fixes du jour. Journal forensique : `apps/bot/logs/e2e-suite-1550835980116824136.jsonl` (append-only, runId par exécution).
+> Serveur de dev `1550835980116824136`, journée du 23/11/2026. Heures locales (UTC+1).
+> Journal forensique de la suite : `apps/bot/logs/e2e-suite-1550835980116824136.jsonl` (append-only, un `runId` par exécution).
 
-## 1. Suite complète : 10 scénarios, 10/10 PASS
+## 1. Le rapport précédent était surestimé
 
-| # | Scénario | Vérification | Résultat |
+La première version de ce rapport annonçait « 33/33 PASS » (suite 10, gate 5, surface 4, features4 6, evals 8). Les rigs ne vérifiaient alors que le NOM du tool appelé. Un contrôle rétrospectif dans l'audit montre que 5 de ces 33 résultats masquaient des tools en échec :
+
+| Résultat annoncé | Réalité dans l'audit |
+|---|---|
+| `eval.activity-summary` PASS | `activity.summary` avait planté (BigInt) |
+| `members.pickRandom` PASS | 2 appels, 2 échecs ; le contrôle ne testait pas le tirage |
+| `server.overview` PASS | `server.overview` et `config.panel` en échec à chaque appel |
+| `config.panel` PASS | tool en échec ; le fil existed, créé par un appel qui avait planté avant de poster le panneau |
+| `tickets.surface` PASS | 2 `surface.create` en échec ; la surface vérifiée datait d'un run précédent |
+
+Le compteur de la suite était également faux (un `splice` retirait le verdict du scénario précédent). Les rigs sont désormais stricts (voir §2). Ce rapport remplace le précédent.
+
+## 2. Critère de réussite
+
+Un tool attendu ne compte que s'il a réussi : ligne d'audit `assistant.tool.<nom>` avec `ok: true`. Chaque échec de tool reste affiché dans la note du scénario, même quand le scénario passe (échec récupéré après correction par le modèle). Un scénario prouve quelque chose créé PENDANT le scénario.
+
+## 3. Résultats
+
+Trois builds ont été utilisés dans la journée. Chaque résultat est rattaché au sien.
+
+| Build | Contenu | Passage du rig | Rig | Résultat |
+|---|---|---|---|---|
+| antérieur | gate durcie, try/catch du listener | 16:03 | `e2e-gate` | **5/5** (« autre bot » ignoré faute d'autre bot sur le serveur) |
+| antérieur | tools surface identifiables par `messageId`, patch de l'en-tête | 17:21 | `e2e-surface` | **4/4** (arrêt du bot pendant le timer, rattrapage au redémarrage) |
+| A | `activity.summary` corrigé, sérialisation tolérante aux BigInt | 17:31 et 17:37 | rejoué seul | `eval.activity-summary` PASS, réponse vérifiée dans le salon (7 messages, 5 le 22/11, 2 le 23/11) |
+| B | liaisons runtime dans des providers, erreurs actionnables des surfaces, repli de `members.pickRandom` | 17:57 à 18:02 | `tool-evals` | **8/8**, aucun tool en échec |
+| B | idem | 18:02 à 18:11 | `e2e-features4` | **6/6** |
+| B | idem | 18:11 à 18:46 | `e2e-full-suite` | **11/11** |
+| C (final) | + handlers d'intégration décorés, `applyConfig`, vue de configuration limitée aux compétences appliquées | voir §7 | `server.overview`, `config.panel`, puis `tool-evals` | voir §7 |
+
+`e2e-gate` et `e2e-surface` n'ont pas été relancés sur les builds B et C : la gate et le moteur de triggers n'ont pas été modifiés depuis.
+
+Cumul du build B : 8 + 6 + 11 = **25/25**, tous avec le critère strict.
+
+## 4. Suite complète, scénario par scénario (build B, 19:11 à 19:46)
+
+| # | Scénario | Preuve | Résultat |
 |---|---|---|---|
-| 1 | `gate.noise` | « HAHAHAHYA QUOI » en salon dédié → ignoré, **zéro appel LLM** (anti-bruit social) | ✅ |
-| 2 | `rules.list` | question règles → lecture du store GuildRule (rules.list/server.overview) | ✅ |
-| 3 | `server.overview` | « montre ta configuration » → vue APPLIQUÉE (règles/skills/intégrations), **pas de dump getConfig legacy** | ✅ |
-| 4 | `config.panel` | fil privé **⚙️┃config-bot créé** + panneau V2 (ConfigPanelPresenter) | ✅ |
-| 5 | `tickets.surface` | panneau tickets via surface.create kind=ticket (moteur générique, zéro handler dédié) | ✅ |
-| 6 | `skills.voice` | recette vocaux temporaires → search_skills (135 blueprints) | ✅ |
-| 7 | `skills.casino` | recette casino → search_skills | ✅ |
-| 8 | `polls.compose` | surface 3 boutons + votes DB + clôture : patchState + **description avec résultats** + boutons désactivés | ✅ |
-| 9 | `ingest.status` | statut de l'ingestion historique (guild.ingestStatus) | ✅ |
-| 10 | `memory.forget` | « oublie-moi » → memory.forget + opt-out en DB (cleanup post-test) | ✅ |
+| 1 | `gate.noise` | « HAHAHAHYA QUOI » dans le salon dédié : aucun traitement, zéro appel LLM | PASS |
+| 2 | `rules.list` | `rules.list` réussi | PASS |
+| 3 | `server.overview` | `server.overview` et `config.panel` réussis, pas de renvoi brut de la configuration legacy | PASS |
+| 4 | `config.panel` | tool réussi, fil `config-bot` de type 12 (fil privé), panneau du bot réellement posté dans le fil | PASS |
+| 5 | `tickets.surface` | surface « ticket » `ypl2jm` créée pendant le scénario | PASS (4 échecs de tools récupérés) |
+| 6 | `skills.voice` | `search_skills` réussi | PASS |
+| 7 | `skills.casino` | `search_skills` réussi | PASS (2 échecs récupérés) |
+| 9 | `ingest.status` | `guild.ingestStatus` réussi | PASS |
+| 10 | `memory.forget` | `memory.forget` réussi, opt-out présent en base | PASS |
+| 8 | `polls.compose` | surface créée, deux votes écrits, message édité avec les résultats | PASS |
+| 11 | `rule.confirm` | voir §6 | PASS |
 
-**Timeline honnête** : passe complète 15:39 → 9/10 (`skills.casino` en variance modèle : réponse directe sans consultation de la bibliothèque ; prompt rendu explicite « cherche d'abord la recette » comme `skills.voice`) → revalidation ciblée 16:06 → PASS. Les 10 scénarios ont chacun leur verdict PASS dans le journal.
+Nettoyage vérifié après la suite : règle de confirmation rétablie à `false`, aucun opt-out restant, aucune surface de test, aucun vote de test, aucun salon témoin restant.
 
-## 2. Rigs spécialisés (mêmes sessions)
+## 5. Échecs de tools observés (tous récupérés par le modèle)
 
-| Rig | Scénarios | Résultat |
+Ils sont listés ici parce que les anciens rigs les auraient masqués.
+
+| Scénario | Tools en échec avant réussite |
+|---|---|
+| `features4 / surface.runtool` | 3 × `surface.create` : `rows.0.kind`, `rows.0.buttons`, `rows.0.buttons.0.pipeline` |
+| `tickets.surface` | 2 × `surface.get` (identifiant inconnu), 2 × `surface.create` : `rows.0.buttons.0.pipeline.0.type`, puis `.0.name` |
+| `skills.casino` | 1 × `surface.get`, 1 × `surface.create` : `rows.0.buttons.0.pipeline.0.modal.inputs` |
+
+Ces refus sont normaux (définitions invalides, mauvais identifiant). Leur motif indique désormais le champ en faute ou l'identifiant fourni, ce qui permet au modèle de corriger en un ou deux essais au lieu de retenter à l'aveugle.
+
+Point d'attention : le modèle a utilisé deux fois le même identifiant de message inconnu (`1572355168429670451`) pour désigner une surface. À surveiller.
+
+## 6. Confirmation des actions destructives (scénario `rule.confirm`, live)
+
+C'est la première confirmation destructive jamais affichée par le bot. La liaison des règles au registry vivait dans un hook de module qui ne s'exécute pas (voir `05-verification-anomalies.md` §5).
+
+Déroulé sur le serveur de dev :
+1. Règle `confirmDestructiveActions` activée par le bot lui-même (`rules.set` réussi).
+2. Salon témoin `e2e-confirm-probe` créé par le rig.
+3. Demande à l'agent de supprimer ce salon.
+
+Résultat : 1 tentative de suppression, bloquée (« Action destructive bloquée par la règle du serveur »), 1 surface de confirmation affichée (ligne d'audit `rule.confirm.shown`), salon intact. Règle rétablie et salon témoin supprimé ensuite.
+
+**Non vérifié** : le clic sur ✅. Il exige une vraie interaction Discord, qu'un rig ne peut pas produire. Le chemin d'approbation (clé d'accord posée, action exacte autorisée à passer, autre cible toujours bloquée) est couvert par `tool-registry.confirm.spec.ts`.
+
+## 7. Build final (C) : test de fumée
+
+Build C démarré à 18:47. Il ajoute aux correctifs du build B les handlers d'intégration décorés (avec enregistrement par `applyConfig`) et la vue de configuration limitée aux compétences appliquées.
+
+| Rig | Passage | Résultat |
 |---|---|---|
-| `e2e-gate.mjs` | webhook intrus, non-adressé, mention, reply-to-bot, autre bot | **5/5 PASS** |
-| `e2e-surface.mjs` | surface → trigger armé → **KILL bot pendant le timer** → guardian → rattrapage → bouton VERT ACTIF | **4/4 PASS** |
-| `e2e-features4.mjs` | surface.runtool (définition persistée), members.pickRandom, polls.compose, records.counter, audit channel.created/deleted, skills sans fantômes | **6/6 PASS** |
-| `tool-evals.mjs` | 8 prompts canoniques (weather, activity-summary, translate, server-status, voice-limit, reminder, jobs-schedule, search-routing) | **8/8 PASS** |
+| `e2e-full-suite` (`server.overview`, `config.panel`) | 18:48 à 18:52 | **2/2** : `config.panel` = tool réussi, fil privé, panneau posté |
+| `tool-evals` | 18:52 à 18:59 | **8/8**, dont 1 échec récupéré (`records.create`, premier appel sans `dueAtIso`, second accepté) |
 
-**Cumul session : 33/33 PASS** (10 suite + 5 gate + 4 surface + 6 features4 + 8 evals).
+Panneau de configuration posté à 18:51 dans le fil privé `config-bot` (lu via l'API) : 6 compétences appliquées (1 créée automatiquement pour la mémoire d'un membre, 5 recettes de la bibliothèque utilisées par l'agent), la ligne « Recettes de la bibliothèque disponibles : 135, dont 5 déjà utilisées (non listées) », les intégrations image et musique, l'agent IA avec son modèle, le mode thinking. Le catalogue des recettes n'est plus listé et « Fournisseur IA » n'apparaît plus en double.
 
-## 3. Fixes produits déclenchés par ces runs
+Le build committé ajoute au build C deux changements sans rapport avec les rigs, qui n'ont donc pas été relancés :
 
-1. **`llm.service` baseUrl sans fallback env** : « Invalid URL: null/chat/completions » quand la config venait de l'env (la clé avait le fallback, pas l'URL). Corrigé aux deux call sites.
-2. **`surface.get/patchState/updateComponent` identifient la surface par surfaceId OU messageId** : le modèle fumbliat l'ID interne quand on ne lui donne que le message.
-3. **`surface.updateComponent` patche aussi l'en-tête** (title/description) : impossible d'afficher les résultats d'un vote AVANT ce fix.
-4. **`IntegrationModule` handlers=0** : les handlers étaient en providers sans la clé `handlers` → bouton « Connecter un fournisseur IA » mort. Corrigé (boot affiche 1 handler).
-5. **Rig surface** : exit non-zéro du guardian (impatience healthz) traité comme fatal → tolérant + waitHealthz 180 s.
-6. **Anti-bruit gate** validé en live par `gate.noise` (scénario 1).
+- un balayage de texte : 153 séquences `\u0029` (une parenthèse fermante) utilisées à la place de `\u0027` (l'apostrophe) dans 26 fichiers, dont des descriptions de tools, le prompt système et des triggers de recettes (« Boutique d)articles ») ;
+- une correction du seed des recettes, qui réactive une recette purgée lorsque son trigger revient au catalogue (sauf suppression par le staff). Elle répare la disparition de la recette du système AFK causée par la coquille.
 
-## 4. Nouveautés livrées dans la foulée (critique produit owner)
+Démarrage de ce build à 19:07 : connecté, 135 recettes au catalogue, confirmation destructive opérationnelle. État de la bibliothèque vérifié en base sur les deux serveurs : 135 recettes actives avec leur trigger corrigé, aucune absente, aucune orpheline, la recette AFK active.
 
-- **Panneau de configuration refondu** (retour du 23/11) : une demande de config montre UNIQUEMENT ce qui est appliqué sur CE serveur - règles GuildRule, skills actifs (top + total), intégrations connectées avec leurs **modèles** (jamais les clés), mode thinking. Tools : `config.panel` (fil privé ⚙️┃config-bot), `server.overview` (vue conversationnelle), `config.thinking` (adaptive/always/off). Zéro listing des 135 blueprints ni de la config legacy.
-- **Thinking adaptatif par serveur** (défaut `adaptive`) : reasoning_effort envoyé UNIQUEMENT pendant les tours avec tools (pas la conversation simple, pas la synthèse finale), et seulement aux endpoints compatibles (DeepSeek/Anthropic). Réglable via `config.thinking`.
-- **Context7 MCP** configuré (`.mcp.json` gitignored, clé au niveau projet) + règle obligatoire dans AGENTS.md : vérification documentaire avant toute modif d'un package de production.
+## 8. Tests unitaires (build C)
 
-## 5. État final
+55 tests : 35 dans le bot (5 fichiers) et 20 dans `packages/shared`. Les 35 du bot couvrent ce qu'aucun rig ne peut cliquer :
 
-- `E2E_ENABLED=false` dans `.env.example` (+ `E2E_GUILD_ID` documenté) ; le `.env` local de dev garde `true` pour les rigs.
-- Bot en production sur le build final : boot propre, LLM DeepSeek Flash connecté (env), 163 tools, 135 recettes, fil config-bot opérationnel.
-- Journal consolidé : chaque run cumule ses verdicts avec `runId` (append-only).
+- `tool-registry.confirm.spec.ts` (7) : porte de confirmation destructive.
+- `integration.handlers.spec.ts` (9) : métadonnées de routage du bouton et de la modale, garde Policy, appel à `applyConfig`, jamais la clé dans la réponse.
+- `activity-coverage.spec.ts` (6) : profondeur réelle des données.
+- `surface.errors.spec.ts` (6) : messages d'erreur actionnables.
+- `memory-curator.spec.ts` (7) : conservateur de mémoire.
+
+## 9. Ce qui reste à vérifier à la main
+
+1. **Clic sur ✅ Confirmer** lors d'une action destructive, sur un serveur où la règle est activée.
+2. **Bouton « Connecter un fournisseur IA »** : ouverture de la modale, enregistrement, effet immédiat. Le bouton n'apparaît que si aucun fournisseur n'est configuré.
+3. **Clic sur un bouton de surface** (tickets, sondage) : le rendu et les pipelines sont vérifiés en base, pas au clic.
