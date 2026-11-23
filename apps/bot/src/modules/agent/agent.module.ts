@@ -5,25 +5,15 @@ import { ModerationModule } from '../moderation/moderation.module';
 import { ModuleManagerModule } from '../module-manager/module-manager.module';
 import { ToolRegistryModule } from '../tool-registry/tool-registry.module';
 import { AgentService } from './agent.service';
-import { PanelActionButtonHandler, PanelButton0Handler, PanelButton1Handler, PanelButton2Handler, PanelButton3Handler, PanelButton4Handler, PanelSelectHandler } from './panels.handlers';
-import { PanelsService } from './panels.service';
 import { SkillService } from './skill.service';
 import { SkillBlueprintLibrary } from './skill-blueprint.library';
 
-// Plus de commandes slash agent : tout passe par l'agent conversationnel
-// (tools discord.* en exécution directe, permission-gated en code).
+// Plus de commandes slash agent NI panels à handlers : tout passe par
+// l'agent conversationnel (tools discord.* permission-gated en code) et
+// le moteur générique de surfaces.
 @Module({
   imports: [AuditModule, GuildConfigModule, ModerationModule, ModuleManagerModule, ToolRegistryModule],
-  handlers: [
-    PanelButton0Handler,
-    PanelButton1Handler,
-    PanelButton2Handler,
-    PanelButton3Handler,
-    PanelButton4Handler,
-    PanelSelectHandler,
-    PanelActionButtonHandler,
-  ],
-  providers: [AgentService, SkillService, SkillBlueprintLibrary, PanelsService],
+  providers: [AgentService, SkillService, SkillBlueprintLibrary],
   exports: [AgentService],
 })
 export class AgentModule {}

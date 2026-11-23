@@ -7,9 +7,10 @@ import { GuildConfigService } from '../guild-config/guild-config.service';
 import { PrismaService } from '../database/prisma.service';
 
 /**
- * Tools de sécurité : configuration du gate de vérification par l'agent
- * (activer/désactiver, salon, rôle vérifié, délai de kick) et permission
- * nodes (override allow/deny par tool pour un rôle ou un membre).
+ * Tools de sécurité : permission nodes RBAC (override allow/deny par tool
+ * pour un rôle ou un membre). Le gate captcha historique a été retiré
+ * (remplacé par le moteur générique : l'agent construit une surface de
+ * vérification à la demande via les SkillBlueprints).
  */
 @Injectable()
 export class SecurityService implements SpraxiumOnBoot {
@@ -98,74 +99,6 @@ export class SecurityService implements SpraxiumOnBoot {
           if (rows.length === 0) return { ok: true, summary: 'Aucun permission node posé sur ce serveur.' };
           const lines = rows.map((row) => `${row.effect.toUpperCase()} ${row.tool} → \`${row.targetId}\``);
           return { ok: true, summary: `${rows.length} node(s) : ${lines.join(' | ')}` };
-        },
-      },
-      {
-        name: 'security.verify.setup',
-        description:
-          'Configure le gate de vérification anti-raid : activation, salon du message, rôle vérifié, délai de kick. Désactivé par défaut.',
-        category: 'security',
-        paramsSchema: z.object({
-          enabled: z.boolean().optional(),
-          channelId: z.string().optional().describe('Salon du message de vérification (vide = salon système)'),
-          roleId: z.string().optional().describe('Rôle attribué après vérification'),
-          kickMinutes: z.number().int().min(0).max(120).optional().describe('Kick si non vérifié après N minutes (0 = jamais)'),
-        }),
-        requiredModules: [],
-        permissions: ['ManageGuild'],
-        destructive: false,
-        systemPrompt:
-          'Pour « mets en place une vérification à l\u0029arrivée » : demande le salon et le rôle vérifié si absents, patch la config, puis confirme en UNE ligne (kick automatique inclus). Ne reposte pas le message toi-même.',
-        handler: async (input, ctx) => {
-          if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
-          const { enabled, channelId, roleId, kickMinutes } = input as {
-            enabled?: boolean;
-            channelId?: string;
-            roleId?: string;
-            kickMinutes?: number;
-          };
-          const patch: Record<string, unknown> = { security: {} };
-          const securityPatch = patch.security as Record<string, unknown>;
-          if (enabled !== undefined) securityPatch.verificationEnabled = enabled;
-          if (channelId !== undefined) securityPatch.verificationChannelId = channelId;
-          if (roleId !== undefined) securityPatch.verifiedRoleId = roleId;
-          if (kickMinutes !== undefined) securityPatch.kickMinutes = kickMinutes;
-          await this.config.patch(ctx.guildId, patch);
-          const config = await this.config.get(ctx.guildId);
-          const line = (label: string, value: string | null): string => `**${label}** : ${value ?? 'non configuré'}`;
-          return {
-            ok: true,
-            summary:
-              'Gate de vérification : ' +
-              [
-                line('activé', config.security.verificationEnabled ? 'OUI' : 'non'),
-                line('salon', config.security.verificationChannelId ? `<#${config.security.verificationChannelId}>` : 'salon système'),
-                line('rôle vérifié', config.security.verifiedRoleId ? `<@&${config.security.verifiedRoleId}>` : null),
-                line('kick', `${config.security.kickMinutes} min`),
-              ].join(' · '),
-          };
-        },
-      },
-      {
-        name: 'security.verify.status',
-        description: 'État du gate de vérification (activé, salon, rôle, délai de kick).',
-        category: 'security',
-        paramsSchema: z.object({}),
-        requiredModules: [],
-        permissions: ['ManageGuild'],
-        destructive: false,
-        systemPrompt: 'Read-only.',
-        handler: async (_input, ctx) => {
-          if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
-          const config = await this.config.get(ctx.guildId);
-          return {
-            ok: true,
-            summary:
-              `Gate ${config.security.verificationEnabled ? 'ACTIF' : 'désactivé'} — salon : ` +
-              `${config.security.verificationChannelId ? `<#${config.security.verificationChannelId}>` : 'système'} · ` +
-              `rôle : ${config.security.verifiedRoleId ? `<@&${config.security.verifiedRoleId}>` : 'aucun'} · ` +
-              `kick : ${config.security.kickMinutes} min.`,
-          };
         },
       },
     ];

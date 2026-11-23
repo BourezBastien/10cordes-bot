@@ -218,13 +218,7 @@ export class GuildsController {
       _count: { action: true },
     });
 
-    const [topXp, cases, casesByAction] = await Promise.all([
-      this.prisma.userLevel.findMany({
-        where: { guildId },
-        orderBy: [{ level: 'desc' }, { xp: 'desc' }],
-        take: 10,
-        select: { userId: true, level: true, xp: true },
-      }),
+    const [cases, casesByAction] = await Promise.all([
       this.prisma.modCase.count({ where: { guildId, createdAt: { gte: since } } }),
       this.prisma.modCase.groupBy({
         by: ['action'],
@@ -232,6 +226,8 @@ export class GuildsController {
         _count: { action: true },
       }),
     ]);
+    // Levels purgés (moteur générique) : topXp gardé vide pour la compat dashboard.
+    const topXp: Array<{ userId: string; level: number; xp: number }> = [];
 
     return {
       windowDays: 14,

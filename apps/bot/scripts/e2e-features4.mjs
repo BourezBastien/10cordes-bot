@@ -1,6 +1,6 @@
 /**
  * Tests ciblés VAGUE 4 : la couche PRIMITIVES pure.
- * - components.post avec action runTool (sendMessage au clic) — vérif layout + DB
+ * - surface.create avec pipeline runTool (sendMessage au clic) — vérif message + définition persistée
  * - members.pickRandom sur un rôle de test
  * - skills sans tools fantômes (sweep audit)
  * UNE exécution, E2E_ONLY filtrable, tout nettoyé.
@@ -143,18 +143,31 @@ async function main() {
     verdict(name, missingTools.length === 0 && pass, `${missingTools.length ? `tools manquants: ${missingTools.join(', ')} ; ` : ''}${note}`);
   };
 
-  // ---- 1. Layout avec bouton runTool : la définition persistée porte l'action ----
+  // ---- 1. Surface avec bouton runTool : la définition persistée porte le pipeline ----
   let layoutMessageId = null;
+  let layoutSurfaceId = null;
   await runScenario(
-    'components.runtool',
-    "Poste un panel ici : titre « E2E-features4 runTool », description « test bouton runTool », une rangée avec un bouton qui exécute le tool sendMessage dans ce salon avec pour input channelId = l'id de ce salon et content = « E2E-features4 runTool exécuté ». NE L'EXÉCUTE PAS toi-même, poste juste le panel.",
-    ['sendPanel'],
+    'surface.runtool',
+    `Crée une surface ici (surface.create, channelId = ${channelId}) : titre « E2E-features4 runTool », description « test bouton runTool », une rangée avec un bouton « Exécuter » dont le pipeline exécute runTool (tool sendMessage, input channelId = ${channelId} et content = « E2E-features4 runTool exécuté »). NE L'EXÉCUTE PAS toi-même, crée juste la surface.`,
+    ['surface.create'],
     async () => {
       const messages = await rest(`/channels/${channelId}/messages?limit=10`);
       const panel = messages.find((m) => JSON.stringify(m.components || '').includes('E2E-features4 runTool'));
       layoutMessageId = panel?.id ?? null;
-      const hasRunTool = panel ? JSON.stringify(panel.components || '').includes('runTool') : false;
-      return { pass: layoutMessageId !== null && hasRunTool, note: panel ? (hasRunTool ? 'action runTool dans le layout' : 'bouton sans runTool') : 'panel introuvable' };
+      // La définition persistée (InteractiveSurface.definition) doit porter
+      // le pipeline runTool — c'est ça qui survit aux redémarrages.
+      const p = new PrismaClient();
+      try {
+        const row = await p.interactiveSurface.findFirst({
+          where: { guildId, channelId },
+          orderBy: { createdAt: 'desc' },
+        });
+        layoutSurfaceId = row?.id ?? null;
+        const hasRunTool = row ? row.definition.includes('runTool') : false;
+        return { pass: layoutMessageId !== null && hasRunTool, note: panel ? (hasRunTool ? 'pipeline runTool dans la définition persistée' : 'définition sans runTool') : 'message surface introuvable' };
+      } finally {
+        await p.$disconnect();
+      }
     },
   );
 
@@ -179,20 +192,20 @@ async function main() {
     await rest(`/guilds/${guildId}/roles/${role.id}`, { method: 'DELETE' }).catch(() => {});
   }
 
-  // ---- 3. Sondage COMPOSÉ complet : panel vote → votes → tally.votes → édité ----
+  // ---- 3. Sondage COMPOSÉ complet : surface vote → votes → dépouille → édité ----
   if (!only || only.includes('polls.compose')) {
     await sleep(COOLDOWN_MS);
-    // 3a. Panel avec 3 boutons vote (sans clôture : on dépouille à la main).
+    // 3a. Surface avec 3 boutons vote (record.write component_votes, sans clôture).
     const watermarkA = new Date(Date.now() - 2_000);
     await send(
-      "Poste ici un sondage V2 « E2E-features4 sondage » avec exactement 3 boutons de vote : Alpha, Beta, Gamma (action vote). NE LE CLÔTURE PAS, poste juste le panel.",
+      `Crée une surface ici (surface.create, channelId = ${channelId}) : titre « E2E-features4 sondage », description « un vote par personne », 3 boutons Alpha, Beta, Gamma — chaque clic exécute record.write dans la collection component_votes avec choice = le label du bouton et messageId = celui de la surface. NE LA CLÔTURE PAS, crée juste la surface.`,
     );
     const entriesA = await waitQuiescent(watermarkA);
-    const sentPanel = entriesA.some((e) => e.action === 'assistant.tool.sendPanel');
+    const surfaceCreated = entriesA.some((e) => e.action === 'assistant.tool.surface.create');
     const messagesA = await rest(`/channels/${channelId}/messages?limit=10`);
     const panel = messagesA.find((m) => JSON.stringify(m.components || '').includes('E2E-features4 sondage'));
     if (!panel) {
-      verdict('polls.compose', false, 'panel de sondage introuvable');
+      verdict('polls.compose', false, 'message de sondage introuvable');
     } else {
       // 3b. Deux votes écrits directement en base (le clic exige une vraie
       // interaction Discord, non simulable en REST) avec le messageId EXACT.
@@ -208,18 +221,18 @@ async function main() {
       } finally {
         await prismaVote.$disconnect();
       }
-      // 3c. Dépouillement par le bot (tool tally.votes).
+      // 3c. Dépouillement par le bot (records.search + surface.patchState/updateComponent).
       const watermarkB = new Date(Date.now() - 2_000);
       await sleep(COOLDOWN_MS);
-      await send(`Dépouille le sondage du message id ${panel.id} avec tally.votes (close=true).`);
+      await send(`Clôture le sondage du message id ${panel.id} : dépouille les votes de component_votes (records.search sur messageId) puis affiche les résultats dans la surface (surface.patchState avec un état closed/résultats) et désactive les boutons (surface.updateComponent).`);
       await waitQuiescent(watermarkB);
       const edited = await rest(`/channels/${channelId}/messages/${panel.id}`).catch(() => null);
-      const editedOk = edited && JSON.stringify(edited.components || '').includes('Résultats du sondage');
+      const editedOk = edited && JSON.stringify(edited.components || '').includes('Résultats');
       const countsOk = edited && /Alpha/.test(JSON.stringify(edited.components || '')) && /Beta/.test(JSON.stringify(edited.components || ''));
       verdict(
         'polls.compose',
-        sentPanel && Boolean(editedOk) && Boolean(countsOk),
-        `${sentPanel ? 'panel posté' : 'sendPanel manquant'} ; ${editedOk ? 'message édité avec résultats' : 'pas de résultats'}${countsOk ? ' (choisis Alpha/Beta présents)' : ''}`,
+        surfaceCreated && Boolean(editedOk) && Boolean(countsOk),
+        `${surfaceCreated ? 'surface créée' : 'surface.create manquant'} ; ${editedOk ? 'message édité avec résultats' : 'pas de résultats'}${countsOk ? ' (choisis Alpha/Beta présents)' : ''}`,
       );
     }
   }

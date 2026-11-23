@@ -23,17 +23,13 @@ import { LegalController } from './modules/api/legal.controller';
 import { MetaController } from './modules/api/meta.controller';
 import { HealthController } from './modules/health/health.controller';
 import { HealthMonitor } from './modules/health/health.monitor';
-import { RolesModule } from './modules/roles/roles.module';
-import { TicketsModule } from './modules/tickets/tickets.module';
 import { ToolRegistryModule } from './modules/tool-registry/tool-registry.module';
-import { WelcomeModule } from './modules/welcome/welcome.module';
+
 import { WebToolsModule } from './modules/webtools/webtools.module';
 import { MusicModule } from './modules/music/music.module';
 import { VoiceModule } from './modules/voice/voice.module';
 import { ServerlifeModule } from './modules/serverlife/serverlife.module';
 import { SecurityModule } from './modules/security/security.module';
-import { InvitesModule } from './modules/invites/invites.module';
-import { LevelsModule } from './modules/levels/levels.module';
 import { JobsModule } from './modules/jobs/jobs.module';
 import { RecordsModule } from './modules/records/records.module';
 import { UtilityModule } from './modules/utility/utility.module';
@@ -58,16 +54,12 @@ import { UtilityModule } from './modules/utility/utility.module';
     MemoryModule,
     ModerationModule,
     ModuleManagerModule,
-    RolesModule,
-    TicketsModule,
     ToolRegistryModule,
     WebToolsModule,
     MusicModule,
     VoiceModule,
     ServerlifeModule,
     SecurityModule,
-    InvitesModule,
-    LevelsModule,
     JobsModule,
     RecordsModule,
     UtilityModule,
@@ -77,7 +69,6 @@ import { UtilityModule } from './modules/utility/utility.module';
     GuildRulesModule,
     IntegrationModule,
     AssistantModule,
-    WelcomeModule,
   ],
   providers: [AuthController, MetaController, GuildsController, LegalController, HealthController, HealthMonitor],
 })

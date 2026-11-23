@@ -389,7 +389,7 @@ export const BLUEPRINT_LIBRARY: readonly SkillBlueprint[] = [
       options: str('Options séparées par virgules', 'Option A, Option B, Option C'),
     },
     requiredTools: ['surface.create', 'records.create', 'records.search', 'trigger.schedule', 'surface.updateComponent'],
-    workflow: '1. Surface avec un bouton par option (action record.write dans component_votes). 2. Chaque vote modifiable (records.search par messageId + userId, update si existant). 3. trigger.schedule à closeDelay avec runTool tally.votes. 4. tally édite le message : pourcentages, barres, gagnant, boutons retirés.',
+    workflow: '1. Surface avec un bouton par option (action record.write dans component_votes). 2. Chaque vote modifiable (records.search par messageId + userId, records.update si existant). 3. trigger.schedule à closeDelay avec runTool records.search (collection component_votes, filtre messageId) pour dépouiller. 4. Clôture : surface.patchState (state.closed = true, affiche pourcentages, barres, gagnant) + surface.updateComponent pour désactiver chaque bouton.',
   },
   {
     slug: 'giveaway-reaction-random',
