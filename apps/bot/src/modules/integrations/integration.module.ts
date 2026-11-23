@@ -13,11 +13,11 @@ import { IntegrationOpenModalButtonHandler, IntegrationSaveModalHandler } from '
 @Global()
 @Module({
   imports: [AuditModule, DatabaseModule, ToolRegistryModule],
-  providers: [
-    IntegrationService,
-    IntegrationOpenModalButtonHandler,
-    IntegrationSaveModalHandler,
-  ],
+  // handlers (et pas seulement providers) : sans la clé `handlers`, le
+  // framework n'enregistre PAS les interactions - le bouton integration:llm:open
+  // restait mort (tableau boot "Handlers: 0").
+  handlers: [IntegrationOpenModalButtonHandler, IntegrationSaveModalHandler],
+  providers: [IntegrationService],
   exports: [IntegrationService],
 })
 export class IntegrationModule {}

@@ -8,6 +8,7 @@ import { getToolRegistry } from '../tool-registry/tool-registry.service';
 import { AppEnv } from '../../app.env';
 import { encryptSecret, decryptSecret, isEncrypted } from '../../shared/crypto/secret-box';
 import { fileLog } from '../logging/file-log.service';
+import { bindIntegrations } from './integration.runtime';
 
 /**
  * IntegrationService (R2) — le cœur de la demande providers génériques :
@@ -83,6 +84,9 @@ export class IntegrationService implements SpraxiumOnBoot {
 
   onBoot(): void {
     getToolRegistry().register(this.statusTool());
+    // Accès runtime pour ConfigThreadService (GuildConfigModule se charge
+    // avant ce module dans l'ordre d'AppModule — pattern getLlm).
+    bindIntegrations(this);
     void this.migrateLegacy();
     this.log.info(`Integrations ready (${INTEGRATION_CATALOG.length} au catalogue, chiffrement AES-256-GCM).`);
   }

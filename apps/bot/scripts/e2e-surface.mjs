@@ -160,7 +160,7 @@ async function main() {
     verdict('pivot.trigger-green', Boolean(scheduled && armed), armed ? `trigger armé (runAt ${armed.runAt?.toISOString()})` : 'trigger.schedule non exécuté');
 
     // REDÉMARRAGE DU BOT PENDANT LE TIMER (le point critique du rattrapage).
-    console.log('[REBOOT] kill du bot PENDANT le timer...');
+    console.log('[REBOOT] kill du bot PENDANT LE TIMER...');
     try {
       const pid = execFileSync('powershell', ['-Command', "(Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue).OwningProcess"], { encoding: 'utf8' }).trim();
       if (pid) execFileSync('powershell', ['-Command', `Stop-Process -Id ${pid} -Force`]);
@@ -168,8 +168,15 @@ async function main() {
       /* le bot était peut-être déjà arrêté */
     }
     await sleep(3_000);
-    const guardian = execFileSync('node', ['scripts/guardian.mjs'], { cwd: BOT_DIR, detached: true, stdio: 'ignore' });
-    void guardian;
+    // Le guardian relance le bot mais peut sortir non-zéro si son propre
+    // healthz dépasse son délai interne (boot ~20-30 s) : son exit code n'est
+    // PAS le verdict — le vrai critère reste waitHealthz ci-dessous.
+    try {
+      const guardian = execFileSync('node', ['scripts/guardian.mjs'], { cwd: BOT_DIR, detached: true, stdio: 'ignore' });
+      void guardian;
+    } catch {
+      console.log('[REBOOT] guardian sorti non-zéro, le bot a pu être relancé quand même — on attend healthz...');
+    }
     const up = await waitHealthz();
     verdict('pivot.reboot', up, up ? 'bot de retour (healthz 200)' : 'healthz KO après reboot');
     if (!up) process.exit(1);

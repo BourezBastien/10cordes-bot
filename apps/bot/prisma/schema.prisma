@@ -43,6 +43,7 @@ model Guild {
   memberMemories       MemberMemory[]
   memberMemoryProfiles MemberMemoryProfile[]
   ingestionCursors     IngestionCursor[]
+  agentSettings        GuildAgentSettings?
 
   @@map("guilds")
 }
@@ -299,6 +300,18 @@ model IngestionCursor {
 
   @@unique([guildId, channelId])
   @@map("ingestion_cursors")
+}
+
+// ── Réglages agent par serveur (thinking adaptatif, fil config privé) ──
+
+model GuildAgentSettings {
+  guildId        String   @id
+  thinkingMode   String   @default("adaptive") // adaptive | always | off
+  configThreadId String? // fil privé ⚙️┃config-bot
+  updatedAt      DateTime @updatedAt
+  guild          Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@map("guild_agent_settings")
 }
 
 // ── Vie de serveur (birthdays, sticky, AFK, sanctions temporaires, activité) ──

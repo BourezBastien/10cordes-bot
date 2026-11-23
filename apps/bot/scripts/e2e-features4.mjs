@@ -224,7 +224,7 @@ async function main() {
       // 3c. Dépouillement par le bot (records.search + surface.patchState/updateComponent).
       const watermarkB = new Date(Date.now() - 2_000);
       await sleep(COOLDOWN_MS);
-      await send(`Clôture le sondage du message id ${panel.id} : dépouille les votes de component_votes (records.search sur messageId) puis affiche les résultats dans la surface (surface.patchState avec un état closed/résultats) et désactive les boutons (surface.updateComponent).`);
+      await send(`Clôture le sondage du message id ${panel.id} : dépouille les votes de component_votes (records.search sur messageId), puis surface.patchState (state closed/résultats), puis AFFICHE les résultats dans la DESCRIPTION du message via surface.updateComponent (paramètre description, mentionne « Résultats » avec les counts Alpha/Beta), et désactive les 3 boutons (surface.updateComponent disabled).`);
       await waitQuiescent(watermarkB);
       const edited = await rest(`/channels/${channelId}/messages/${panel.id}`).catch(() => null);
       const editedOk = edited && JSON.stringify(edited.components || '').includes('Résultats');

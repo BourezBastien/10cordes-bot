@@ -7,6 +7,7 @@ import { PrismaService } from '../database/prisma.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { ImagelabService } from '../imagelab/imagelab.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
+import { AgentSettingsService } from '../guild-config/agent-settings.service';
 import { setLlmAccessor } from './llm.accessor';
 import { IntegrationService } from '../integrations/integration.service';
 
@@ -131,6 +132,7 @@ export class LlmService implements SpraxiumOnBoot {
     private readonly imagelab: ImagelabService,
     private readonly config: GuildConfigService,
     private readonly integrations: IntegrationService,
+    private readonly agentSettings: AgentSettingsService,
   ) {}
 
   async onBoot(): Promise<void> {
@@ -237,6 +239,27 @@ export class LlmService implements SpraxiumOnBoot {
     return this.runtime?.model || this.env.LLM_MODEL || '';
   }
 
+  /**
+   * THINKING ADAPTATIF (réglage par serveur, défaut 'adaptive') :
+   * - off : jamais de reasoning_effort ;
+   * - always : toujours (si l'endpoint l'accepte) ;
+   * - adaptive : activé UNIQUEMENT pendant l'exécution de tools/compétences
+   *   (tools présents ET tour non-final toolChoice=none). Conversation
+   *   simple et synthèse finale = OFF (réponses rapides, économie).
+   * Compat endpoint : le champ n'est envoyé qu'aux fournisseurs qui
+   * l'acceptent (DeepSeek, Anthropic) — OpenRouter/Groq/Gemini l'excluent.
+   */
+  private async shouldSendThinking(options: ChatOptions, hasTools: boolean, toolChoice: 'auto' | 'none' | undefined): Promise<boolean> {
+    if (!this.env.LLM_EFFORT) return false;
+    const baseUrl = this.runtime?.baseUrl ?? this.env.LLM_API_URL ?? '';
+    if (!/(?:^|\.)deepseek\.com|anthropic/iu.test(baseUrl)) return false;
+    let mode: 'adaptive' | 'always' | 'off' = 'adaptive';
+    if (options.guildId) mode = (await this.agentSettings.get(options.guildId)).thinkingMode;
+    if (mode === 'off') return false;
+    if (mode === 'always') return true;
+    return hasTools && toolChoice !== 'none';
+  }
+
   /** Statut masqué (clé tronquée) pour /setup agent status et les tools. */
   status(): LlmStatus {
     if (this.runtime) {
@@ -304,7 +327,10 @@ export class LlmService implements SpraxiumOnBoot {
     if (!this.configured) {
       throw new Error('Le module IA n\'est pas configuré (aucune clé API).');
     }
-    const baseUrl = this.runtime?.baseUrl ?? null;
+    // Runtime (modal) PRIME ; sinon bootstrap env — la clé ET l'URL doivent
+    // toutes deux retomber sur l'env (le bug « Invalid URL: null » venait du
+    // fallback oublié sur baseUrl).
+    const baseUrl = this.runtime?.baseUrl ?? this.env.LLM_API_URL ?? null;
     const apiKey = this.runtime?.apiKey ?? this.env.LLM_API_KEY;
     const apiTools = tools.map((tool) => ({
       ...tool,
@@ -337,10 +363,9 @@ export class LlmService implements SpraxiumOnBoot {
             content: typeof message.content === 'string' ? stripLoneSurrogates(message.content) : message.content,
           })),
           user_id: options.guildId ?? options.userId,
-          // Champ optionnel : envoyé SEULEMENT s'il est configuré — OpenRouter,
-          // Groq, Gemini et la plupart des proxys rejettent reasoning_effort
-          // (même vide) sur les modèles non-reasoning avec un 400.
-          ...(this.env.LLM_EFFORT ? { reasoning_effort: this.env.LLM_EFFORT } : {}),
+          // Thinking adaptatif : champ omis selon le mode serveur et le type
+          // de tour (voir shouldSendThinking) et sur les endpoints non compatibles.
+          ...((await this.shouldSendThinking(options, apiTools.length > 0, mergedOptions.toolChoice)) ? { reasoning_effort: this.env.LLM_EFFORT } : {}),
           ...(apiTools.length > 0 ? { tools: apiTools, tool_choice: mergedOptions.toolChoice ?? 'auto' } : {}),
         }),
       });
@@ -442,7 +467,7 @@ export class LlmService implements SpraxiumOnBoot {
     tools: OpenAiTool[],
     options: ChatOptions,
   ): Promise<ChatCompletionResult> {
-    const baseUrl = this.runtime?.baseUrl ?? null;
+    const baseUrl = this.runtime?.baseUrl ?? this.env.LLM_API_URL ?? null;
     const apiKey = this.runtime?.apiKey ?? this.env.LLM_API_KEY;
     const model = this.model;
 
@@ -466,8 +491,7 @@ export class LlmService implements SpraxiumOnBoot {
           content: typeof message.content === 'string' ? stripLoneSurrogates(message.content) : message.content,
         })),
         user_id: options.guildId ?? options.userId,
-        // Idem appel streaming : champ omis sauf configuration explicite.
-        ...(this.env.LLM_EFFORT ? { reasoning_effort: this.env.LLM_EFFORT } : {}),
+        ...((await this.shouldSendThinking(options, apiTools.length > 0, options.toolChoice)) ? { reasoning_effort: this.env.LLM_EFFORT } : {}),
         ...(apiTools.length > 0 ? { tools: apiTools, tool_choice: options.toolChoice ?? 'auto' } : {}),
       }),
     });

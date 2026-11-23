@@ -308,25 +308,26 @@ export class SurfaceService implements SpraxiumOnBoot {
     const service = this;
     return defineTool({
       name: 'surface.patchState',
-      description: 'Modifie l\u0027état JSON persistant d\u0027une surface (fusion profonde) puis la RE-REND automatiquement.',
+      description: 'Modifie l\u0027état JSON persistant d\u0027une surface (fusion profonde) puis la RE-REND automatiquement. Identifie la surface par surfaceId OU par messageId (l\u0027id du message Discord qui l\u0027affiche).',
       category: 'surface',
       paramsSchema: z.object({
-        surfaceId: z.string().min(1),
+        surfaceId: z.string().min(1).optional().describe('ID de la surface (renvoyé par surface.create)'),
+        messageId: z.string().min(1).optional().describe('ID du message Discord qui affiche la surface (alternative à surfaceId)'),
         state: z.record(z.string(), z.unknown()).describe('Patch profond à fusionner'),
       }),
       requiredModules: [],
       permissions: ['ManageGuild'],
       destructive: false,
-      systemPrompt: 'Pour initialiser/compléter l\u0029état (owner, compteurs, grilles). Le re-rendu est automatique.',
+      systemPrompt: 'Pour initialiser/compléter l\u0029état (owner, compteurs, grilles, résultats de vote). Le re-rendu est automatique.',
       handler: async (input, ctx): Promise<ToolResult> => {
         if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
-        const { surfaceId, state } = input as { surfaceId: string; state: Record<string, unknown> };
-        const surface = await service.prisma.interactiveSurface.findFirst({ where: { id: surfaceId, guildId: ctx.guildId } });
-        if (!surface) return { ok: false, summary: 'Surface introuvable.' };
+        const { surfaceId, messageId, state } = input as { surfaceId?: string; messageId?: string; state: Record<string, unknown> };
+        const surface = await service.findSurface(ctx.guildId, surfaceId, messageId);
+        if (!surface) return { ok: false, summary: 'Surface introuvable (surfaceId ou messageId requis).' };
         const merged = deepMerge(JSON.parse(surface.state || '{}') as Record<string, unknown>, state) as Record<string, unknown>;
-        await service.saveState(surfaceId, merged);
-        await service.renderSurface(surfaceId);
-        return { ok: true, summary: `État de la surface ${surfaceId.slice(-6)} mis à jour et re-rendu.` };
+        await service.saveState(surface.id, merged);
+        await service.renderSurface(surface.id);
+        return { ok: true, summary: `État de la surface ${surface.id.slice(-6)} mis à jour et re-rendu.` };
       },
     });
   }
@@ -335,11 +336,15 @@ export class SurfaceService implements SpraxiumOnBoot {
     const service = this;
     return defineTool({
       name: 'surface.updateComponent',
-      description: 'Patche un composant d\u0027une surface (label, style, emoji, disabled) par sa clé de binding, puis re-rend le message.',
+      description:
+        'Patche une surface puis re-rend le message : SOIT un composant par sa clé de binding (label, style, emoji, disabled), SOIT l\u0027en-tête (title, description) — ex : afficher les résultats d\u0029un vote dans la description. Identifie la surface par surfaceId OU par messageId.',
       category: 'surface',
       paramsSchema: z.object({
-        surfaceId: z.string().min(1),
-        binding: z.string().min(1).max(30),
+        surfaceId: z.string().min(1).optional().describe('ID de la surface (renvoyé par surface.create)'),
+        messageId: z.string().min(1).optional().describe('ID du message Discord qui affiche la surface'),
+        binding: z.string().min(1).max(30).optional().describe('Clé du bouton/option à patcher'),
+        title: z.string().max(120).optional().describe('Nouveau titre de la surface'),
+        description: z.string().max(3500).optional().describe('Nouvelle description (supporte ## titres) — ex : résultats, pourcentages'),
         label: z.string().max(80).optional(),
         style: z.enum(['primary', 'secondary', 'success', 'danger']).optional(),
         emoji: z.string().max(16).optional(),
@@ -348,19 +353,40 @@ export class SurfaceService implements SpraxiumOnBoot {
       requiredModules: [],
       permissions: ['ManageGuild'],
       destructive: false,
-      systemPrompt: 'La primitive « bouton rouge qui passe vert » : patch disabled/style/label puis re-rendu immédiat.',
+      systemPrompt:
+        'La primitive « bouton rouge qui passe vert » ET « publier les résultats » : patch disabled/style/label d\u0027un binding, ou title/description de l\u0027en-tête (sans binding). Re-rendu immédiat. Pour clôturer un vote : patchState (résultats dans l\u0029état) + description avec les chiffres + disabled sur chaque bouton.',
       handler: async (input, ctx): Promise<ToolResult> => {
         if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
-        const { surfaceId, binding, ...patch } = input as { surfaceId: string; binding: string; label?: string; style?: 'primary' | 'secondary' | 'success' | 'danger'; emoji?: string; disabled?: boolean };
-        const surface = await service.prisma.interactiveSurface.findFirst({ where: { id: surfaceId, guildId: ctx.guildId } });
-        if (!surface) return { ok: false, summary: 'Surface introuvable.' };
+        const { surfaceId, messageId, binding, title, description, ...patch } = input as {
+          surfaceId?: string;
+          messageId?: string;
+          binding?: string;
+          title?: string;
+          description?: string;
+          label?: string;
+          style?: 'primary' | 'secondary' | 'success' | 'danger';
+          emoji?: string;
+          disabled?: boolean;
+        };
+        const surface = await service.findSurface(ctx.guildId, surfaceId, messageId);
+        if (!surface) return { ok: false, summary: 'Surface introuvable (surfaceId ou messageId requis).' };
         const definition = SurfaceDefinitionSchema.parse(JSON.parse(surface.definition));
-        const target = this.findBinding(definition, binding);
-        if (!target) return { ok: false, summary: `Binding « ${binding} » introuvable.` };
-        Object.assign(target, { ...patch, ...(patch.label !== undefined ? { label: patch.label } : {}) });
-        await service.saveDefinition(surfaceId, definition);
-        await service.renderSurface(surfaceId);
-        return { ok: true, summary: `Composant « ${binding} » patché et re-rendu.` };
+        const touched: string[] = [];
+        if (title !== undefined || description !== undefined) {
+          if (title !== undefined) definition.title = title;
+          if (description !== undefined) definition.description = description;
+          touched.push('en-tête');
+        }
+        if (binding !== undefined) {
+          const target = this.findBinding(definition, binding);
+          if (!target) return { ok: false, summary: `Binding « ${binding} » introuvable.` };
+          Object.assign(target, { ...patch, ...(patch.label !== undefined ? { label: patch.label } : {}) });
+          touched.push(`binding « ${binding} »`);
+        }
+        if (touched.length === 0) return { ok: false, summary: 'Rien à patcher : fournis binding, title ou description.' };
+        await service.saveDefinition(surface.id, definition);
+        await service.renderSurface(surface.id);
+        return { ok: true, summary: `Surface re-rendue (${touched.join(' + ')}).` };
       },
     });
   }
@@ -450,21 +476,41 @@ export class SurfaceService implements SpraxiumOnBoot {
     const service = this;
     return defineTool({
       name: 'surface.get',
-      description: 'Lit une surface (définition + état actuel) — diagnostic et édition ultérieure.',
+      description: 'Lit une surface (définition + état actuel) — diagnostic et édition ultérieure. Identifie la surface par surfaceId OU par messageId (l\u0027id du message Discord qui l\u0027affiche).',
       category: 'surface',
-      paramsSchema: z.object({ surfaceId: z.string().min(1) }),
+      paramsSchema: z.object({
+        surfaceId: z.string().min(1).optional(),
+        messageId: z.string().min(1).optional().describe('ID du message Discord qui affiche la surface'),
+      }),
       requiredModules: [],
       permissions: ['ManageGuild'],
       destructive: false,
       systemPrompt: 'Read-only.',
       handler: async (input, ctx): Promise<ToolResult> => {
         if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
-        const { surfaceId } = input as { surfaceId: string };
-        const row = await service.prisma.interactiveSurface.findFirst({ where: { id: surfaceId, guildId: ctx.guildId } });
-        if (!row) return { ok: false, summary: 'Surface introuvable.' };
-        return { ok: true, summary: `Surface ${row.kind} : state=${row.state.slice(0, 400)}`, data: { definition: JSON.parse(row.definition), state: JSON.parse(row.state || '{}'), messageId: row.messageId } };
+        const { surfaceId, messageId } = input as { surfaceId?: string; messageId?: string };
+        const row = await service.findSurface(ctx.guildId, surfaceId, messageId);
+        if (!row) return { ok: false, summary: 'Surface introuvable (surfaceId ou messageId requis).' };
+        return { ok: true, summary: `Surface ${row.kind} : state=${row.state.slice(0, 400)}`, data: { surfaceId: row.id, definition: JSON.parse(row.definition), state: JSON.parse(row.state || '{}'), messageId: row.messageId } };
       },
     });
+  }
+
+  /** Résolution tolérante : par surfaceId exact, sinon par messageId affiché. */
+  private async findSurface(
+    guildId: string,
+    surfaceId: string | undefined,
+    messageId: string | undefined,
+  ): Promise<{ id: string; kind: string; definition: string; state: string; messageId: string | null } | null> {
+    if (surfaceId) {
+      const byId = await this.prisma.interactiveSurface.findFirst({ where: { id: surfaceId, guildId } });
+      if (byId) return byId;
+    }
+    if (messageId) {
+      const byMessage = await this.prisma.interactiveSurface.findFirst({ where: { messageId, guildId }, orderBy: { createdAt: 'desc' } });
+      if (byMessage) return byMessage;
+    }
+    return null;
   }
 }
 

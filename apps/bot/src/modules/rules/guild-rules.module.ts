@@ -3,6 +3,7 @@ import { AuditModule } from '../audit/audit.module';
 import { DatabaseModule } from '../database/database.module';
 import { ToolRegistryModule } from '../tool-registry/tool-registry.module';
 import { bindRegistryRuntimeDeps } from '../tool-registry/tool-registry.service';
+import { bindGuildRules } from './guild-rules.runtime';
 import { GuildRulesService } from './guild-rules.service';
 
 /**
@@ -25,5 +26,7 @@ export class GuildRulesModule implements SpraxiumOnBoot {
     // Le registry lit les règles (confirmation destructive) via cet accesseur
     // runtime : ToolRegistryModule se charge AVANT ce module (ordre AppModule).
     bindRegistryRuntimeDeps({ rules: this.rules });
+    // Idem pour ConfigThreadService (GuildConfigModule se charge avant nous).
+    bindGuildRules(this.rules);
   }
 }

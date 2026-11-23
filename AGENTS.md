@@ -21,6 +21,12 @@ Dependency rule: `apps/bot → @10cordes/shared ← apps/dashboard`. Nothing har
 - **Docs site source:** `...\Discord Bot Framework examples\spraxium-docs` (locales `en/es/pt`) - full doc map inside.
 - **Reference bots (read-only inspiration):** `...\Discord Bot Framework examples\reference-bots\` - skyra (settings/i18n patterns), discord-tickets (Prisma/i18n/tickets), CorwinDev+saiteja (multipurpose patterns + anti-patterns), Discord-AI-Bot (per-channel AI memory, triage gate, typed tools), wardhive (typed action queue, RBAC guards, audit service, geolock).
 
+## Obligatory doc check: Context7 (before touching production packages)
+
+**Règle permanente** : avant TOUTE création, modification, refactoring ou correction impliquant un package de production (`discord.js` v14.x, `@spraxium/*` v0.9.x, `@prisma/client` v6.x, `bullmq`, `ioredis`, `zod`, `better-auth`, etc.), interroger **Context7 MCP** (`resolve-library-id` puis `query-docs`) pour vérifier signatures d'API, options et bonnes pratiques officielles AVANT d'écrire la moindre ligne de code. Si Context7 est indisponible dans la session, le dire explicitement et retomber sur la source locale du framework (ci-dessus) - jamais écrire une signature d'API de mémoire.
+
+Configuration : `.mcp.json` projet (gitignored - NE JAMAIS le committer ni écrire une clé API dans un fichier tracké).
+
 ## Commands (run at repo root unless noted)
 
 ```bash
