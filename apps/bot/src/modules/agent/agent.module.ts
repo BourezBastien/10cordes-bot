@@ -8,6 +8,7 @@ import { AgentService } from './agent.service';
 import { PanelActionButtonHandler, PanelButton0Handler, PanelButton1Handler, PanelButton2Handler, PanelButton3Handler, PanelButton4Handler, PanelSelectHandler } from './panels.handlers';
 import { PanelsService } from './panels.service';
 import { SkillService } from './skill.service';
+import { SkillBlueprintLibrary } from './skill-blueprint.library';
 
 // Plus de commandes slash agent : tout passe par l'agent conversationnel
 // (tools discord.* en exécution directe, permission-gated en code).
@@ -22,7 +23,7 @@ import { SkillService } from './skill.service';
     PanelSelectHandler,
     PanelActionButtonHandler,
   ],
-  providers: [AgentService, SkillService, PanelsService],
+  providers: [AgentService, SkillService, SkillBlueprintLibrary, PanelsService],
   exports: [AgentService],
 })
 export class AgentModule {}

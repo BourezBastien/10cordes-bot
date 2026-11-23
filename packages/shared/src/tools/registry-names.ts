@@ -84,6 +84,7 @@ export const REGISTERED_TOOL_NAMES = [
   'githubRepo',
   'http.fetch',
   'image.compose',
+  'integrations.status',
   'invites.add',
   'invites.leaderboard',
   'invites.show',

@@ -5,7 +5,9 @@ import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { AuditService } from '../audit/audit.service';
 import { z } from 'zod';
 import type { BotTool } from '@10cordes/shared';
-import { SKILL_LIBRARY } from './skills.library';
+// P3.1 : le seed passe par SkillBlueprintLibrary (blueprints typés).
+// L'ancien SKILL_LIBRARY plat n'est plus la source de vérité.
+import { BLUEPRINT_LIBRARY } from './skills.blueprints';
 
 /**
  * Skills : règles de comportement durables créées en conversation
@@ -128,19 +130,19 @@ export class SkillService implements SpraxiumOnBoot {
         // N+1 séquentiel) ; INCLUT les soft-deleted : une skill supprimée
         // par le staff ne doit PAS être ressuscitée au boot suivant.
         const rows = await this.prisma.agentSkill.findMany({
-          where: { guildId: guild.id, trigger: { in: SKILL_LIBRARY.map((skill) => skill.trigger) } },
+          where: { guildId: guild.id, trigger: { in: BLUEPRINT_LIBRARY.map((bp) => bp.trigger) } },
           select: { id: true, trigger: true, createdByUserId: true, rule: true, deletedAt: true },
         });
         const byTrigger = new Map(rows.map((row) => [row.trigger, row]));
-        for (const skill of SKILL_LIBRARY) {
+        for (const skill of BLUEPRINT_LIBRARY) {
           const existing = byTrigger.get(skill.trigger);
           // Soft-deleted (par le staff ou un membre) : on ne re-seed JAMAIS.
           if (existing?.deletedAt) continue;
           // Les skills de bibliothèque suivent le code : la règle est mise à
           // jour à chaque boot si elle évolue (les skills de membres non).
           if (existing?.createdByUserId === 'library') {
-            if (existing.rule !== skill.rule) {
-              await this.prisma.agentSkill.update({ where: { id: existing.id }, data: { rule: skill.rule } });
+            if (existing.rule !== this.blueprintRule(skill)) {
+              await this.prisma.agentSkill.update({ where: { id: existing.id }, data: { rule: this.blueprintRule(skill) } });
             }
             continue;
           }
@@ -149,7 +151,7 @@ export class SkillService implements SpraxiumOnBoot {
             data: {
               guildId: guild.id,
               trigger: skill.trigger,
-              rule: skill.rule,
+              rule: this.blueprintRule(skill),
               createdByUserId: 'library',
             },
           });
@@ -160,6 +162,14 @@ export class SkillService implements SpraxiumOnBoot {
     } catch (error) {
       this.log.warn(`Seed bibliothèque ignoré : ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+
+  /** Convertit un SkillBlueprint en règle lisible par le LLM. */
+  private blueprintRule(bp: import('@10cordes/shared').SkillBlueprint): string {
+    const params = Object.entries(bp.params)
+      .map(([key, spec]) => `${key} (${spec.type}) : ${spec.description} [défaut: ${spec.defaultValue}]`)
+      .join('; ');
+    return `RECETTE ${bp.slug} [${bp.domain}] — Workflow : ${bp.workflow} | Params : ${params || 'aucun'} | IMPORTANT : extrais les préférences de l'utilisateur pour surcharger les defaults.`;
   }
 
   private async invalidate(guildId: string): Promise<void> {
