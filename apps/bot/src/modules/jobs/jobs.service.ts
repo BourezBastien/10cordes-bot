@@ -198,7 +198,7 @@ export class JobsService implements SpraxiumOnBoot {
                 z.object({
                   type: z.literal('runTool'),
                   name: z.string().min(3).max(40),
-                  input: z.record(z.string(), z.unknown()).default({}).describe('Paramètres du tool (ex tally.votes : { messageId, close: true })'),
+                  input: z.record(z.string(), z.unknown()).default({}).describe('Paramètres du tool (ex surface.updateComponent : { messageId, description })'),
                 }),
               ]),
             )
@@ -289,7 +289,7 @@ export class JobsService implements SpraxiumOnBoot {
       },
       {
         name: 'jobs.next',
-        description: 'Prochaine exécution d\u0029un job planifié.',
+        description: 'Prochaine exécution d\u0027un job planifié.',
         category: 'jobs',
         paramsSchema: z.object({ name: z.string().min(1).max(60) }),
         requiredModules: [],

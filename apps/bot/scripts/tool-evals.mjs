@@ -59,7 +59,17 @@ async function toolsSince(since) {
       orderBy: { createdAt: 'asc' },
       select: { action: true, metadata: true },
     });
-    return rows.map((row) => ({ name: row.action.replace('assistant.tool.', ''), ok: /"ok":true/.test(row.metadata ?? '') }));
+    // ok lu au PREMIER niveau du metadata (pas par regex : un `"ok":true`
+    // imbriqué dans l'input ferait passer un tool en échec).
+    return rows.map((row) => {
+      let ok = false;
+      try {
+        ok = JSON.parse(row.metadata ?? '{}').ok === true;
+      } catch {
+        ok = false;
+      }
+      return { name: row.action.replace('assistant.tool.', ''), ok };
+    });
   } finally {
     await prisma.$disconnect();
   }
@@ -187,17 +197,21 @@ async function main() {
     const ran = await waitQuiescent(since);
     const names = ran.map((entry) => entry.name);
     const searched = names.includes('search_tools');
-    const hit = evalCase.expect.some((expected) => names.includes(expected));
-    // Routing accepté : tool direct OU search_tools qui a mené à un tool.
-    let pass = hit || (searched && names.length > 0);
-    let note = '';
+    // Un tool attendu doit avoir RÉUSSI : activity.summary plantait (BigInt)
+    // tout en étant compté PASS parce qu'il avait seulement été appelé.
+    const failed = ran.filter((entry) => !entry.ok).map((entry) => entry.name);
+    const hit = evalCase.expect.some((expected) => ran.some((entry) => entry.name === expected && entry.ok));
+    // Routing accepté : tool direct OU search_tools qui a mené à un tool réussi.
+    let pass = hit || (searched && ran.some((entry) => entry.ok && entry.name !== 'search_tools'));
+    // Un échec suivi d'une réussite = agent qui s'est corrigé (PASS, mais visible).
+    let note = failed.length > 0 ? ` [${pass ? 'échec récupéré' : 'tool en échec'} : ${[...new Set(failed)].join(', ')}]` : '';
     if (!pass && evalCase.acceptDirectAnswer) {
       pass = await botRepliedAfter(channelId, sentAt, 20_000);
-      note = pass ? ' (réponse directe acceptée)' : '';
+      note = pass ? ' (réponse directe acceptée)' : note;
     }
     results.push({ name: evalCase.name, pass });
     console.log(
-      `[${pass ? 'PASS' : 'FAIL'}] ${evalCase.name}${note} — tools: ${names.join(', ') || 'aucun'}${searched ? ' (via search_tools)' : ''}`,
+      `[${pass ? 'PASS' : 'FAIL'}] ${evalCase.name}${note} : tools: ${ran.map((entry) => (entry.ok ? entry.name : `${entry.name}(échec)`)).join(', ') || 'aucun'}${searched ? ' (via search_tools)' : ''}`,
     );
     await evalCase.cleanup?.(guildId).catch(() => {});
   }

@@ -63,7 +63,7 @@ export const ticketsBlueprints: DomainBlueprints = [
       closeHours: num('Heures après le rappel avant fermeture auto', 24),
     },
     requiredTools: ['trigger.schedule', 'sendMessage', 'records.update'],
-    workflow: '1. Après chaque message staff : re-programmer trigger.schedule (delaySec = reminderHours * 3600, cancelKey = stale-{{channelId}}). 2. À l\u0029échéance : sendMessage rappel au membre + second trigger (closeHours). 3. Second trigger : fermer le ticket + archive.',
+    workflow: '1. Après chaque message staff : re-programmer trigger.schedule (delaySec = reminderHours * 3600, cancelKey = stale-{{channelId}}). 2. À l\u0027échéance : sendMessage rappel au membre + second trigger (closeHours). 3. Second trigger : fermer le ticket + archive.',
   },
   {
     slug: 'tickets-feedback-embed',
@@ -109,7 +109,7 @@ export const ticketsBlueprints: DomainBlueprints = [
       maxPerDay: num('Tickets maximum par membre et par jour', 3),
     },
     requiredTools: ['surface.create', 'records.create', 'records.search'],
-    workflow: '1. Au clic d\u0029ouverture : records.search collection tickets_open { userId, windowSec 24h }. 2. Si count >= maxPerDay : replyEphemeral refus avec le délai restant. 3. Sinon : createChannel + records.create (incrément). 4. À la fermeture : records.update status (libère le quota).',
+    workflow: '1. Au clic d\u0027ouverture : records.search collection tickets_open { userId, windowSec 24h }. 2. Si count >= maxPerDay : replyEphemeral refus avec le délai restant. 3. Sinon : createChannel + records.create (incrément). 4. À la fermeture : records.update status (libère le quota).',
   },
   {
     slug: 'tickets-claim-queue-position',
@@ -135,12 +135,12 @@ export const ticketsBlueprints: DomainBlueprints = [
     slug: 'tickets-faq-deflection',
     domain: 'tickets',
     tags: ['ticket', 'FAQ', 'détournement', 'self-service', 'réponse auto'],
-    trigger: 'Proposer la FAQ avant l\u0029ouverture : si une réponse existe, éviter le ticket',
+    trigger: 'Proposer la FAQ avant l\u0027ouverture : si une réponse existe, éviter le ticket',
     params: {
       faqItems: str('Questions fréquentes au format question:réponse séparées par point-virgule', ''),
     },
     requiredTools: ['surface.create', 'records.search', 'openSkill'],
-    workflow: '1. Surface d\u0029ouverture avec select des catégories. 2. Avant createChannel : step llm qui cherche une réponse dans les skills FAQ existants. 3. Si confiance haute : replyEphemeral avec la réponse + boutons « Ça m\u0027a aidé » / « Ouvrir quand même le ticket ». 4. Sinon : ouverture normale.',
+    workflow: '1. Surface d\u0027ouverture avec select des catégories. 2. Avant createChannel : step llm qui cherche une réponse dans les skills FAQ existants. 3. Si confiance haute : replyEphemeral avec la réponse + boutons « Ça m\u0027a aidé » / « Ouvrir quand même le ticket ». 4. Sinon : ouverture normale.',
   },
   {
     slug: 'tickets-satisfaction-report-monthly',

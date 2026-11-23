@@ -1,129 +1,129 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
+import { Ctx } from '@spraxium/common';
+import { Button, ButtonHandler, ModalComponent, ModalHandler, ModalInput, ModalService } from '@spraxium/components';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, type ButtonInteraction, type ModalSubmitInteraction } from 'discord.js';
+import { Logger } from '@spraxium/logger';
 import { guildAdminPolicy, type GuildAccessContext } from '../../../core/security/access-policy';
-import { IntegrationService } from '../integration.service';
+import { getLlm } from '../../assistant/llm.accessor';
+import { normalizeBaseUrl } from '../../assistant/llm.service';
+import { fileLog } from '../../logging/file-log.service';
+import { IntegrationStatusPresenter } from '../presenters/integration-status.presenter';
 
 /**
- * Handlers d'intégrations (A3) — le seul point d'entrée UI pour connecter
- * un fournisseur. Garde POO via GuildAdminPolicy (jamais de check
- * ownerId/PermissionFlagsBits inline).
+ * Handlers d'intégrations : le seul point d'entrée UI pour connecter un
+ * fournisseur IA depuis Discord.
+ *
+ *   bouton integration:llm:open  →  modale integration-config  →  LlmService.applyConfig
+ *
+ * Les décorateurs de @spraxium/components sont OBLIGATOIRES : le dispatcher
+ * route une interaction grâce aux métadonnées des classes. La version
+ * précédente était faite de classes nues, inscrites au boot mais sans
+ * décorateur : le bouton n'a jamais répondu.
+ *
+ * Répartition : Policy pour l'accès (GuildAdminPolicy : owner ou
+ * Administrator), Presenter pur pour les messages, service pour l'effet.
  */
 
-const INTEGRATION_LLM_BUTTON_ID = 'integration:llm:open';
-const INTEGRATION_CONFIG_MODAL_ID = 'integration-config';
+const log = new Logger('IntegrationHandlers');
 
-/** Extrait le contexte d'accès depuis une interaction Discord. */
-function accessContext(
-  userId: string,
-  guildOwnerId: string,
-  memberPermissions: import('discord.js').PermissionsBitField | null,
-): GuildAccessContext {
-  return {
-    userId,
-    guildOwnerId,
-    permissions: memberPermissions ? (memberPermissions.toArray() as string[]) : [],
+/** customId et label du bouton : source de vérité partagée avec le panneau d'accueil. */
+export const INTEGRATION_LLM_BUTTON_ID = 'integration:llm:open';
+export const INTEGRATION_LLM_BUTTON_LABEL = 'Connecter un fournisseur IA';
+
+@Button({ customId: INTEGRATION_LLM_BUTTON_ID, label: INTEGRATION_LLM_BUTTON_LABEL, style: 'primary' })
+export class IntegrationOpenButton {}
+
+@ModalComponent({ id: 'integration-config', title: INTEGRATION_LLM_BUTTON_LABEL })
+export class IntegrationConfigModal {
+  @ModalInput({
+    id: 'baseUrl',
+    label: 'Base URL de l\u0027API (compatible OpenAI)',
+    style: 'short',
+    required: true,
+    placeholder: 'https://api.deepseek.com ou https://openrouter.ai/api/v1',
+  })
+  baseUrl!: string;
+
+  @ModalInput({ id: 'apiKey', label: 'Clé API (chiffrée AES-256-GCM)', style: 'paragraph', required: true, placeholder: 'sk-...' })
+  apiKey!: string;
+
+  @ModalInput({ id: 'model', label: 'Modèle (optionnel)', style: 'short', required: false, placeholder: 'deepseek-flash, gpt-4o-mini...' })
+  model!: string;
+}
+
+/** Bouton d'ouverture en rangée, pour le panneau d'accueil (même customId que la classe décorée). */
+export function integrationOpenButton(): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(INTEGRATION_LLM_BUTTON_ID).setLabel(INTEGRATION_LLM_BUTTON_LABEL).setStyle(ButtonStyle.Primary),
+  );
+}
+
+/** Un échec de réponse à une interaction doit rester diagnostiquable (jamais avalé). */
+function report(step: string, interactionId: string) {
+  return (error: unknown): void => {
+    const message = error instanceof Error ? error.message : String(error);
+    log.warn(`${step} impossible (${message.slice(0, 140)})`);
+    fileLog()?.event('warn', 'integrations', 'interaction_failed', { step, interactionId, error: message.slice(0, 200) });
   };
 }
 
-/** Construit la modale de configuration d'une intégration (3 champs). */
-function buildConfigModal(): ModalBuilder {
-  const modal = new ModalBuilder().setCustomId(INTEGRATION_CONFIG_MODAL_ID).setTitle('Connecter un fournisseur IA');
-
-  const baseUrl = new TextInputBuilder()
-    .setCustomId('baseUrl')
-    .setLabel('Base URL de l\u0027API (compatible OpenAI)')
-    .setStyle(TextInputStyle.Short)
-    .setPlaceholder('https://api.deepseek.com ou https://openrouter.ai/api/v1')
-    .setRequired(true);
-
-  const apiKey = new TextInputBuilder()
-    .setCustomId('apiKey')
-    .setLabel('Clé API (chiffrée AES-256-GCM)')
-    .setStyle(TextInputStyle.Paragraph)
-    .setPlaceholder('sk-...')
-    .setRequired(true);
-
-  const model = new TextInputBuilder()
-    .setCustomId('model')
-    .setLabel('Modèle (optionnel)')
-    .setStyle(TextInputStyle.Short)
-    .setPlaceholder('deepseek-flash, gpt-4o-mini, llama-3.1-70b...');
-
-  modal.addComponents(
-    new ActionRowBuilder<TextInputBuilder>().addComponents(baseUrl),
-    new ActionRowBuilder<TextInputBuilder>().addComponents(apiKey),
-    new ActionRowBuilder<TextInputBuilder>().addComponents(model),
-  );
-  return modal;
+/** Contexte d'accès exigé par la Policy, dérivé du membre qui interagit. */
+function accessContext(interaction: ButtonInteraction | ModalSubmitInteraction): GuildAccessContext | null {
+  const guild = interaction.guild;
+  if (!guild) return null;
+  return {
+    userId: interaction.user.id,
+    guildOwnerId: guild.ownerId,
+    permissions: interaction.memberPermissions?.toArray() ?? [],
+  };
 }
 
-/** Bouton « Connecter un fournisseur IA » — ouvre la modale (admin only). */
+/** Ouvre la modale de configuration (owner ou Administrator). */
+@ButtonHandler(IntegrationOpenButton)
 export class IntegrationOpenModalButtonHandler {
-  constructor(private readonly integrations: IntegrationService) {}
+  // Presenter pur : champ de classe, jamais un paramètre de constructeur DI.
+  private readonly presenter = new IntegrationStatusPresenter();
 
-  async handle(interaction: import('discord.js').ButtonInteraction): Promise<void> {
-    const guild = interaction.guild;
-    if (!guild) return;
+  constructor(private readonly modals: ModalService) {}
 
-    const ctx = accessContext(interaction.user.id, guild.ownerId, interaction.memberPermissions);
+  async handle(@Ctx() interaction: ButtonInteraction): Promise<void> {
+    const ctx = accessContext(interaction);
+    if (!ctx) return;
     if (!guildAdminPolicy.isAuthorized(ctx)) {
-      await interaction
-        .reply({
-          flags: MessageFlags.Ephemeral,
-          content: '🚫 Seul un administrateur du serveur peut configurer le fournisseur IA.',
-        })
-        .catch(() => {});
+      await interaction.reply(this.presenter.denied()).catch(report('refus', interaction.id));
       return;
     }
-
-    await interaction.showModal(buildConfigModal()).catch(() => {});
+    // showModal doit être la PREMIÈRE réponse de l'interaction (règle des 3 s).
+    await interaction.showModal(this.modals.build(IntegrationConfigModal)).catch(report('modale', interaction.id));
   }
 }
 
-/** Modale « integration-config » — sauvegarde la clé chiffrée (admin only). */
+/** Enregistre la clé : contrôle de connexion, chargement immédiat, persistance chiffrée. */
+@ModalHandler(IntegrationConfigModal)
 export class IntegrationSaveModalHandler {
-  constructor(private readonly integrations: IntegrationService) {}
+  private readonly presenter = new IntegrationStatusPresenter();
 
-  async handle(interaction: import('discord.js').ModalSubmitInteraction): Promise<void> {
-    const guild = interaction.guild;
-    if (!guild) return;
-
-    const ctx = accessContext(interaction.user.id, guild.ownerId, interaction.memberPermissions);
+  async handle(@Ctx() interaction: ModalSubmitInteraction): Promise<void> {
+    const ctx = accessContext(interaction);
+    if (!ctx) return;
     if (!guildAdminPolicy.isAuthorized(ctx)) {
-      await interaction
-        .reply({ flags: MessageFlags.Ephemeral, content: '🚫 Accès refusé.' })
-        .catch(() => {});
+      await interaction.reply(this.presenter.denied()).catch(report('refus', interaction.id));
       return;
     }
 
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => {});
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(report('defer', interaction.id));
 
-    const baseUrl = interaction.fields.getTextInputValue('baseUrl').trim();
+    const baseUrl = normalizeBaseUrl(interaction.fields.getTextInputValue('baseUrl'));
     const apiKey = interaction.fields.getTextInputValue('apiKey').trim();
     const model = interaction.fields.getTextInputValue('model')?.trim() ?? '';
 
     try {
-      await this.integrations.upsert('llm', { baseUrl, apiKey, model }, interaction.user.id);
-      await interaction
-        .editReply({
-          content: `✅ **Fournisseur IA connecté**\nBase URL : \`${baseUrl}\`\nModèle : \`${model || 'défaut du fournisseur'}\`\nLa clé est chiffrée (AES-256-GCM) et prend effet immédiatement.`,
-        })
-        .catch(() => {});
+      // applyConfig : GET /models de contrôle, runtime LLM rechargé (effet
+      // immédiat, sans redémarrage) puis persistance chiffrée. Passer par
+      // IntegrationService.upsert seul laisserait l'ancienne clé en mémoire.
+      await getLlm().applyConfig('custom', baseUrl, apiKey, model);
+      await interaction.editReply(this.presenter.saved({ baseUrl, model })).catch(report('confirmation', interaction.id));
     } catch (error) {
-      await interaction
-        .editReply({
-          content: `❌ Échec de la connexion : ${(error as Error).message.slice(0, 160)}`,
-        })
-        .catch(() => {});
+      await interaction.editReply(this.presenter.failure(error instanceof Error ? error.message : String(error))).catch(report('échec', interaction.id));
     }
   }
-}
-
-/** Helper : bouton d'ouverture (utilisé par le Presenter côté AssistantService). */
-export function integrationOpenButton(): ActionRowBuilder<ButtonBuilder> {
-  return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(INTEGRATION_LLM_BUTTON_ID)
-      .setLabel('Connecter un fournisseur IA')
-      .setStyle(ButtonStyle.Primary),
-  );
 }

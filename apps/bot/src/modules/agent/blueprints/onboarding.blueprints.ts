@@ -56,11 +56,11 @@ export const onboardingBlueprints: DomainBlueprints = [
     tags: ['boost', 'nitro', 'remerciement', 'rôle custom', 'partenaire'],
     trigger: 'Remercier les boosters et leur donner un perk',
     params: {
-      announceChannelId: chan('Salon d\u0029annonce des boosts'),
+      announceChannelId: chan('Salon d\u0027annonce des boosts'),
       perkDescription: str('Description du perk offert', 'Création d\u0027un rôle personnalisé (nom + couleur)'),
     },
     requiredTools: ['sendMessage', 'surface.create', 'createRole', 'addRoleToMember'],
-    workflow: '1. EventTrigger member.update (rôle booster ajouté). 2. sendMessage dans le salon d\u0029annonces avec remerciement. 3. Surface avec bouton « Créer mon rôle » + modal (nom, couleur hex). 4. createRole + addRoleToMember.',
+    workflow: '1. EventTrigger member.update (rôle booster ajouté). 2. sendMessage dans le salon d\u0027annonces avec remerciement. 3. Surface avec bouton « Créer mon rôle » + modal (nom, couleur hex). 4. createRole + addRoleToMember.',
   },
   {
     slug: 'welcome-card-canvas',
@@ -70,7 +70,7 @@ export const onboardingBlueprints: DomainBlueprints = [
     params: {
       welcomeChannelId: chan('Salon des bienvenues'),
       template: str('Texte (variables {{user.mention}}, {{server.name}}, {{member.count}})', 'Bienvenue {{user.mention}} ! Tu es le membre n°{{member.count}}'),
-      bgUrl: str('URL de l\u0029image de fond', ''),
+      bgUrl: str('URL de l\u0027image de fond', ''),
     },
     requiredTools: ['image.compose', 'sendMessage', 'getMemberInfo'],
     workflow: '1. EventTrigger member.join. 2. getMemberInfo (avatar, name). 3. image.compose (canvas : fond, avatar arrondi, texte). 4. sendMessage avec le fichier + template rendu.',
@@ -104,7 +104,7 @@ export const onboardingBlueprints: DomainBlueprints = [
     tags: ['retour', 'rôles restaurés', 'rejoin', 'sticky roles', 'ancien membre'],
     trigger: 'Restaurer les rôles d\u0027un membre qui revient sur le serveur',
     params: {
-      restoreDelayDays: num('Jours maximum d\u0029absence pour restaurer (0 = illimité)', 30),
+      restoreDelayDays: num('Jours maximum d\u0027absence pour restaurer (0 = illimité)', 30),
     },
     requiredTools: ['records.search', 'addRoleToMember', 'sticky.role.add', 'sticky.role.remove', 'sendMessage'],
     workflow: '1. EventTrigger member.join. 2. records.search collection sticky_roles { userId }. 3. Si dernier départ < restoreDelayDays : ré-attribuer chaque rôle + sendMessage privé discret. 4. sticky.role.add maintient la sauvegarde à jour à chaque départ.',
@@ -119,7 +119,7 @@ export const onboardingBlueprints: DomainBlueprints = [
       kickMinutes: num('Minutes avant kick', 30),
     },
     requiredTools: ['surface.create', 'addRoleToMember', 'kickMember', 'trigger.schedule'],
-    workflow: '1. Salon #vérification : surface « Réagis pour prouver que tu es humain » avec bouton. 2. EventTrigger member.join : trigger.schedule kickMinutes (cancelKey = gate-{{userId}}). 3. Au clic : addRoleToMember + cancelByKey + suppression des messages du salon. 4. À l\u0029échéance sans clic : kickMember.',
+    workflow: '1. Salon #vérification : surface « Réagis pour prouver que tu es humain » avec bouton. 2. EventTrigger member.join : trigger.schedule kickMinutes (cancelKey = gate-{{userId}}). 3. Au clic : addRoleToMember + cancelByKey + suppression des messages du salon. 4. À l\u0027échéance sans clic : kickMember.',
   },
   {
     slug: 'roles-max-limit-per-category',
@@ -130,7 +130,7 @@ export const onboardingBlueprints: DomainBlueprints = [
       categories: str('Catégories au format titre:max séparées par point-virgule', 'Jeux:3, Intérêts:5'),
     },
     requiredTools: ['surface.create', 'addRoleToMember', 'removeRoleFromMember', 'getRoleMembers'],
-    workflow: '1. Select par catégorie avec max affiché. 2. À la sélection : si le membre dépasse max dans la catégorie, replyEphemere « retire d\u0029abord un rôle ». 3. Sinon application normale.',
+    workflow: '1. Select par catégorie avec max affiché. 2. À la sélection : si le membre dépasse max dans la catégorie, replyEphemere « retire d\u0027abord un rôle ». 3. Sinon application normale.',
   },
   {
     slug: 'intro-thread-auto',
@@ -148,7 +148,7 @@ export const onboardingBlueprints: DomainBlueprints = [
     slug: 'unverified-quarantine-view',
     domain: 'onboarding',
     tags: ['quarantaine', 'non vérifié', 'lecture seule', 'aperçu', 'salon unique'],
-    trigger: 'Les non-vérifiés ne voient qu\u0029un salon de quarantaine avant validation',
+    trigger: 'Les non-vérifiés ne voient qu\u0027un salon de quarantaine avant validation',
     params: {
       quarantineChannelId: chan('Salon de quarantaine'),
       verifiedRoleId: role('Rôle vérifié'),

@@ -1,6 +1,5 @@
-import { ContainerBuilder } from 'discord.js';
-import { MessageFlags } from 'discord.js';
-import { text, separator } from '../../../shared/ui';
+import { ContainerBuilder, MessageFlags, type TextDisplayBuilder } from 'discord.js';
+import { notice, text, separator } from '../../../shared/ui';
 
 /**
  * IntegrationStatusPresenter (A2) — rendu V2 du panneau « fournisseur IA ».
@@ -65,5 +64,23 @@ export class IntegrationStatusPresenter {
     }
 
     return { flags: MessageFlags.IsComponentsV2, components: [container] };
+  }
+
+  /** Refus de la Policy (owner + Administrator) : éphémère, sans détail utile à un attaquant. */
+  denied(): { flags: number; components: TextDisplayBuilder[] } {
+    return notice('🚫 Seul un administrateur du serveur peut configurer le fournisseur IA.', true);
+  }
+
+  /** Confirmation après enregistrement : base URL et modèle, JAMAIS la clé. */
+  saved(view: { baseUrl: string; model: string }): { flags: number; components: TextDisplayBuilder[] } {
+    return notice(
+      `✅ **Fournisseur IA connecté**\nBase URL : \`${view.baseUrl}\`\nModèle : \`${view.model || 'défaut du fournisseur'}\`\nLa clé est chiffrée (AES-256-GCM) et prend effet immédiatement.`,
+      true,
+    );
+  }
+
+  /** Échec de connexion ou d'enregistrement : éphémère, raison tronquée. */
+  failure(reason: string): { flags: number; components: TextDisplayBuilder[] } {
+    return notice(`❌ Échec de la connexion : ${reason.slice(0, 160)}`, true);
   }
 }

@@ -73,8 +73,8 @@ export class MusicService implements SpraxiumOnBoot {
           '(tags [Verse]/[Chorus]/[Outro]) qui se termine NATURELLEMENT dans la durée — jamais de couplets supplémentaires, ' +
           'sinon Suno coupe le morceau en plein texte. Adaptation requise : un son rapide (trap, drill) tient moins de texte ' +
           'qu\u0027une ballade ; réduis le nombre de lignes si le débit est élevé. ' +
-          'Si le thème est éditorial (la vie actuelle, actu, société, fait divers) : fais de VRAIES recherches d\u0029abord (searchInternet, getNews) et écris des paroles qui parlent du VRAI (faits concrets, références datées) — pas de paroles génériques. ' +
-          'Référence d\u0029artiste (« à la Booba », « style Simone »...) : ne passe JAMAIS le nom au prompt Suno (rejet copyright) — traduis en caractéristiques objectives : voix (grave, posée), époque (boom-bap 90s, trap moderne), ambiance, débit, instruments typiques. ' +
+          'Si le thème est éditorial (la vie actuelle, actu, société, fait divers) : fais de VRAIES recherches d\u0027abord (searchInternet, getNews) et écris des paroles qui parlent du VRAI (faits concrets, références datées) — pas de paroles génériques. ' +
+          'Référence d\u0027artiste (« à la Booba », « style Simone »...) : ne passe JAMAIS le nom au prompt Suno (rejet copyright) — traduis en caractéristiques objectives : voix (grave, posée), époque (boom-bap 90s, trap moderne), ambiance, débit, instruments typiques. ' +
           'Le fichier audio est posté automatiquement dans le salon : ne répète pas l\u0027URL, commente le résultat en UN message court. ' +
           'data.audioUrl alimente voice.play si l\u0027utilisateur veut écouter en vocal.',
         handler: async (input, ctx) => {

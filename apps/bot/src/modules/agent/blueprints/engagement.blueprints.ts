@@ -19,7 +19,7 @@ export const engagementBlueprints: DomainBlueprints = [
     slug: 'giveaway-reaction-random',
     domain: 'engagement',
     tags: ['giveaway', 'concours', 'nitro', 'tirage', 'gagnant', 'aléatoire'],
-    trigger: 'Giveaway avec bouton Participer et tirage aléatoire à l\u0029échéance',
+    trigger: 'Giveaway avec bouton Participer et tirage aléatoire à l\u0027échéance',
     params: {
       prize: str('Lot à gagner', '1 mois de Nitro'),
       duration: dur('Durée du giveaway', '24h'),
@@ -99,7 +99,7 @@ export const engagementBlueprints: DomainBlueprints = [
       minWordLength: num('Longueur minimum des mots', 4),
     },
     requiredTools: ['defineWord', 'records.create', 'records.update', 'sendMessage'],
-    workflow: '1. EventTrigger message.create dans le salon. 2. Vérifs : commence par la dernière lettre du mot précédent + longueur >= min. 3. defineWord : le mot existe vraiment. 4. records.search : pas déjà dit dans la partie en cours. 5. Validé : setState lastWord + score++. Sinon : message d\u0029erreur explicite.',
+    workflow: '1. EventTrigger message.create dans le salon. 2. Vérifs : commence par la dernière lettre du mot précédent + longueur >= min. 3. defineWord : le mot existe vraiment. 4. records.search : pas déjà dit dans la partie en cours. 5. Validé : setState lastWord + score++. Sinon : message d\u0027erreur explicite.',
   },
   {
     slug: 'riddle-daily-reward',
@@ -111,18 +111,18 @@ export const engagementBlueprints: DomainBlueprints = [
       prize: num('Pièces pour le gagnant', 50),
     },
     requiredTools: ['trigger.schedule', 'surface.create', 'records.create', 'sendMessage'],
-    workflow: '1. trigger.schedule cron : post de l\u0029énigme (surface avec bouton Répondre + modal). 2. claimOnce sur la bonne réponse (comparaison normalisée). 3. Gagnant : records.update solde + sendMessage annonce. 4. Indice supplémentaire toutes les 30 min (trigger imbriqué) tant que non résolue.',
+    workflow: '1. trigger.schedule cron : post de l\u0027énigme (surface avec bouton Répondre + modal). 2. claimOnce sur la bonne réponse (comparaison normalisée). 3. Gagnant : records.update solde + sendMessage annonce. 4. Indice supplémentaire toutes les 30 min (trigger imbriqué) tant que non résolue.',
   },
   {
     slug: 'shop-items-purchase',
     domain: 'engagement',
     tags: ['boutique', 'shop', 'pièces', 'acheter', 'articles'],
-    trigger: 'Boutique d\u0029articles achetables avec les pièces gagnées en jeu',
+    trigger: 'Boutique d\u0027articles achetables avec les pièces gagnées en jeu',
     params: {
       items: str('Articles au format nom:prix séparés par virgules', 'Rôle doré:500, Emoji custom:200'),
     },
     requiredTools: ['surface.create', 'records.search', 'records.update', 'addRoleToMember', 'createRole'],
-    workflow: '1. Surface : un bouton par article (label avec prix). 2. Au clic : records.search solde ; si insuffisant, refus avec le manque. 3. Sinon : records.update (débit) + effet (rôle, emoji, privilège). 4. Bouton Mon solde : affichage éphémère du solde et de l\u0029historique d\u0029achats.',
+    workflow: '1. Surface : un bouton par article (label avec prix). 2. Au clic : records.search solde ; si insuffisant, refus avec le manque. 3. Sinon : records.update (débit) + effet (rôle, emoji, privilège). 4. Bouton Mon solde : affichage éphémère du solde et de l\u0027historique d\u0027achats.',
   },
   {
     slug: 'duel-challenge-pvp',
@@ -133,7 +133,7 @@ export const engagementBlueprints: DomainBlueprints = [
       maxBet: num('Mise maximum', 100),
     },
     requiredTools: ['surface.create', 'records.search', 'records.update', 'trigger.schedule', 'sendMessage'],
-    workflow: '1. Surface « Défier » + select du membre + modal mise. 2. DM au défié : Accepter / Refuser (expire en 5 min via trigger.schedule). 3. Accepté : step random 50/50 + transfert de la mise + sendMessage du résultat. 4. Vérif des soldes AVANT l\u0029acceptation.',
+    workflow: '1. Surface « Défier » + select du membre + modal mise. 2. DM au défié : Accepter / Refuser (expire en 5 min via trigger.schedule). 3. Accepté : step random 50/50 + transfert de la mise + sendMessage du résultat. 4. Vérif des soldes AVANT l\u0027acceptation.',
   },
   {
     slug: 'reaction-lottery-mega',
@@ -141,7 +141,7 @@ export const engagementBlueprints: DomainBlueprints = [
     tags: ['loterie', 'mega', 'cagnotte', 'tickets', 'tirage hebdo'],
     trigger: 'Loterie à cagnotte : tickets achetables, tirage hebdomadaire',
     params: {
-      ticketPrice: num('Prix d\u0029un ticket', 20),
+      ticketPrice: num('Prix d\u0027un ticket', 20),
       maxTicketsPerUser: num('Tickets maximum par membre', 10),
       drawCron: str('Horaire du tirage', '0 20 * * 5'),
     },

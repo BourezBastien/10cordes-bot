@@ -574,7 +574,7 @@ export function discordExtraTools(
       permissions: ['ViewChannel'],
       destructive: false,
       systemPrompt:
-        'Utile AVANT tout archivage : la colonne jours dit précisément quels salons dépassent le seuil. Ensuite déplace avec moveChannel vers la catégorie archive (ou crée-la d\u0029abord). Ne devine jamais l\u0027inactivité « à l\u0027œil » : cet outil donne les dates exactes.',
+        'Utile AVANT tout archivage : la colonne jours dit précisément quels salons dépassent le seuil. Ensuite déplace avec moveChannel vers la catégorie archive (ou crée-la d\u0027abord). Ne devine jamais l\u0027inactivité « à l\u0027œil » : cet outil donne les dates exactes.',
       handler: async (input, ctx) => {
         const guild = guildOf(ctx);
         if (!guild) return noGuild();

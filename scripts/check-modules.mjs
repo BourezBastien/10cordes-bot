@@ -23,7 +23,8 @@ const importsPattern = new RegExp('imports:\\s*\\[', 'u');
 const commandsPattern = new RegExp('commands:\\s*\\[', 'u');
 
 const errors = [];
-const dirs = readdirSync(modulesDir, { withFileTypes: true }).filter((entry) => entry.isDirectory());
+// Les dossiers cachés ne sont pas des modules (ex. .mimosa, état local d'un hook).
+const dirs = readdirSync(modulesDir, { withFileTypes: true }).filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'));
 
 for (const dir of dirs) {
   const name = dir.name;

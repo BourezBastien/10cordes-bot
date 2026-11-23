@@ -54,8 +54,26 @@ export class SkillBlueprintLibrary implements SpraxiumOnBoot {
         });
         const byTrigger = new Map(rows.map((row) => [row.trigger, row]));
         for (const bp of BLUEPRINT_LIBRARY) {
-          const existing = byTrigger.get(bp.trigger);
-          if (existing?.deletedAt) continue; // staff l'a supprimé
+          let existing = byTrigger.get(bp.trigger);
+          if (existing?.deletedAt) {
+            // Une ligne soft-supprimée n'est pas forcément un choix du staff.
+            // Le staff supprime par le tool deleteSkills, que le registry audite
+            // avec les identifiants. Sans cette trace, la suppression vient de
+            // la purge ci-dessous (trigger devenu obsolète) : si le trigger est
+            // de retour au catalogue, la recette redevient active. Sans cette
+            // distinction, reformuler l'orthographe d'un trigger faisait
+            // disparaître la recette (cas vécu : la recette AFK, le 23/11).
+            const staffDeletion = await this.prisma.auditLog.count({
+              where: {
+                guildId: guild.id,
+                action: { in: ['assistant.tool.deleteSkills', 'tool.deleteSkills'] },
+                metadata: { contains: existing.id },
+              },
+            });
+            if (staffDeletion > 0) continue;
+            await this.prisma.agentSkill.update({ where: { id: existing.id }, data: { deletedAt: null } });
+            existing = { ...existing, deletedAt: null };
+          }
           if (existing?.createdByUserId === 'library') {
             // Mise à jour de la règle si elle a évolué
             const newRule = this.blueprintToRule(bp);

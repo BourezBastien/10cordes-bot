@@ -1,20 +1,25 @@
 /**
- * SUITE E2E COMPLÈTE (E2) — 10 scénarios conversationnels réels via webhook
+ * SUITE E2E COMPLÈTE (E2) : 11 scénarios conversationnels réels via webhook
  * staff sur E2E_GUILD_ID, journalisés dans logs/e2e-suite-<guildId>.jsonl.
  *
- * 1. gate.noise        — bruit social ignoré (zéro LLM) même en salon dédié
- * 2. rules.list        — question règles → tool rules.list
- * 3. server.overview   — « montre ta configuration » → server.overview (PAS getConfig)
- * 4. config.panel      — panneau V2 posté dans le fil privé ⚙️┃config-bot
- * 5. tickets.surface   — panneau de tickets via surface.create (moteur générique)
- * 6. skills.voice      — recherche de recette « vocaux temporaires » (search_skills)
- * 7. skills.casino     — recherche de recette « casino » (135 blueprints)
- * 8. polls.compose     — sondage surface + votes DB + clôture avec résultats
- * 9. ingest.status     — état de l'ingestion historique (guild.ingestStatus)
- * 10. memory.forget    — opt-out mémoire (« oublie-moi ») + cleanup
+ * 1. gate.noise        : bruit social ignoré (zéro LLM) même en salon dédié
+ * 2. rules.list        : question règles → tool rules.list
+ * 3. server.overview   : « montre ta configuration » → server.overview (PAS getConfig)
+ * 4. config.panel      : panneau V2 posté dans le fil privé ⚙️┃config-bot
+ * 5. tickets.surface   : panneau de tickets via surface.create (moteur générique)
+ * 6. skills.voice      : recherche de recette « vocaux temporaires » (search_skills)
+ * 7. skills.casino     : recherche de recette « casino » (135 blueprints)
+ * 8. polls.compose     : sondage surface + votes DB + clôture avec résultats
+ * 9. ingest.status     : état de l'ingestion historique (guild.ingestStatus)
+ * 10. memory.forget    : opt-out mémoire (« oublie-moi ») + cleanup
+ * 11. rule.confirm     : règle confirmDestructiveActions, une suppression demandée
+ *                        à l'agent BLOQUÉE + surface ✅/❌ postée + salon intact
+ *
+ * STRICT : un tool ne compte que s'il a RÉUSSI (ok:true dans l'audit). Les
+ * échecs de tools restent affichés dans la note de chaque scénario.
  *
  * Usage : node scripts/e2e-full-suite.mjs (E2E_ONLY=scenario filtrable)
- * Nettoyage try/finally ; exit 1 si un scénario échoue.
+ * Nettoyage en finally ; exit 1 si un scénario échoue.
  */
 import { appendFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, resolve, join } from 'node:path';
@@ -140,7 +145,7 @@ async function main() {
   const results = [];
   const verdict = (name, pass, note = '') => {
     results.push({ name, pass });
-    console.log(`[${pass ? 'PASS' : 'FAIL'}] ${name}${note ? ` — ${note}` : ''}`);
+    console.log(`[${pass ? 'PASS' : 'FAIL'}] ${name}${note ? ` : ${note}` : ''}`);
     journal('verdict', { scenario: name, pass, note });
   };
 
@@ -163,18 +168,42 @@ async function main() {
     let pass = false;
     let note = '';
     try {
-      const out = await check({ entries });
+      const out = await check({ entries, watermark });
       pass = out.pass;
       note = out.note ?? '';
     } catch (error) {
       pass = false;
       note = `check error: ${error.message.slice(0, 120)}`;
     }
-    journal('scenario_tools', { scenario: name, actions: entries.filter((e) => e.action.startsWith('assistant.tool.')).map((e) => e.action) });
+    // Les tools en échec restent VISIBLES même quand le scénario passe (un
+    // échec retenté avec succès est une auto-correction, pas un PASS propre).
+    const failed = failedTools(entries);
+    if (failed.length > 0) note += ` [tools en échec : ${failed.join(' ; ')}]`;
+    journal('scenario_tools', {
+      scenario: name,
+      actions: entries.filter((e) => e.action.startsWith('assistant.tool.')).map((e) => `${e.action.replace('assistant.tool.', '')}${toolMeta(e).ok === true ? '' : '(échec)'}`),
+    });
     verdict(name, pass, note);
   };
 
-  const ranTool = (entries, action) => entries.some((e) => e.action === `assistant.tool.${action}`);
+  /**
+   * Un tool ne compte que s'il a RÉUSSI. La première version de cette suite ne
+   * regardait que le NOM : config.panel, server.overview et les surface.create
+   * de tickets ont ainsi été comptés PASS alors que chacun de leurs appels
+   * avait échoué.
+   */
+  const toolMeta = (entry) => {
+    try {
+      return JSON.parse(entry.metadata ?? '{}');
+    } catch {
+      return {};
+    }
+  };
+  const ranTool = (entries, action) => entries.some((e) => e.action === `assistant.tool.${action}` && toolMeta(e).ok === true);
+  const failedTools = (entries) =>
+    entries
+      .filter((e) => e.action.startsWith('assistant.tool.') && toolMeta(e).ok !== true)
+      .map((e) => `${e.action.replace('assistant.tool.', '')} (${String(toolMeta(e).summary ?? 'sans motif').slice(0, 90)})`);
 
   // ---- 1. Anti-bruit : pur bruit social ignoré (zéro LLM) ----
   await scenario(
@@ -201,22 +230,35 @@ async function main() {
   });
 
   // ---- 4. Panneau V2 dans le fil privé config-bot ----
-  await scenario('config.panel', 'Ouvre le panneau de configuration dans le fil privé config-bot.', async () => {
+  // Trois preuves : le tool a réussi, le fil est bien PRIVÉ, et un panneau du
+  // bot y a réellement été posté (le fil seul ne prouve rien : il avait été
+  // créé par un appel qui avait ensuite planté avant de poster quoi que ce soit).
+  await scenario('config.panel', 'Ouvre le panneau de configuration dans le fil privé config-bot.', async ({ entries }) => {
+    const called = ranTool(entries, 'config.panel');
     const row = await prisma((p) => p.guildAgentSettings.findUnique({ where: { guildId: GUILD_ID } }));
-    const created = Boolean(row?.configThreadId);
-    if (created) {
-      const channel = await rest(`/channels/${row.configThreadId}`).catch(() => null);
-      const okThread = channel?.name?.includes('config-bot');
-      return { pass: Boolean(okThread), note: okThread ? `fil #${channel.name} créé avec panneau` : 'fil sans panneau détectable' };
-    }
-    return { pass: false, note: 'config.panel non exécuté (pas de fil en DB)' };
+    if (!row?.configThreadId) return { pass: false, note: 'aucun fil config-bot en base' };
+    const channel = await rest(`/channels/${row.configThreadId}`).catch(() => null);
+    // 12 = PRIVATE_THREAD (Discord).
+    const privateThread = channel?.type === 12 && String(channel.name ?? '').includes('config-bot');
+    const messages = await rest(`/channels/${row.configThreadId}/messages?limit=5`).catch(() => []);
+    const posted = messages.some((m) => m.author?.id === me.id && Array.isArray(m.components) && m.components.length > 0);
+    return {
+      pass: called && Boolean(privateThread) && posted,
+      note: `tool ${called ? 'réussi' : 'en échec'} · fil ${privateThread ? 'privé' : 'introuvable ou non privé'} · panneau ${posted ? 'posté' : 'absent'}`,
+    };
   });
 
   // ---- 5. Tickets par le moteur générique ----
-  await scenario('tickets.surface', 'Crée ici un panneau de tickets simple : un bouton « Support » qui ouvrira un salon privé au demandeur (surface.create, kind ticket).', async ({ entries }) => {
-    const created = entries.some((e) => e.action === 'assistant.tool.surface.create' && String(e.metadata).includes('ticket'));
-    const row = await prisma((p) => p.interactiveSurface.findFirst({ where: { guildId: GUILD_ID, kind: 'ticket' }, orderBy: { createdAt: 'desc' } }));
-    return { pass: created || Boolean(row), note: row ? `surface ticket ${row.id.slice(-6)} en base` : 'surface.create ticket manquant' };
+  // La surface doit avoir été créée PENDANT ce scénario (l'ancien contrôle
+  // acceptait une surface restée d'un run précédent).
+  await scenario('tickets.surface', 'Crée ici un panneau de tickets simple : un bouton « Support » qui ouvrira un salon privé au demandeur (surface.create, kind ticket).', async ({ entries, watermark }) => {
+    const createdId = entries
+      .filter((e) => e.action === 'assistant.tool.surface.create' && toolMeta(e).ok === true)
+      .map((e) => /surfaceId ([a-z0-9]+)/u.exec(String(toolMeta(e).summary ?? ''))?.[1])
+      .find(Boolean);
+    const row = createdId ? await prisma((p) => p.interactiveSurface.findUnique({ where: { id: createdId } })) : null;
+    const fresh = Boolean(row && row.guildId === GUILD_ID && row.createdAt > watermark);
+    return { pass: fresh, note: fresh ? `surface « ${row.kind} » ${createdId.slice(-6)} créée pendant le scénario` : 'aucune surface créée avec succès pendant le scénario' };
   });
 
   // ---- 6. Recette vocaux temporaires ----
@@ -231,18 +273,16 @@ async function main() {
     return { pass: ok, note: ok ? 'recette casino trouvée au catalogue' : 'search_skills manquant' };
   });
 
-  // ---- 8. Sondage composé : surface + votes + clôture avec résultats ----
-  await scenario('polls.compose', null, async () => ({ pass: false, note: 'placeholder' }));
-  // Remplacé ci-dessous par le flux détaillé (création, votes DB, clôture).
+  // (8. polls.compose est un flux dédié en plusieurs étapes, plus bas.)
 
   // ---- 9. Statut ingestion ----
-  await scenario('ingest.status', 'Où en est l\u0027ingestion de l\u0029historique du serveur ?', async ({ entries }) => {
+  await scenario('ingest.status', 'Où en est l\u0027ingestion de l\u0027historique du serveur ?', async ({ entries }) => {
     const ok = ranTool(entries, 'guild.ingestStatus') || ranTool(entries, 'guild.ingestHistory');
     return { pass: ok, note: ok ? 'statut ingestion consulté' : 'guild.ingestStatus manquant' };
   });
 
   // ---- 10. Opt-out mémoire ----
-  await scenario('memory.forget', 'Oublie-moi totalement : supprime tout ce que tu sais de moi et ne m\u0029enregistre plus jamais.', async ({ entries }) => {
+  await scenario('memory.forget', 'Oublie-moi totalement : supprime tout ce que tu sais de moi et ne m\u0027enregistre plus jamais.', async ({ entries }) => {
     const ok = ranTool(entries, 'memory.forget');
     const row = await prisma((p) => p.memoryOptOut.findFirst({ where: { guildId: GUILD_ID } }));
     return { pass: ok && Boolean(row), note: ok && row ? 'opt-out posé (purge + blocage futur)' : 'memory.forget ou opt-out manquant' };
@@ -250,13 +290,12 @@ async function main() {
 
   // ---- 8bis. Sondage détaillé (le vrai flux) ----
   if (!only || only.includes('polls.compose')) {
-    results.splice(results.findIndex((r) => r.name === 'polls.compose'), 1);
     journal('scenario_start', { scenario: 'polls.compose' });
     const watermarkA = new Date(Date.now() - 2_000);
     await sleep(COOLDOWN_MS);
     await send(`Crée une surface ici (surface.create, channelId = ${channelId}) : titre « E2E-suite sondage », 3 boutons Alpha, Beta, Gamma (clic = record.write component_votes choice=label). NE LA CLÔTURE PAS.`);
     const entriesA = await waitQuiescent(watermarkA);
-    const surfaceCreated = entriesA.some((e) => e.action === 'assistant.tool.surface.create');
+    const surfaceCreated = ranTool(entriesA, 'surface.create');
     const messagesA = await rest(`/channels/${channelId}/messages?limit=10`);
     const panel = messagesA.find((m) => JSON.stringify(m.components || '').includes('E2E-suite sondage'));
     if (!panel) {
@@ -279,18 +318,84 @@ async function main() {
       verdict(
         'polls.compose',
         surfaceCreated && Boolean(editedOk),
-        `${surfaceCreated ? 'surface créée' : 'surface.create manquant'} ; ${editedOk ? 'résultats affichés' : 'pas de résultats'}`,
+        `${surfaceCreated ? 'surface créée' : 'surface.create en échec'} ; ${editedOk ? 'résultats affichés' : 'pas de résultats'}`,
       );
       await rest(`/channels/${channelId}/messages/${panel.id}`, { method: 'DELETE' }).catch(() => {});
     }
   }
 
-  // ---- CLEANUP (try/finally sémantique) ----
+  // ---- 11. Confirmation destructive (règle serveur) ----
+  // Avec confirmDestructiveActions, une suppression demandée à l'agent doit
+  // être BLOQUÉE et une surface ✅/❌ postée. Ces liaisons vivaient dans des
+  // classes de module que le framework n'instancie jamais : zéro confirmation
+  // n'avait jamais été affichée. Le clic ✅ exige une vraie interaction Discord
+  // (non simulable en REST) : il est couvert par tool-registry.confirm.spec.ts.
+  if (!only || only.includes('rule.confirm')) {
+    journal('scenario_start', { scenario: 'rule.confirm' });
+    const probe = await rest(`/guilds/${GUILD_ID}/channels`, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'e2e-confirm-probe', type: 0 }),
+    });
+    let ruleOn = false;
+    try {
+      // a. Active la règle PAR LE BOT : son cache des règles est invalidé au passage.
+      await sleep(COOLDOWN_MS);
+      let watermark = new Date(Date.now() - 2_000);
+      await send('Active la règle de confirmation des actions destructives sur ce serveur (rules.set, confirmDestructiveActions true). Réponds juste fait.');
+      let entries = await waitQuiescent(watermark);
+      const ruleRow = await prisma((p) => p.guildRule.findUnique({ where: { guildId: GUILD_ID } }));
+      ruleOn = ranTool(entries, 'rules.set') && ruleRow?.confirmDestructiveActions === true;
+
+      // b. Demande une suppression : bloquée, avec confirmation affichée, salon intact.
+      await sleep(COOLDOWN_MS);
+      watermark = new Date(Date.now() - 2_000);
+      await send(`Supprime le salon « e2e-confirm-probe » (id ${probe.id}) avec deleteChannel. Réponds juste fait.`);
+      entries = await waitQuiescent(watermark);
+      const attempts = entries.filter((e) => ['assistant.tool.deleteChannel', 'assistant.tool.channel.remove'].includes(e.action));
+      const blocked = attempts.length > 0 && attempts.every((e) => toolMeta(e).ok !== true && /bloquée par la règle/u.test(String(toolMeta(e).summary ?? '')));
+      const shown = await prisma((p) => p.auditLog.count({ where: { guildId: GUILD_ID, action: 'rule.confirm.shown', createdAt: { gt: watermark } } }));
+      const stillThere = await rest(`/channels/${probe.id}`).then(() => true).catch(() => false);
+      const failures = failedTools(entries).filter((line) => !line.startsWith('deleteChannel (') && !line.startsWith('channel.remove ('));
+      verdict(
+        'rule.confirm',
+        ruleOn && blocked && shown > 0 && stillThere,
+        `règle ${ruleOn ? 'activée' : 'NON activée'} · ${attempts.length} tentative(s) ${blocked ? 'bloquée(s)' : 'NON bloquée(s)'} · confirmations affichées : ${shown} · salon ${stillThere ? 'intact' : 'SUPPRIMÉ'}${failures.length ? ` [tools en échec : ${failures.join(' ; ')}]` : ''}`,
+      );
+    } finally {
+      await rest(`/channels/${probe.id}`, { method: 'DELETE' }).catch(() => {});
+      // c. Rétablit la règle : par le bot (cache cohérent), sinon en base + expiration du cache.
+      const current = await prisma((p) => p.guildRule.findUnique({ where: { guildId: GUILD_ID } }));
+      if (current?.confirmDestructiveActions === true) {
+        await sleep(COOLDOWN_MS);
+        await send('Désactive la règle de confirmation des actions destructives sur ce serveur (rules.set, confirmDestructiveActions false). Réponds juste fait.').catch(() => {});
+        await waitQuiescent(new Date(Date.now() - 2_000)).catch(() => []);
+        const after = await prisma((p) => p.guildRule.findUnique({ where: { guildId: GUILD_ID } }));
+        if (after?.confirmDestructiveActions === true) {
+          await prisma((p) => p.guildRule.update({ where: { guildId: GUILD_ID }, data: { confirmDestructiveActions: false } }));
+          console.log('[CLEANUP] règle rétablie directement en base ; le cache des règles expire dans 60 s.');
+          await sleep(65_000);
+        }
+      }
+    }
+  }
+
+  // ---- CLEANUP ----
   console.log('[CLEANUP]...');
   try {
     await prisma((p) => p.memoryOptOut.deleteMany({ where: { guildId: GUILD_ID } }));
     await prisma((p) => p.agentRecord.deleteMany({ where: { guildId: GUILD_ID, collection: 'component_votes', createdBy: { in: ['111111111111111111', '222222222222222222'] } } }));
-    journal('cleanup', { scope: 'memory_opt_out + test votes' });
+    // Surfaces de test (titre « E2E ») et surfaces de confirmation : message + ligne.
+    const stale = await prisma((p) =>
+      p.interactiveSurface.findMany({
+        where: { guildId: GUILD_ID, OR: [{ kind: 'confirm' }, { definition: { contains: 'E2E' } }] },
+        select: { id: true, messageId: true, channelId: true },
+      }),
+    );
+    for (const surface of stale) {
+      if (surface.messageId) await rest(`/channels/${surface.channelId}/messages/${surface.messageId}`, { method: 'DELETE' }).catch(() => {});
+      await prisma((p) => p.interactiveSurface.deleteMany({ where: { id: surface.id } }));
+    }
+    journal('cleanup', { scope: 'memory_opt_out + test votes + surfaces de test', surfaces: stale.length });
   } catch (error) {
     journal('cleanup_error', { error: error.message.slice(0, 120) });
   }

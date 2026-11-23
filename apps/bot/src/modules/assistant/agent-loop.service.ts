@@ -3,6 +3,7 @@ import type { ToolResult, ToolRunContext } from '@10cordes/shared';
 import { LlmService, QuotaExhaustedError, toApiToolName, type ChatCause, type ChatMessage, type OpenAiTool } from './llm.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { fileLog } from '../logging/file-log.service';
+import { stringifySafe } from '../../shared/utils/object';
 
 /**
  * R0.2 : plafond relevé à 12 pour les constructions multi-étapes (un casino
@@ -170,7 +171,9 @@ export class AgentLoopService {
           messages.push({
             role: 'tool',
             tool_call_id: call.id,
-            content: JSON.stringify(result).slice(0, 4000),
+            // stringifySafe : un BigInt dans data (agrégat SQL) faisait planter
+            // toute la requête, l'exception étant hors du try/catch du registry.
+            content: stringifySafe(result).slice(0, 4000),
           });
         }
         continue;

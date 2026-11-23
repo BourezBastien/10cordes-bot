@@ -1,6 +1,6 @@
 /**
  * Tests ciblés VAGUE 4 : la couche PRIMITIVES pure.
- * - surface.create avec pipeline runTool (sendMessage au clic) — vérif message + définition persistée
+ * - surface.create avec pipeline runTool (sendMessage au clic) : vérif message + définition persistée
  * - members.pickRandom sur un rôle de test
  * - skills sans tools fantômes (sweep audit)
  * UNE exécution, E2E_ONLY filtrable, tout nettoyé.
@@ -14,7 +14,6 @@ const BOT_DIR = resolve(SCRIPT_DIR, '..');
 const API = 'https://discord.com/api/v10';
 const WEBHOOK_NAME = 'agent-e2e-guardian';
 const COOLDOWN_MS = 5_000;
-const TEST_ROLE = 'e2e-pick-role';
 
 function loadEnv() {
   const env = {};
@@ -119,8 +118,21 @@ async function main() {
   const results = [];
   const verdict = (name, pass, note = '') => {
     results.push({ name, pass });
-    console.log(`[${pass ? 'PASS' : 'FAIL'}] ${name}${note ? ` — ${note}` : ''}`);
+    console.log(`[${pass ? 'PASS' : 'FAIL'}] ${name}${note ? ` : ${note}` : ''}`);
   };
+
+  /** Un tool n'est compté que s'il a RÉUSSI (ok:true au premier niveau du metadata). */
+  const toolMeta = (entry) => {
+    try {
+      return JSON.parse(entry.metadata ?? '{}');
+    } catch {
+      return {};
+    }
+  };
+  const failedTools = (entries) =>
+    entries
+      .filter((e) => e.action.startsWith('assistant.tool.') && toolMeta(e).ok !== true)
+      .map((e) => `${e.action.replace('assistant.tool.', '')} (${String(toolMeta(e).summary ?? 'sans motif').slice(0, 90)})`);
 
   const runScenario = async (name, prompt, expectTools, check) => {
     if (only && !only.includes(name)) return;
@@ -128,8 +140,11 @@ async function main() {
     await sleep(COOLDOWN_MS);
     await send(prompt);
     const entries = await waitQuiescent(watermark);
-    const toolActions = entries.filter((e) => e.action.startsWith('assistant.tool.'));
-    const missingTools = expectTools.filter((t) => !toolActions.some((e) => e.action === `assistant.tool.${t}`));
+    // STRICT : le tool attendu doit avoir réussi. L'ancien contrôle ne
+    // regardait que le nom : members.pickRandom a été compté PASS alors que
+    // ses deux appels avaient échoué.
+    const missingTools = expectTools.filter((t) => !entries.some((e) => e.action === `assistant.tool.${t}` && toolMeta(e).ok === true));
+    const failed = failedTools(entries);
     let note = '';
     let pass = true;
     try {
@@ -140,7 +155,7 @@ async function main() {
       pass = false;
       note = `check error: ${error.message}`;
     }
-    verdict(name, missingTools.length === 0 && pass, `${missingTools.length ? `tools manquants: ${missingTools.join(', ')} ; ` : ''}${note}`);
+    verdict(name, missingTools.length === 0 && pass, `${missingTools.length ? `tools sans succès: ${missingTools.join(', ')} ; ` : ''}${note}${failed.length ? ` [tools en échec : ${failed.join(' ; ')}]` : ''}`);
   };
 
   // ---- 1. Surface avec bouton runTool : la définition persistée porte le pipeline ----
@@ -155,7 +170,7 @@ async function main() {
       const panel = messages.find((m) => JSON.stringify(m.components || '').includes('E2E-features4 runTool'));
       layoutMessageId = panel?.id ?? null;
       // La définition persistée (InteractiveSurface.definition) doit porter
-      // le pipeline runTool — c'est ça qui survit aux redémarrages.
+      // le pipeline runTool : c'est ça qui survit aux redémarrages.
       const p = new PrismaClient();
       try {
         const row = await p.interactiveSurface.findFirst({
@@ -171,26 +186,21 @@ async function main() {
     },
   );
 
-  // ---- 2. members.pickRandom sur un rôle de test ----
-  if (!only || only.includes('members.pickRandom')) {
-    const role = await rest(`/guilds/${guildId}/roles`, {
-      method: 'POST',
-      body: JSON.stringify({ name: TEST_ROLE, color: 0xe67e22 }),
-    });
-    // Le bot rejoint son propre rôle de test → au moins 1 candidat.
-    await rest(`/guilds/${guildId}/members/${me.id}/roles/${role.id}`, { method: 'PUT' }).catch(() => {});
-    await runScenario(
-      'members.pickRandom',
-      `Tire aléatoirement 1 membre ayant le rôle ${TEST_ROLE} (id ${role.id}) via members.pickRandom scope role.`,
-      ['members.pickRandom'],
-      async () => {
-        const botMember = await rest(`/guilds/${guildId}/members/${me.id}`);
-        const hasRole = botMember.roles.includes(role.id);
-        return { pass: hasRole, note: hasRole ? 'bot porteur du rôle test' : 'rôle test non attribué au bot' };
-      },
-    );
-    await rest(`/guilds/${guildId}/roles/${role.id}`, { method: 'DELETE' }).catch(() => {});
-  }
+  // ---- 2. members.pickRandom : un vrai tirage parmi les membres humains ----
+  // L'ancienne version donnait un rôle de test au BOT lui-même, que le tool
+  // exclut par principe (excludeBots) : « aucun candidat » était garanti et le
+  // scénario ne vérifiait que le rôle, jamais le tirage. Ici : scope all.
+  await runScenario(
+    'members.pickRandom',
+    'Tire au hasard 1 membre humain de ce serveur via members.pickRandom (scope all). Réponds juste le nom tiré.',
+    ['members.pickRandom'],
+    async ({ entries }) => {
+      const call = entries.find((e) => e.action === 'assistant.tool.members.pickRandom' && toolMeta(e).ok === true);
+      const drawn = /Tirage parmi (\d+) candidat/u.exec(String(call ? toolMeta(call).summary ?? '' : ''));
+      const count = drawn ? Number(drawn[1]) : 0;
+      return { pass: count >= 1, note: count >= 1 ? `tirage parmi ${count} candidat(s) humain(s)` : 'aucun tirage réussi' };
+    },
+  );
 
   // ---- 3. Sondage COMPOSÉ complet : surface vote → votes → dépouille → édité ----
   if (!only || only.includes('polls.compose')) {
@@ -198,10 +208,10 @@ async function main() {
     // 3a. Surface avec 3 boutons vote (record.write component_votes, sans clôture).
     const watermarkA = new Date(Date.now() - 2_000);
     await send(
-      `Crée une surface ici (surface.create, channelId = ${channelId}) : titre « E2E-features4 sondage », description « un vote par personne », 3 boutons Alpha, Beta, Gamma — chaque clic exécute record.write dans la collection component_votes avec choice = le label du bouton et messageId = celui de la surface. NE LA CLÔTURE PAS, crée juste la surface.`,
+      `Crée une surface ici (surface.create, channelId = ${channelId}) : titre « E2E-features4 sondage », description « un vote par personne », 3 boutons Alpha, Beta, Gamma : chaque clic exécute record.write dans la collection component_votes avec choice = le label du bouton et messageId = celui de la surface. NE LA CLÔTURE PAS, crée juste la surface.`,
     );
     const entriesA = await waitQuiescent(watermarkA);
-    const surfaceCreated = entriesA.some((e) => e.action === 'assistant.tool.surface.create');
+    const surfaceCreated = entriesA.some((e) => e.action === 'assistant.tool.surface.create' && toolMeta(e).ok === true);
     const messagesA = await rest(`/channels/${channelId}/messages?limit=10`);
     const panel = messagesA.find((m) => JSON.stringify(m.components || '').includes('E2E-features4 sondage'));
     if (!panel) {
@@ -225,14 +235,15 @@ async function main() {
       const watermarkB = new Date(Date.now() - 2_000);
       await sleep(COOLDOWN_MS);
       await send(`Clôture le sondage du message id ${panel.id} : dépouille les votes de component_votes (records.search sur messageId), puis surface.patchState (state closed/résultats), puis AFFICHE les résultats dans la DESCRIPTION du message via surface.updateComponent (paramètre description, mentionne « Résultats » avec les counts Alpha/Beta), et désactive les 3 boutons (surface.updateComponent disabled).`);
-      await waitQuiescent(watermarkB);
+      const entriesB = await waitQuiescent(watermarkB);
       const edited = await rest(`/channels/${channelId}/messages/${panel.id}`).catch(() => null);
       const editedOk = edited && JSON.stringify(edited.components || '').includes('Résultats');
       const countsOk = edited && /Alpha/.test(JSON.stringify(edited.components || '')) && /Beta/.test(JSON.stringify(edited.components || ''));
+      const failedB = failedTools(entriesB);
       verdict(
         'polls.compose',
         surfaceCreated && Boolean(editedOk) && Boolean(countsOk),
-        `${surfaceCreated ? 'surface créée' : 'surface.create manquant'} ; ${editedOk ? 'message édité avec résultats' : 'pas de résultats'}${countsOk ? ' (choisis Alpha/Beta présents)' : ''}`,
+        `${surfaceCreated ? 'surface créée' : 'surface.create sans succès'} ; ${editedOk ? 'message édité avec résultats' : 'pas de résultats'}${countsOk ? ' (choisis Alpha/Beta présents)' : ''}${failedB.length ? ` [tools en échec : ${failedB.join(' ; ')}]` : ''}`,
       );
     }
   }

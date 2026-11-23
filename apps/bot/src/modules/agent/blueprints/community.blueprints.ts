@@ -9,7 +9,7 @@ export const communityBlueprints: DomainBlueprints = [
     tags: ['anniversaire', 'rôle temporaire', '24h', 'retire auto'],
     trigger: 'Anniversaires avec rôle temporaire retiré automatiquement après 24h',
     params: {
-      announceCron: cron('Horaire d\u0029annonce quotidien (ex : 8h = 0 8 * * *)', '0 8 * * *'),
+      announceCron: cron('Horaire d\u0027annonce quotidien (ex : 8h = 0 8 * * *)', '0 8 * * *'),
       birthdayRoleId: role('Rôle anniversaire à donner/retirer'),
       announceChannelId: chan('Salon des annonces'),
     },
@@ -31,7 +31,7 @@ export const communityBlueprints: DomainBlueprints = [
     slug: 'afk-status-mention-notify',
     domain: 'community',
     tags: ['AFK', 'absent', 'mention', 'préviens', 'retour'],
-    trigger: 'Système AFK : prévenir quand on mentionne quelqu\u0027un d\u0029absent',
+    trigger: 'Système AFK : prévenir quand on mentionne quelqu\u0027un d\u0027absent',
     params: {},
     requiredTools: ['records.create', 'records.search', 'records.delete', 'sendMessage'],
     workflow: '1. « Je suis AFK (raison) » : records.create collection afk { userId, reason, since }. 2. EventTrigger message.create avec mentions : records.search afk pour chaque mentionné → sendMessage « X est AFK : raison, depuis Y min ». 3. Le retour de l\u0027AFK (message de l\u0027AFK) : records.delete.',
@@ -45,7 +45,7 @@ export const communityBlueprints: DomainBlueprints = [
       milestones: str('Paliers au format niveau:rôleId séparés par virgules', '5:rôle-actif-id, 15:rôle-vétéran-id'),
     },
     requiredTools: ['addRoleToMember', 'records.create', 'records.search', 'sendMessage'],
-    workflow: '1. Records de niveaux (collection levels). 2. EventTrigger ou check après chaque gain d\u0029XP : records.search niveau actuel. 3. Si un palier est franchi : addRoleToMember + sendMessage annonce.',
+    workflow: '1. Records de niveaux (collection levels). 2. EventTrigger ou check après chaque gain d\u0027XP : records.search niveau actuel. 3. Si un palier est franchi : addRoleToMember + sendMessage annonce.',
   },
   {
     slug: 'quote-vault-save',
@@ -61,14 +61,14 @@ export const communityBlueprints: DomainBlueprints = [
   {
     slug: 'member-spotlight-weekly',
     domain: 'community',
-    tags: ['membre à l\u0029honneur', 'spotlight', 'portrait', 'semaine', 'mise en avant'],
-    trigger: 'Membre à l\u0029honneur chaque semaine, choisi selon son activité',
+    tags: ['membre à l\u0027honneur', 'spotlight', 'portrait', 'semaine', 'mise en avant'],
+    trigger: 'Membre à l\u0027honneur chaque semaine, choisi selon son activité',
     params: {
       spotlightChannelId: chan('Salon des honneurs'),
       dayCron: cron('Jour de publication (ex : lundis 18h)', '0 18 * * 1'),
     },
     requiredTools: ['trigger.schedule', 'activity.summary', 'getMemberInfo', 'surface.create', 'records.create'],
-    workflow: '1. trigger.schedule cron dayCron. 2. activity.summary : membre actif non déjà mis à l\u0029honneur (records.search collection spotlights). 3. getMemberInfo + surface.create portrait (avatar, stats, message personnalisé). 4. records.create (pas deux fois le même en 6 mois).',
+    workflow: '1. trigger.schedule cron dayCron. 2. activity.summary : membre actif non déjà mis à l\u0027honneur (records.search collection spotlights). 3. getMemberInfo + surface.create portrait (avatar, stats, message personnalisé). 4. records.create (pas deux fois le même en 6 mois).',
   },
   {
     slug: 'culture-club-polls-friday',
@@ -103,13 +103,13 @@ export const communityBlueprints: DomainBlueprints = [
       announceChannelId: chan("Salon d'annonce"),
     },
     requiredTools: ['records.search', 'trigger.schedule', 'addRoleToMember', 'removeRoleFromMember', 'surface.create'],
-    workflow: '1. trigger.schedule (1er du mois). 2. records.search collection reputation (30 jours) groupé par destinataire. 3. Top 1 : removeRoleFromMember de l\u0029ancien + addRoleToMember du nouveau + surface.create honneur. 4. Ex æquo : les deux récompensés.',
+    workflow: '1. trigger.schedule (1er du mois). 2. records.search collection reputation (30 jours) groupé par destinataire. 3. Top 1 : removeRoleFromMember de l\u0027ancien + addRoleToMember du nouveau + surface.create honneur. 4. Ex æquo : les deux récompensés.',
   },
   {
     slug: 'server-anniversary-celebration',
     domain: 'community',
     tags: ['anniversaire serveur', 'création', 'célibration', 'stats année'],
-    trigger: 'Célébrer automatiquement l\u0029anniversaire de création du serveur',
+    trigger: 'Célébrer automatiquement l\u0027anniversaire de création du serveur',
     params: {
       celebrateChannelId: chan('Salon de célébration'),
     },
@@ -125,7 +125,7 @@ export const communityBlueprints: DomainBlueprints = [
       cornerChannelId: chan('Salon du coin langue'),
     },
     requiredTools: ['translate', 'defineWord', 'surface.create', 'reaction.add'],
-    workflow: '1. En réponse à un message : « traduis » → translate + re-post élégant. 2. « corrige » : correction orthographique bienveillante (reply éphémère à l\u0029auteur, jamais public). 3. Mot du jour : defineWord + exemple (trigger quotidien).',
+    workflow: '1. En réponse à un message : « traduis » → translate + re-post élégant. 2. « corrige » : correction orthographique bienveillante (reply éphémère à l\u0027auteur, jamais public). 3. Mot du jour : defineWord + exemple (trigger quotidien).',
   },
   {
     slug: 'meme-generator-daily',
@@ -137,7 +137,7 @@ export const communityBlueprints: DomainBlueprints = [
       postCron: cron('Horaire (ex : 18h)', '0 18 * * *'),
     },
     requiredTools: ['trigger.schedule', 'getMeme', 'getGif', 'sendMessage'],
-    workflow: '1. trigger.schedule cron postCron. 2. Alternance getMeme/getGif (records pour éviter les répétitions 30 jours). 3. sendMessage avec l\u0029image en pièce jointe unique. 4. Réactions 👍/👎 collectées pour affiner (records des scores).',
+    workflow: '1. trigger.schedule cron postCron. 2. Alternance getMeme/getGif (records pour éviter les répétitions 30 jours). 3. sendMessage avec l\u0027image en pièce jointe unique. 4. Réactions 👍/👎 collectées pour affiner (records des scores).',
   },
   {
     slug: 'talent-show-submission',

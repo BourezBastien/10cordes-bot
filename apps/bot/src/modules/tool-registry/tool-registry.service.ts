@@ -1,13 +1,15 @@
-import { Injectable } from '@spraxium/common';
+import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
 import type { BotTool, ToolResult, ToolRunContext } from '@10cordes/shared';
 import { z } from 'zod';
+import { Client } from 'discord.js';
 import { setPath } from '../../shared/utils/object';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import { ModuleManagerService } from '../module-manager/module-manager.service';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import type { GuildRulesService } from '../rules/guild-rules.service';
-import type { CacheStoreService } from '../../shared/cache/cache-store.service';
+import { CacheStoreService } from '../../shared/cache/cache-store.service';
+import { getSurfaceRuntime } from '../surface/surface.runtime';
 import { fileLog } from '../logging/file-log.service';
 
 let registryInstance: ToolRegistryService | undefined;
@@ -37,7 +39,7 @@ export function bindRegistryRuntimeDeps(deps: Partial<typeof runtimeDeps>): void
  * (assistant chat, vocal, dashboard, MCP over HTTP) consomment ce même registry.
  */
 @Injectable()
-export class ToolRegistryService {
+export class ToolRegistryService implements SpraxiumOnBoot {
   private readonly tools = new Map<string, BotTool>();
   private readonly nodeCache = new Map<string, { nodes: Array<{ targetId: string; tool: string; effect: string }>; fetchedAt: number }>();
 
@@ -46,9 +48,41 @@ export class ToolRegistryService {
     private readonly configService: GuildConfigService,
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly client: Client,
+    private readonly cache: CacheStoreService,
   ) {
     registryInstance = this;
     for (const tool of builtinTools(this, modules, configService, audit)) this.register(tool);
+  }
+
+  /**
+   * Dépendances runtime de la confirmation destructive. Liées ICI (provider)
+   * et non dans ToolRegistryModule : le framework n'instancie pas les modules.
+   * L'ancienne liaison dans leur constructeur ou onBoot ne s'est JAMAIS
+   * exécutée (zéro confirmation affichée depuis l'origine). Les règles sont
+   * liées par GuildRulesService.onBoot, le rendu par SurfaceService.onBoot.
+   */
+  onBoot(): void {
+    bindRegistryRuntimeDeps({
+      prisma: this.prisma,
+      client: this.client,
+      cache: this.cache,
+      renderSurface: async (surfaceId: string) => {
+        const runtime = getSurfaceRuntime();
+        if (!runtime) throw new Error('SurfaceService non initialisé.');
+        await runtime.render(surfaceId);
+      },
+    });
+  }
+
+  /** auto-diagnostic : dépendances runtime effectivement liées (logs de boot, rigs). */
+  static runtimeDepsReady(): { cache: boolean; prisma: boolean; renderSurface: boolean; rules: boolean } {
+    return {
+      cache: runtimeDeps.cache !== undefined,
+      prisma: runtimeDeps.prisma !== undefined,
+      renderSurface: runtimeDeps.renderSurface !== undefined,
+      rules: runtimeDeps.rules !== undefined,
+    };
   }
 
   register(tool: BotTool): void {
@@ -152,7 +186,7 @@ export class ToolRegistryService {
       return finish(
         {
           ok: false,
-          summary: `Refusé : le staff a explicitement retiré l\u0029accès à cet outil pour toi (ou ton rôle).`,
+          summary: `Refusé : le staff a explicitement retiré l\u0027accès à cet outil pour toi (ou ton rôle).`,
         },
         ['node-deny'],
       );

@@ -1,6 +1,7 @@
 import { Injectable } from '@spraxium/common';
 import { Logger } from '@spraxium/logger';
 import { PrismaService } from '../database/prisma.service';
+import { stringifySafe } from '../../shared/utils/object';
 
 export interface AuditEntry {
   guildId?: string | null;
@@ -47,7 +48,7 @@ export class AuditService {
             action: entry.action,
             actorId: entry.actorId ?? null,
             targetId: entry.targetId ?? null,
-            metadata: JSON.stringify(entry.metadata ?? {}),
+            metadata: stringifySafe(entry.metadata ?? {}),
           },
         });
       } catch (error) {

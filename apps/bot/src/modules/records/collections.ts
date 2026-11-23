@@ -69,7 +69,7 @@ export const COLLECTIONS: Record<string, CollectionDef> = {
   component_votes: {
     name: 'component_votes',
     description:
-      'Votes de composants (sondages, RSVP, inscriptions) : { messageId, channelId, choice } — un vote par membre par message, modifiable, dépouillé par tally.votes.',
+      'Votes de composants (sondages, RSVP, inscriptions) : { messageId, channelId, choice }, un vote par membre par message, modifiable. Dépouillement par records.search (filtre messageId) puis affichage via surface.updateComponent (description).',
     schema: z.object({
       messageId: z.string().min(1),
       channelId: z.string().min(1),

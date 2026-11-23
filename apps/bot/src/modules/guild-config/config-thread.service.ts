@@ -10,18 +10,26 @@ import { getIntegrations } from '../integrations/integration.runtime';
 import { getLlm } from '../assistant/llm.accessor';
 import { fileLog } from '../logging/file-log.service';
 import { AgentSettingsService } from './agent-settings.service';
-import { ConfigPanelPresenter, type ConfigPanelView } from './presenters/config-panel.presenter';
+import {
+  ConfigPanelPresenter,
+  type AppliedSkillOrigin,
+  type ConfigPanelView,
+} from './presenters/config-panel.presenter';
 
 const CONFIG_THREAD_NAME = '⚙️┃config-bot';
-const TOP_SKILLS = 8;
+/** Les recettes de la bibliothèque sont seedées avec ce créateur sur chaque serveur. */
+const LIBRARY_SKILL_OWNER = 'library';
+const MAX_APPLIED_SKILLS = 12;
 
 /**
  * Fil de configuration PRIVÉ (⚙️┃config-bot) + tools de vue.
  *
- * Produit (retour owner 23/11) : une demande de « configuration » ne liste
- * JAMAIS les 135 blueprints ni la vieille config morte - elle montre ce qui
- * est réellement APPLIQUÉ sur CE serveur : règles (GuildRule), skills actifs,
- * intégrations connectées + modèles (jamais les clés), mode thinking.
+ * Une demande de « configuration » ne liste JAMAIS le catalogue des 135
+ * recettes ni la vieille config morte : elle montre ce qui est réellement
+ * APPLIQUÉ sur CE serveur, à savoir les règles (GuildRule), les compétences
+ * créées par le staff et les recettes déjà utilisées par l'agent, les
+ * intégrations connectées avec leurs modèles (jamais les clés) et le mode
+ * thinking.
  */
 @Injectable()
 export class ConfigThreadService implements SpraxiumOnBoot {
@@ -49,14 +57,28 @@ export class ConfigThreadService implements SpraxiumOnBoot {
       getGuildRules().describeForPrompt(guild.id),
       this.prisma.agentSkill.findMany({
         where: { guildId: guild.id, deletedAt: null },
-        select: { trigger: true, usageCount: true },
+        select: { trigger: true, usageCount: true, createdByUserId: true },
         orderBy: { usageCount: 'desc' },
       }),
       this.agentSettings.get(guild.id),
       Promise.resolve(getLlm().status()),
     ]);
 
-    const integrationIds = ['llm', 'pixellab', 'kie'] as const;
+    // Les 135 recettes de la bibliothèque sont seedées sur CHAQUE serveur
+    // (createdByUserId = 'library') : les lister reviendrait à afficher le
+    // catalogue. Ne sont « appliquées » que les compétences créées par le
+    // staff et les recettes que l'agent a réellement ouvertes (usage > 0).
+    const librarySkills = skills.filter((skill) => skill.createdByUserId === LIBRARY_SKILL_OWNER);
+    const appliedAll = skills.filter((skill) => skill.createdByUserId !== LIBRARY_SKILL_OWNER || skill.usageCount > 0);
+    const applied = appliedAll.slice(0, MAX_APPLIED_SKILLS).map((skill) => ({
+      trigger: skill.trigger,
+      uses: skill.usageCount,
+      origin: (skill.createdByUserId === LIBRARY_SKILL_OWNER ? 'library' : 'custom') as AppliedSkillOrigin,
+    }));
+
+    // Le fournisseur IA est déjà décrit par la ligne « Agent IA » : les autres
+    // intégrations seulement (image, musique).
+    const integrationIds = ['pixellab', 'kie'] as const;
     const integrations = await Promise.all(
       integrationIds.map(async (id) => {
         const status = await getIntegrations().status(id).catch(() => null);
@@ -72,8 +94,10 @@ export class ConfigThreadService implements SpraxiumOnBoot {
       guildName: guild.name,
       rulesLines: ruleLines,
       skills: {
-        total: skills.length,
-        top: skills.slice(0, TOP_SKILLS).map((skill) => ({ trigger: skill.trigger, uses: skill.usageCount })),
+        applied,
+        appliedTruncated: appliedAll.length > applied.length,
+        libraryTotal: librarySkills.length,
+        libraryApplied: librarySkills.filter((skill) => skill.usageCount > 0).length,
       },
       integrations,
       llm: {
@@ -162,11 +186,17 @@ export class ConfigThreadService implements SpraxiumOnBoot {
         const view = await service.buildView(guild);
         const lines = [
           `Règles : ${view.rulesLines.length > 0 ? `${view.rulesLines.length} active(s)` : 'aucune (mention stricte par défaut)'}`,
-          `Skills appliqués : ${view.skills.total}`,
+          `Compétences appliquées sur ce serveur : ${view.skills.applied.length}${
+            view.skills.applied.length > 0 ? ` (${view.skills.applied.map((skill) => skill.trigger).slice(0, 6).join(' ; ')}${view.skills.appliedTruncated ? ' ; …' : ''})` : ''
+          } · recettes de la bibliothèque disponibles : ${view.skills.libraryTotal} (ne pas lister)`,
           `Intégrations : ${view.integrations.map((integration) => `${integration.label} ${integration.connected ? 'ON' : 'off'}`).join(', ')}`,
           `Agent IA : ${view.llm.connected ? `modèle ${view.llm.model ?? 'défaut'} (${view.llm.source})` : 'non connecté'} · thinking ${view.thinkingMode}`,
         ];
-        return { ok: true, summary: lines.join(' · ') };
+        return {
+          ok: true,
+          summary: lines.join(' · '),
+          data: { appliedSkills: view.skills.applied, libraryTotal: view.skills.libraryTotal },
+        };
       },
     });
   }

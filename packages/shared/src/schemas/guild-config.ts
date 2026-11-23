@@ -156,7 +156,7 @@ export const CONFIG_KEYS: ConfigKeyDescriptor[] = [
   { path: 'levels.enabled', type: 'boolean', description: 'XP et niveaux actifs sur les messages' },
   { path: 'levels.xpPerMessage', type: 'number', description: "XP gagné par message (cooldown passé)" },
   { path: 'levels.announceChannelId', type: 'channel', description: 'Salon des annonces de level-up (vide = salon courant)' },
-  { path: 'security.verificationEnabled', type: 'boolean', description: 'Gate de vérification à l\u0029arrivée (captcha math)' },
+  { path: 'security.verificationEnabled', type: 'boolean', description: 'Gate de vérification à l\u0027arrivée (captcha math)' },
   { path: 'security.verificationChannelId', type: 'channel', description: 'Salon du message de vérification' },
   { path: 'security.verifiedRoleId', type: 'role', description: 'Rôle attribué après vérification' },
   { path: 'security.kickMinutes', type: 'number', description: 'Kick si non vérifié après N minutes (0 = jamais)' },

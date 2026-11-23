@@ -14,7 +14,8 @@
     "lint:fix": "eslint . --fix",
     "check:modules": "node scripts/check-modules.mjs",
     "arch:audit": "node apps/bot/scripts/arch-audit.mjs",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm check:modules && pnpm arch:audit"
+    "arch:audit:ratchet": "node apps/bot/scripts/arch-audit.mjs --baseline apps/bot/scripts/arch-audit.baseline.json",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm check:modules && pnpm arch:audit:ratchet"
   },
   "devDependencies": {
     "@bluzzi/eslint-config": "^2.4.2",

@@ -289,7 +289,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       permissions: ['ManageMessages'],
       destructive: true,
       systemPrompt:
-        'DESTRUCTIF mais borné : le filtre days protège les vieux messages — demande la fenêtre si l\u0029utilisateur ne la précise pas (« tout le salon » = days à demander quand même). Jamais de purge sans fenêtre d\u0029âge.',
+        'DESTRUCTIF mais borné : le filtre days protège les vieux messages — demande la fenêtre si l\u0027utilisateur ne la précise pas (« tout le salon » = days à demander quand même). Jamais de purge sans fenêtre d\u0027âge.',
       handler: async (input, ctx) => {
         const guild = guildOf(ctx);
         if (!guild) return noGuild();
@@ -367,7 +367,7 @@ export function agentTools(agent: AgentService, client: Client): BotTool[] {
       permissions: ['ManageChannels'],
       destructive: true,
       systemPrompt:
-        'Pour les suppressions différées (« supprime ce salon dans 10 minutes ») : delayMinutes + jobs.schedule runTool channel.remove à l\u0029échéance. Un snapshot est archivé avant.',
+        'Pour les suppressions différées (« supprime ce salon dans 10 minutes ») : delayMinutes + jobs.schedule runTool channel.remove à l\u0027échéance. Un snapshot est archivé avant.',
       handler: async (input, ctx) => {
         const { channelId, delayMinutes } = input as { channelId: string; delayMinutes?: number };
         if (!delayMinutes) return executeDirectOp(ctx, { type: 'channel.delete', channelId });

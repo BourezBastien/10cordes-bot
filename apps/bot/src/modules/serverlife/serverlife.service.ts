@@ -16,6 +16,7 @@ import type { BotTool, ToolResult } from '@10cordes/shared';
 import { getToolRegistry } from '../tool-registry/tool-registry.service';
 import { PrismaService } from '../database/prisma.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
+import { describeCoverage } from './activity-coverage';
 
 /**
  * Vie de serveur : petits tools à haute valeur, tous permission-gated.
@@ -211,7 +212,7 @@ export class ServerlifeService implements SpraxiumOnBoot {
     return [
       {
         name: 'snipe',
-        description: 'Montre les derniers messages supprimés ou édités d\u0029un salon (cache mémoire, réservé au staff).',
+        description: 'Montre les derniers messages supprimés ou édités d\u0027un salon (cache mémoire, réservé au staff).',
         category: 'serverlife',
         paramsSchema: z.object({ channelId: z.string().min(1).optional() }),
         requiredModules: [],
@@ -233,7 +234,7 @@ export class ServerlifeService implements SpraxiumOnBoot {
       {
         name: 'members.pickRandom',
         description:
-          'Tirage aléatoire de membres : parmi les réactants 🎉 d\u0029un message, les membres d\u0029un rôle, ou tout le serveur. La primitive des tirages au sort composés (giveaways, quiz...).',
+          'Tirage aléatoire de membres : parmi les réactants 🎉 d\u0027un message, les membres d\u0027un rôle, ou tout le serveur. La primitive des tirages au sort composés (giveaways, quiz...).',
         category: 'serverlife',
         paramsSchema: z.object({
           scope: z.enum(['reactors', 'role', 'all']).default('all'),
@@ -244,7 +245,7 @@ export class ServerlifeService implements SpraxiumOnBoot {
         requiredModules: [],
         destructive: false,
         systemPrompt:
-          'Pour les tirages au sort composés : combine avec sendPanel (bouton réaction via reaction.add) + reaction.list pour lister les participants, puis ce tool pour tirer. Exclut toujours les bots.',
+          'Pour les tirages au sort composés : crée d\u0027abord une surface (surface.create) avec un bouton Participer dont le pipeline écrit dans la collection component_votes (record.write), liste les participants avec records.search, puis ce tool pour tirer. Exclut toujours les bots.',
         handler: async (input, ctx) => {
           if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
           const guild = this.guildOf(ctx);
@@ -257,6 +258,7 @@ export class ServerlifeService implements SpraxiumOnBoot {
           };
           const take = count ?? 1;
           let candidates: string[] = [];
+          let candidatesPartial = false;
           if (scope === 'reactors') {
             if (!sourceId) return { ok: false, summary: 'scope=reactors exige sourceId (ID du message).' };
             const channelId = ctx.channelId ?? '';
@@ -273,17 +275,32 @@ export class ServerlifeService implements SpraxiumOnBoot {
               }
             }
           } else {
-            const members = await guild.members.fetch().catch(() => null);
-            if (!members) return { ok: false, summary: 'Fetch des membres impossible.' };
+            // guild.members.fetch() exige l'intent privilégié GuildMembers :
+            // sans lui on replie sur le cache (membres déjà vus par le bot) au
+            // lieu d'échouer, et le résultat dit que la liste est partielle.
+            const fetched = await guild.members.fetch().catch(() => null);
+            const members: GuildMember[] = fetched ? [...fetched.values()] : [...guild.members.cache.values()];
+            const partial = fetched === null;
             candidates = members
               .filter((member) => {
-                if (member.user.bot) return false;
+                if (member.user?.bot) return false;
                 if (scope === 'role' && sourceId) return member.roles.cache.has(sourceId);
                 return true;
               })
               .map((member) => member.id);
+            if (partial && candidates.length > 0) {
+              candidatesPartial = true;
+            }
           }
-          if (candidates.length === 0) return { ok: false, summary: 'Aucun candidat pour ce tirage.' };
+          const partialNote = candidatesPartial
+            ? ' Connus du bot uniquement (liste des membres incomplète : active l\u0027intent privilégié « Membres du serveur » pour un tirage sur tous les membres).'
+            : '';
+          if (candidates.length === 0) {
+            return {
+              ok: false,
+              summary: `Aucun candidat pour ce tirage (scope=${scope}${sourceId ? `, source ${sourceId}` : ''}).${partialNote}`,
+            };
+          }
           const winners: string[] = [];
           const pool = [...candidates];
           for (let i = 0; i < take && pool.length > 0; i += 1) {
@@ -294,15 +311,15 @@ export class ServerlifeService implements SpraxiumOnBoot {
           return {
             ok: true,
             summary:
-              `Tirage parmi ${candidates.length} candidat(s) : ${winners.map((id) => `<@${id}>`).join(', ')}. ` +
+              `Tirage parmi ${candidates.length} candidat(s) : ${winners.map((id) => `<@${id}>`).join(', ')}.${partialNote} ` +
               'Annonce les gagnants en UNE phrase (ne répète pas les conditions).',
-            data: { winners, candidates: candidates.length },
+            data: { winners, candidates: candidates.length, partial: candidatesPartial },
           };
         },
       },
       {
         name: 'afk.set',
-        description: 'Passe un membre en AFK avec raison : à son retour ou quand on le mentionne, le bot l\u0029explique.',
+        description: 'Passe un membre en AFK avec raison : à son retour ou quand on le mentionne, le bot l\u0027explique.',
         category: 'serverlife',
         paramsSchema: z.object({
           reason: z.string().min(2).max(200).default('absent'),
@@ -310,7 +327,7 @@ export class ServerlifeService implements SpraxiumOnBoot {
         }),
         requiredModules: [],
         destructive: false,
-        systemPrompt: 'L\u0029utilisateur peut se mettre AFK lui-même ; un staff peut le faire pour quelqu\u0029un.',
+        systemPrompt: 'L\u0027utilisateur peut se mettre AFK lui-même ; un staff peut le faire pour quelqu\u0027un.',
         handler: async (input, ctx) => {
           if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
           const { reason, userId } = input as { reason?: string; userId?: string };
@@ -325,7 +342,7 @@ export class ServerlifeService implements SpraxiumOnBoot {
       },
       {
         name: 'afk.clear',
-        description: 'Retire le statut AFK d\u0029un membre.',
+        description: 'Retire le statut AFK d\u0027un membre.',
         category: 'serverlife',
         paramsSchema: z.object({ userId: z.string().min(1).optional().describe('Par défaut soi-même') }),
         requiredModules: [],
@@ -336,7 +353,7 @@ export class ServerlifeService implements SpraxiumOnBoot {
           const { userId } = input as { userId?: string };
           const target = userId ?? ctx.userId;
           await this.prisma.afkStatus.deleteMany({ where: { guildId: ctx.guildId, userId: target } });
-          return { ok: true, summary: `<@${target}> n\u0029est plus AFK.` };
+          return { ok: true, summary: `<@${target}> n\u0027est plus AFK.` };
         },
       },
       {
@@ -404,7 +421,7 @@ export class ServerlifeService implements SpraxiumOnBoot {
       },
       {
         name: 'sticky.role.remove',
-        description: 'Retire un rôle sticky d\u0029un membre.',
+        description: 'Retire un rôle sticky d\u0027un membre.',
         category: 'serverlife',
         paramsSchema: z.object({ roleId: z.string().min(1), userId: z.string().min(1).optional() }),
         requiredModules: [],
@@ -416,7 +433,7 @@ export class ServerlifeService implements SpraxiumOnBoot {
           const { roleId, userId } = input as { roleId: string; userId?: string };
           const target = userId ?? ctx.userId;
           await this.prisma.stickyRole.deleteMany({ where: { guildId: ctx.guildId, userId: target, roleId } });
-          return { ok: true, summary: `Rôle <@&${roleId}> n\u0029est plus sticky pour <@${target}>.` };
+          return { ok: true, summary: `Rôle <@&${roleId}> n\u0027est plus sticky pour <@${target}>.` };
         },
       },
       {
@@ -430,7 +447,7 @@ export class ServerlifeService implements SpraxiumOnBoot {
         requiredModules: [],
         destructive: false,
         systemPrompt:
-          'Demande à l\u0029utilisateur d\u0029être en vocal, ou indique-le. L\u0029invitation s\u0029affiche dans le vocal ; l\u0029utilisateur clique pour lancer.',
+          'Demande à l\u0027utilisateur d\u0027être en vocal, ou indique-le. L\u0027invitation s\u0027affiche dans le vocal ; l\u0027utilisateur clique pour lancer.',
         handler: async (input, ctx) => {
           if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
           const { activity } = input as { activity: string };
@@ -447,11 +464,11 @@ export class ServerlifeService implements SpraxiumOnBoot {
           const guild = this.guildOf(ctx);
           const member = guild ? await guild.members.fetch(ctx.userId).catch(() => null) : null;
           const voiceChannel = member?.voice.channel ?? null;
-          if (!voiceChannel) return { ok: false, summary: 'Tu n\u0029es pas en vocal : rejoins un vocal puis redemande.' };
+          if (!voiceChannel) return { ok: false, summary: 'Tu n\u0027es pas en vocal : rejoins un vocal puis redemande.' };
           const invite = await voiceChannel
             .createInvite({ targetApplication: appId, targetType: 2, maxAge: 86_400 })
             .catch(() => null);
-          if (!invite) return { ok: false, summary: 'Impossible de créer l\u0029invitation d\u0029activité (permissions ?).' };
+          if (!invite) return { ok: false, summary: 'Impossible de créer l\u0027invitation d\u0027activité (permissions ?).' };
           return { ok: true, summary: `Activité **${activity}** prête : ${invite.url}` };
         },
       },
@@ -469,7 +486,7 @@ export class ServerlifeService implements SpraxiumOnBoot {
         permissions: ['ManageChannels', 'ManageRoles'],
         destructive: true,
         systemPrompt:
-          'OUTIL D\u0029URGENCE anti-raid. lock : deny SendMessages partout ; unlock : restaure exactement l\u0029état pré-lock (mémorisé en mémoire).',
+          'OUTIL D\u0027URGENCE anti-raid. lock : deny SendMessages partout ; unlock : restaure exactement l\u0027état pré-lock (mémorisé en mémoire).',
         handler: async (input, ctx) => {
           if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
           const guild = this.guildOf(ctx);
@@ -491,7 +508,7 @@ export class ServerlifeService implements SpraxiumOnBoot {
                 .catch(() => {});
             }
             this.lockedChannels.set(ctx.guildId, new Set(previouslyOpen.map((channel) => channel.id)));
-            return { ok: true, summary: `Lockdown : ${channels.length} salon(s) verrouillé(s). Unlock pour restaurer l\u0029état pré-lock.` };
+            return { ok: true, summary: `Lockdown : ${channels.length} salon(s) verrouillé(s). Unlock pour restaurer l\u0027état pré-lock.` };
           }
           const previouslyOpen = this.lockedChannels.get(ctx.guildId);
           for (const channel of channels) {
@@ -502,7 +519,7 @@ export class ServerlifeService implements SpraxiumOnBoot {
             touched += 1;
           }
           this.lockedChannels.delete(ctx.guildId);
-          return { ok: true, summary: `Unlock : ${touched} salon(s) restauré(s) à l\u0029état pré-lock.` };
+          return { ok: true, summary: `Unlock : ${touched} salon(s) restauré(s) à l\u0027état pré-lock.` };
         },
       },
       {
@@ -535,7 +552,7 @@ export class ServerlifeService implements SpraxiumOnBoot {
       },
       {
         name: 'member.trust',
-        description: 'Score de confiance 0-1000 d\u0029un membre : dérivé de ses cases de modération avec décroissance exponentielle (demi-vie 30 jours).',
+        description: 'Score de confiance 0-1000 d\u0027un membre : dérivé de ses cases de modération avec décroissance exponentielle (demi-vie 30 jours).',
         category: 'serverlife',
         paramsSchema: z.object({ userId: z.string().min(1) }),
         requiredModules: [],
@@ -625,12 +642,12 @@ export class ServerlifeService implements SpraxiumOnBoot {
       },
       {
         name: 'member.rank',
-        description: 'Rang d\u0029activité d\u0029un membre (messages + temps vocal) sur le serveur.',
+        description: 'Rang d\u0027activité d\u0027un membre (messages + temps vocal) sur le serveur.',
         category: 'serverlife',
         paramsSchema: z.object({ userId: z.string().min(1).optional().describe('Par défaut soi-même') }),
         requiredModules: [],
         destructive: false,
-        systemPrompt: 'Read-only. Activité mesurée depuis l\u0029activation du module.',
+        systemPrompt: 'Read-only. Activité mesurée depuis l\u0027activation du module.',
         handler: async (input, ctx) => {
           if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
           const { userId } = input as { userId?: string };
@@ -675,7 +692,7 @@ export class ServerlifeService implements SpraxiumOnBoot {
       {
         name: 'activity.summary',
         description:
-          "Résumé d'activité du serveur en SQL pur (rapide) : volume de messages/jour, joins/leaves, top membres, avec coverageSince (date du plus ancien événement compté — indique la profondeur de données réelle). Pour les rapports hebdo et les moyennes/jour.",
+          "Résumé d'activité du serveur en SQL pur (rapide) : volume de messages/jour, joins/leaves, top membres sur la fenêtre (minutes de vocal en cumul), avec coverageSince (date du plus ancien événement compté : indique la profondeur de données réelle). Pour les rapports hebdo et les moyennes/jour.",
         category: 'serverlife',
         paramsSchema: z.object({
           days: z.number().int().min(1).max(90).default(7).describe('Fenêtre en jours (défaut 7)'),
@@ -691,47 +708,66 @@ export class ServerlifeService implements SpraxiumOnBoot {
           const since = new Date(Date.now() - days * 86_400_000);
 
           // SQL 100% PARAMÉTRÉ (Prisma.sql, jamais de concaténation).
+          // Piège SQLite + Prisma : les DateTime sont stockés en epoch-ms
+          // ENTIER. strftime ne lit pas cet entier tel quel (il renvoyait
+          // NULL : tous les jours se regroupaient sous « null »), d'où le
+          // / 1000 + 'unixepoch' ; et MIN("createdAt") ressort en BigInt
+          // (new Date(bigint) levait « Cannot convert a BigInt »).
+          // 'localtime' : jours du fuseau du processus, cohérents avec toLocalDay.
           const [perDay, coverage, joins, topMembers] = await Promise.all([
-            this.prisma.$queryRaw<Array<{ day: string; messages: bigint }>>(
-              Prisma.sql`SELECT strftime('%Y-%m-%d', "createdAt") AS day, COUNT(*) AS messages
+            this.prisma.$queryRaw<Array<{ day: string | null; messages: bigint }>>(
+              Prisma.sql`SELECT strftime('%Y-%m-%d', "createdAt" / 1000, 'unixepoch', 'localtime') AS day, COUNT(*) AS messages
                          FROM "audit_logs"
                          WHERE "guildId" = ${ctx.guildId} AND "action" = ${'message.created'} AND "createdAt" >= ${since}
                          GROUP BY day ORDER BY day ASC LIMIT 90`,
             ),
-            this.prisma.$queryRaw<Array<{ since: Date | null }>>(
+            this.prisma.$queryRaw<Array<{ since: bigint | null }>>(
               Prisma.sql`SELECT MIN("createdAt") AS since FROM "audit_logs"
                          WHERE "guildId" = ${ctx.guildId} AND "action" = ${'message.created'}`,
             ),
-            this.prisma.$queryRaw<Array<{ joined: bigint; left: bigint }>>(
+            this.prisma.$queryRaw<Array<{ joined: bigint | null; left: bigint | null }>>(
               Prisma.sql`SELECT
                  SUM(CASE WHEN "action" = ${'member.joined'} THEN 1 ELSE 0 END) AS joined,
                  SUM(CASE WHEN "action" = ${'member.left'} THEN 1 ELSE 0 END) AS left
                  FROM "audit_logs"
                  WHERE "guildId" = ${ctx.guildId} AND "action" IN (${'member.joined'}, ${'member.left'}) AND "createdAt" >= ${since}`,
             ),
-            this.prisma.memberActivity.findMany({
-              where: { guildId: ctx.guildId },
-              orderBy: { messages: 'desc' },
-              take: 5,
-              select: { userId: true, messages: true, voiceMinutes: true },
-            }),
+            // Top membres SUR LA FENÊTRE : l'audit porte l'auteur de chaque
+            // message humain. memberActivity est un cumul depuis toujours
+            // (il faisait annoncer 9 messages là où la fenêtre en compte 7).
+            this.prisma.$queryRaw<Array<{ userId: string; messages: bigint }>>(
+              Prisma.sql`SELECT "actorId" AS userId, COUNT(*) AS messages
+                         FROM "audit_logs"
+                         WHERE "guildId" = ${ctx.guildId} AND "action" = ${'message.created'} AND "createdAt" >= ${since} AND "actorId" IS NOT NULL
+                         GROUP BY "actorId" ORDER BY messages DESC, "actorId" ASC LIMIT 5`,
+            ),
           ]);
+          // Pas de suivi du vocal par fenêtre : minutes CUMULÉES, annoncées comme telles.
+          const voiceRows =
+            topMembers.length > 0
+              ? await this.prisma.memberActivity.findMany({
+                  where: { guildId: ctx.guildId, userId: { in: topMembers.map((row) => row.userId) } },
+                  select: { userId: true, voiceMinutes: true },
+                })
+              : [];
+          const voiceMinutesByUser = new Map(voiceRows.map((row) => [row.userId, row.voiceMinutes]));
 
-          const totalMessages = perDay.reduce((sum, row) => sum + Number(row.messages), 0);
-          const coverageSince = coverage[0]?.since ?? null;
-          const effectiveDays = coverageSince
-            ? Math.min(days, Math.max(1, Math.ceil((Date.now() - new Date(coverageSince).getTime()) / 86_400_000)))
-            : 0;
-          const perDayLines = perDay.map((row) => `${row.day}: ${Number(row.messages)} msg`);
-          const topLines = topMembers.map((row, index) => `${index + 1}. <@${row.userId}> (${row.messages} msg, ${row.voiceMinutes} min vocal)`);
+          const dayRows = perDay.filter((row): row is { day: string; messages: bigint } => row.day !== null);
+          const totalMessages = dayRows.reduce((sum, row) => sum + Number(row.messages), 0);
+          const coverageSinceMs = coverage[0]?.since == null ? null : Number(coverage[0].since);
+          const coverageFacts = describeCoverage({ sinceMs: coverageSinceMs, days });
+          const effectiveDays = coverageFacts.effectiveDays;
+          const perDayLines = dayRows.map((row) => `${row.day}: ${Number(row.messages)} msg`);
+          const topLines = topMembers.map(
+            (row, index) =>
+              `${index + 1}. <@${row.userId}> (${Number(row.messages)} msg sur la fenêtre, ${voiceMinutesByUser.get(row.userId) ?? 0} min de vocal en cumul)`,
+          );
           const summary = [
-            `${totalMessages} message(s) humain(s) sur ${perDay.length} jour(s) (moyenne ${perDay.length > 0 ? Math.round(totalMessages / effectiveDays) : 0}/jour sur la fenêtre effective).`,
+            `${totalMessages} message(s) humain(s) sur la fenêtre, réparti(s) sur ${dayRows.length} jour(s) différent(s) (moyenne ${dayRows.length > 0 ? Math.round(totalMessages / effectiveDays) : 0}/jour).`,
             `Arrivées: ${Number(joins[0]?.joined ?? 0)}, départs: ${Number(joins[0]?.left ?? 0)}.`,
             perDayLines.length > 0 ? `Par jour : ${perDayLines.join(' | ')}` : '',
-            topLines.length > 0 ? `Top membres : ${topLines.join(' | ')}` : 'Aucune activité membre enregistrée.',
-            coverageSince
-              ? `coverageSince: ${new Date(coverageSince).toISOString().slice(0, 10)} (${effectiveDays} jour(s) de profondeur réelle).`
-              : 'coverageSince: aucune donnée.',
+            topLines.length > 0 ? `Top membres : ${topLines.join(' | ')}` : 'Aucun message de membre sur la fenêtre.',
+            coverageFacts.line
           ]
             .filter(Boolean)
             .join('\n');
@@ -741,12 +777,16 @@ export class ServerlifeService implements SpraxiumOnBoot {
             data: {
               days,
               totalMessages,
-              coverageSince: coverageSince ? new Date(coverageSince).toISOString() : null,
+              coverageSince: coverageSinceMs !== null ? new Date(coverageSinceMs).toISOString() : null,
               effectiveDays,
               joined: Number(joins[0]?.joined ?? 0),
               left: Number(joins[0]?.left ?? 0),
-              perDay: perDay.map((row) => ({ day: row.day, messages: Number(row.messages) })),
-              topMembers,
+              perDay: dayRows.map((row) => ({ day: row.day, messages: Number(row.messages) })),
+              topMembers: topMembers.map((row) => ({
+                userId: row.userId,
+                messages: Number(row.messages),
+                voiceMinutesCumul: voiceMinutesByUser.get(row.userId) ?? 0,
+              })),
             },
           };
         },

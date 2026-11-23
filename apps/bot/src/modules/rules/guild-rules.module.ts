@@ -1,9 +1,7 @@
-import { Global, Module, type SpraxiumOnBoot } from '@spraxium/common';
+import { Global, Module } from '@spraxium/common';
 import { AuditModule } from '../audit/audit.module';
 import { DatabaseModule } from '../database/database.module';
 import { ToolRegistryModule } from '../tool-registry/tool-registry.module';
-import { bindRegistryRuntimeDeps } from '../tool-registry/tool-registry.service';
-import { bindGuildRules } from './guild-rules.runtime';
 import { GuildRulesService } from './guild-rules.service';
 
 /**
@@ -12,6 +10,10 @@ import { GuildRulesService } from './guild-rules.service';
  * de prompt (SERVER_RULES). @Global : le service doit être résoluble depuis
  * AssistantModule SANS import (gotcha Spraxium : les exports d'un module
  * partagé n'atterrissent que dans le conteneur du premier importateur).
+ *
+ * Rien dans la classe : le framework n'instancie PAS les modules. Les liaisons
+ * runtime (registry, accesseur getGuildRules) sont faites dans
+ * GuildRulesService.onBoot. L'ancien onBoot de module ne s'est JAMAIS exécuté.
  */
 @Global()
 @Module({
@@ -19,14 +21,4 @@ import { GuildRulesService } from './guild-rules.service';
   providers: [GuildRulesService],
   exports: [GuildRulesService],
 })
-export class GuildRulesModule implements SpraxiumOnBoot {
-  constructor(private readonly rules: GuildRulesService) {}
-
-  onBoot(): void {
-    // Le registry lit les règles (confirmation destructive) via cet accesseur
-    // runtime : ToolRegistryModule se charge AVANT ce module (ordre AppModule).
-    bindRegistryRuntimeDeps({ rules: this.rules });
-    // Idem pour ConfigThreadService (GuildConfigModule se charge avant nous).
-    bindGuildRules(this.rules);
-  }
-}
+export class GuildRulesModule {}

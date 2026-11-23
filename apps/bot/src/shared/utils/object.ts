@@ -1,3 +1,19 @@
+/**
+ * JSON.stringify tolérant aux BigInt : les agrégats SQL (COUNT, SUM, MIN)
+ * renvoyés par Prisma sur SQLite sont des BigInt, et un JSON.stringify nu
+ * lève dessus. Valeur convertie en nombre si elle est représentable sans
+ * perte, sinon en chaîne. À utiliser partout où un résultat de tool est
+ * sérialisé (renvoi au LLM, metadata d'audit).
+ */
+export function stringifySafe(value: unknown): string {
+  return (
+    JSON.stringify(value, (_key, inner: unknown) => {
+      if (typeof inner !== 'bigint') return inner;
+      return inner >= BigInt(Number.MIN_SAFE_INTEGER) && inner <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(inner) : inner.toString();
+    }) ?? 'null'
+  );
+}
+
 /** Fusion profonde de plain objects — les tableaux et scalaires remplacent. */
 export function deepMerge<T extends Record<string, unknown>>(base: T, patch: Record<string, unknown>): T {
   const result: Record<string, unknown> = { ...base };

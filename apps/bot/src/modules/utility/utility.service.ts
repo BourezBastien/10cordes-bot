@@ -150,7 +150,7 @@ export class UtilityService implements SpraxiumOnBoot {
       },
       {
         name: 'members.export',
-        description: 'Exporte l\u0029annuaire des membres (nom, join date, rôles) en JSON.',
+        description: 'Exporte l\u0027annuaire des membres (nom, join date, rôles) en JSON.',
         category: 'utility',
         paramsSchema: z.object({ limit: z.number().int().min(1).max(1000).default(200) }),
         requiredModules: [],
@@ -178,19 +178,19 @@ export class UtilityService implements SpraxiumOnBoot {
       },
       {
         name: 'event.schedule',
-        description: 'Crée un événement Discord planifié natif (visible dans l\u0029onglet Événements du serveur).',
+        description: 'Crée un événement Discord planifié natif (visible dans l\u0027onglet Événements du serveur).',
         category: 'utility',
         paramsSchema: z.object({
           name: z.string().min(1).max(100),
           description: z.string().max(500).optional(),
           startAtIso: z.string().min(1),
           durationMinutes: z.number().int().min(15).max(1440).default(60),
-          locationChannelId: z.string().optional().describe('Salon vocal de l\u0029événement (optionnel)'),
+          locationChannelId: z.string().optional().describe('Salon vocal de l\u0027événement (optionnel)'),
         }),
         requiredModules: [],
         permissions: ['ManageEvents'],
         destructive: false,
-        systemPrompt: 'Événement natif Discord : il apparaît dans l\u0029onglet dédié. Convertis la date en ISO.',
+        systemPrompt: 'Événement natif Discord : il apparaît dans l\u0027onglet dédié. Convertis la date en ISO.',
         handler: async (input, ctx) => {
           if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
           const guild = this.guildOf(ctx);

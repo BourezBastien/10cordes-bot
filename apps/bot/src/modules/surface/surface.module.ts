@@ -1,15 +1,8 @@
-import { Global, Module, type SpraxiumOnBoot } from '@spraxium/common';
+import { Global, Module } from '@spraxium/common';
 import { DatabaseModule } from '../database/database.module';
 import { AuditModule } from '../audit/audit.module';
 import { ToolRegistryModule } from '../tool-registry/tool-registry.module';
 import { SurfaceService } from './surface.service';
-
-let runtimeSurface: { render: (surfaceId: string) => Promise<void> } | null = null;
-
-/** Accès runtime au rendu de surface (registry, triggers hors DI). */
-export function getSurfaceRuntime(): { render: (surfaceId: string) => Promise<void> } | null {
-  return runtimeSurface;
-}
 import { SurfacePipelineService } from './surface.pipeline';
 import { SurfaceTriggersService } from './surface.triggers.service';
 import { EventRouterService } from './surface.event-router';
@@ -37,6 +30,10 @@ import {
  * (rattrapage garanti) + routeur d'événements. @Global : les primitives
  * surface.* sont consommées par l'agent partout (assistant/web) et les
  * triggers par tous les modules à venir.
+ *
+ * Rien ici dans la classe : le framework n'instancie PAS les modules (seuls
+ * providers/listeners/handlers ont un cycle de vie). Le runtime de rendu est
+ * lié par SurfaceService.onBoot (voir surface.runtime.ts).
  */
 @Global()
 @Module({
@@ -62,10 +59,4 @@ import {
   ],
   exports: [SurfaceService, SurfacePipelineService],
 })
-export class SurfaceModule implements SpraxiumOnBoot {
-  constructor(private readonly surfaces: SurfaceService) {}
-
-  onBoot(): void {
-    runtimeSurface = { render: (surfaceId: string) => this.surfaces.renderSurface(surfaceId) };
-  }
-}
+export class SurfaceModule {}

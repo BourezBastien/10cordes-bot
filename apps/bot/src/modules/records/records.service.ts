@@ -107,7 +107,7 @@ export class RecordsService implements SpraxiumOnBoot {
         requiredModules: [],
         destructive: false,
         systemPrompt:
-          'La validation est stricte : en cas de refus, lis les champs attendus dans le message d\u0029erreur et corrige. Exemples : reminders { userId, text, dueAtIso } ; suggestions { userId, text, status, reason } ; faq { question, answer } ; quotes { text, author } ; counters { name, value } ; notes { targetUserId, content }.',
+          'La validation est stricte : en cas de refus, lis les champs attendus dans le message d\u0027erreur et corrige. Exemples : reminders { userId, text, dueAtIso } ; suggestions { userId, text, status, reason } ; faq { question, answer } ; quotes { text, author } ; counters { name, value } ; notes { targetUserId, content }.',
         handler: async (input, ctx) => {
           if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
           const { collection, data } = input as { collection: string; data: unknown };
@@ -126,7 +126,7 @@ export class RecordsService implements SpraxiumOnBoot {
       },
       {
         name: 'records.update',
-        description: 'Met à jour les données d\u0029un enregistrement (fusion champ par champ, validation complète après fusion).',
+        description: 'Met à jour les données d\u0027un enregistrement (fusion champ par champ, validation complète après fusion).',
         category: 'records',
         paramsSchema: z.object({
           recordId: z.string().min(1),
@@ -174,7 +174,7 @@ export class RecordsService implements SpraxiumOnBoot {
       },
       {
         name: 'records.list',
-        description: 'Liste les enregistrements d\u0029une collection (paginé, du plus récent).',
+        description: 'Liste les enregistrements d\u0027une collection (paginé, du plus récent).',
         category: 'records',
         paramsSchema: z.object({
           collection: z.string().min(1),

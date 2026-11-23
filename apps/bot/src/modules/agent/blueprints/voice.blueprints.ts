@@ -16,7 +16,7 @@ export const voiceBlueprints: DomainBlueprints = [
       controlEmoji: emoji('Emoji du panneau de contrôle vocal', '🎙️'),
     },
     requiredTools: ['createChannel', 'deleteChannel', 'renameChannel', 'setChannelOverwrite', 'surface.create', 'surface.patchState', 'trigger.schedule', 'trigger.cancelByKey', 'records.create', 'records.delete'],
-    workflow: '1. Créer le hub vocal + EventTrigger sur voice.join (entrée dans le hub). 2. Au join : createChannel vocal avec userLimit + overwrites ManageChannels pour le membre + moveMember + records.create { userId, channelId } dans la collection temp_voices. 3. Panneau de contrôle dans le chat textuel (surface avec boutons Verrouiller, Renommer modal, Limiter modal, Expulser select). 4. EventTrigger voice.leave : si vide, trigger.schedule (delaySec = emptyGraceDelay, cancelKey = voice-del-{{channelId}}) pour supprimer + records.delete. 5. Si rejoint avant l\u0029échéance : trigger.cancelByKey.',
+    workflow: '1. Créer le hub vocal + EventTrigger sur voice.join (entrée dans le hub). 2. Au join : createChannel vocal avec userLimit + overwrites ManageChannels pour le membre + moveMember + records.create { userId, channelId } dans la collection temp_voices. 3. Panneau de contrôle dans le chat textuel (surface avec boutons Verrouiller, Renommer modal, Limiter modal, Expulser select). 4. EventTrigger voice.leave : si vide, trigger.schedule (delaySec = emptyGraceDelay, cancelKey = voice-del-{{channelId}}) pour supprimer + records.delete. 5. Si rejoint avant l\u0027échéance : trigger.cancelByKey.',
   },
   {
     slug: 'temp-voice-duo-squad',
@@ -46,10 +46,10 @@ export const voiceBlueprints: DomainBlueprints = [
     tags: ['vocal', 'verrouillé', 'demander à rejoindre', 'accepter refuser', 'salle d\u0027attente'],
     trigger: 'Système de demande d\u0027accès aux vocaux verrouillés',
     params: {
-      waitChannelName: str('Nom du salon d\u0027attente', 'Salle d\u0029attente'),
+      waitChannelName: str('Nom du salon d\u0027attente', 'Salle d\u0027attente'),
     },
     requiredTools: ['createChannel', 'surface.create', 'sendMessage', 'sendDirectMessage'],
-    workflow: '1. Salon d\u0029attente + bouton Demander à rejoindre. 2. Au clic : sendDirectMessage au propriétaire avec Accepter / Refuser. 3. Accepter : moveMember du demandeur vers le vocal.',
+    workflow: '1. Salon d\u0027attente + bouton Demander à rejoindre. 2. Au clic : sendDirectMessage au propriétaire avec Accepter / Refuser. 3. Accepter : moveMember du demandeur vers le vocal.',
   },
   {
     slug: 'temp-voice-mute-all',
@@ -87,7 +87,7 @@ export const voiceBlueprints: DomainBlueprints = [
     trigger: 'Bouton pour expulser un membre du vocal via menu de sélection',
     params: {},
     requiredTools: ['surface.create', 'records.search', 'deleteMessage'],
-    workflow: '1. Bouton Expulser (owner only) : ouvre un select des membres présents (voix). 2. Au choix : disconnect du vocal + confirmation éphémère. 3. L\u0029expulsé peut redemander l\u0029accès via le système de demande.',
+    workflow: '1. Bouton Expulser (owner only) : ouvre un select des membres présents (voix). 2. Au choix : disconnect du vocal + confirmation éphémère. 3. L\u0027expulsé peut redemander l\u0027accès via le système de demande.',
   },
   {
     slug: 'temp-voice-lock-unlock',

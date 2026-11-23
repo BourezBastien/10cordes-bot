@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { defineTool, type BotTool } from '@10cordes/shared';
 import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { getToolRegistry } from '../tool-registry/tool-registry.service';
+import { getToolRegistry, ToolRegistryService, bindRegistryRuntimeDeps } from '../tool-registry/tool-registry.service';
+import { bindGuildRules } from './guild-rules.runtime';
 
 /**
  * Règles Serveur (R0.4) — le système demandé en langage naturel par les
@@ -51,7 +52,18 @@ export class GuildRulesService implements SpraxiumOnBoot {
   onBoot(): void {
     getToolRegistry().register(this.rulesSetTool());
     getToolRegistry().register(this.rulesListTool());
-    this.log.info('GuildRules ready (rules.set / rules.list).');
+    // Liaisons runtime, ICI et non dans GuildRulesModule (que le framework
+    // n'instancie pas) : sans elles le registry sautait silencieusement la
+    // confirmation des actions destructives, règle serveur activée ou non.
+    bindRegistryRuntimeDeps({ rules: this });
+    bindGuildRules(this);
+    const ready = ToolRegistryService.runtimeDepsReady();
+    const missing = (Object.entries(ready) as Array<[string, boolean]>).filter(([, bound]) => !bound).map(([name]) => name);
+    if (missing.length > 0) {
+      this.log.warn(`Confirmation destructive INOPÉRANTE : dépendances runtime non liées (${missing.join(', ')}).`);
+    } else {
+      this.log.info('GuildRules ready (rules.set / rules.list) · confirmation destructive opérationnelle (rules, cache, prisma, rendu liés).');
+    }
   }
 
   /** Règles effectives d'un serveur (cache 60 s ; défauts si aucune ligne). */

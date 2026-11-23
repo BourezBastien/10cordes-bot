@@ -12,11 +12,11 @@ export const automationBlueprints: DomainBlueprints = [
       cronSchedule: cron('Expression cron (ex : lundis 9h = 0 9 * * 1)', '0 9 * * 1'),
       targetChannelId: chan('Salon où publier'),
       headerEmoji: emoji('Emoji d\u0027en-tête', '📅'),
-      includeActivitySummary: bool('Inclure les stats d\u0029activité récentes', false),
+      includeActivitySummary: bool('Inclure les stats d\u0027activité récentes', false),
       messagePrompt: str('Consigne du message récurrent', 'Bonne semaine à tous ! Quels sont vos objectifs ?'),
     },
     requiredTools: ['trigger.schedule', 'surface.create', 'sendMessage', 'activity.summary'],
-    workflow: '1. Convertir l\u0029horaire en cron si besoin. 2. trigger.schedule kind=cron. 3. À chaque exécution : si includeActivitySummary, appeler activity.summary puis composer le contenu. 4. Publier via surface.create (Components V2) avec headerEmoji.',
+    workflow: '1. Convertir l\u0027horaire en cron si besoin. 2. trigger.schedule kind=cron. 3. À chaque exécution : si includeActivitySummary, appeler activity.summary puis composer le contenu. 4. Publier via surface.create (Components V2) avec headerEmoji.',
   },
   {
     slug: 'auto-night-mode-schedule',
@@ -25,7 +25,7 @@ export const automationBlueprints: DomainBlueprints = [
     trigger: 'Fermer et ouvrir des salons automatiquement à des horaires fixes',
     params: {
       closeCron: cron('Horaire de fermeture (ex : 2h du matin = 0 2 * * *)', '0 2 * * *'),
-      openCron: cron('Horaire d\u0029ouverture (ex : 7h du matin = 0 7 * * *)', '0 7 * * *'),
+      openCron: cron('Horaire d\u0027ouverture (ex : 7h du matin = 0 7 * * *)', '0 7 * * *'),
       channelIds: str('Salons à fermer/ouvrir (IDs séparés par virgules)', ''),
     },
     requiredTools: ['trigger.schedule', 'setChannelOverwrite'],
@@ -42,7 +42,7 @@ export const automationBlueprints: DomainBlueprints = [
       repostAfter: num('Reposter après N nouveaux messages', 5),
     },
     requiredTools: ['sendMessage', 'purgeMessages', 'records.create', 'records.update', 'surface.create'],
-    workflow: '1. records.create collection sticky_state { channelId, messageId, count: 0 }. 2. EventTrigger message.create dans le salon : increment count. 3. Si count >= repostAfter : deleteMessage de l\u0029ancien + sendMessage du nouveau + reset count.',
+    workflow: '1. records.create collection sticky_state { channelId, messageId, count: 0 }. 2. EventTrigger message.create dans le salon : increment count. 3. Si count >= repostAfter : deleteMessage de l\u0027ancien + sendMessage du nouveau + reset count.',
   },
   {
     slug: 'auto-idle-topic-prompts',
@@ -54,7 +54,7 @@ export const automationBlueprints: DomainBlueprints = [
       idleMinutes: num('Minutes d\u0027inactivité avant relance', 10),
     },
     requiredTools: ['trigger.schedule', 'trigger.cancelByKey', 'sendMessage'],
-    workflow: '1. EventTrigger message.create : trigger.cancelByKey idle-{{channelId}} + trigger.schedule (delaySec = idleMinutes * 60, cancelKey = idle-{{channelId}}). 2. À l\u0029échéance : step random pour choisir un sujet + sendMessage.',
+    workflow: '1. EventTrigger message.create : trigger.cancelByKey idle-{{channelId}} + trigger.schedule (delaySec = idleMinutes * 60, cancelKey = idle-{{channelId}}). 2. À l\u0027échéance : step random pour choisir un sujet + sendMessage.',
   },
   {
     slug: 'crosspost-announcements',
@@ -62,10 +62,10 @@ export const automationBlueprints: DomainBlueprints = [
     tags: ['crosspost', 'publier', 'annonces', 'auto', 'abonnés'],
     trigger: 'Crossposter automatiquement les messages du salon d\u0027annonces',
     params: {
-      announceChannelId: chan('Salon d\u0029annonces (type News)'),
+      announceChannelId: chan('Salon d\u0027annonces (type News)'),
     },
     requiredTools: ['message.crosspost'],
-    workflow: '1. EventTrigger message.create dans le salon d\u0029annonces. 2. Si l\u0029auteur est staff ou le bot : message.crosspost.',
+    workflow: '1. EventTrigger message.create dans le salon d\u0027annonces. 2. Si l\u0027auteur est staff ou le bot : message.crosspost.',
   },
   {
     slug: 'auto-role-time-based',
@@ -73,7 +73,7 @@ export const automationBlueprints: DomainBlueprints = [
     tags: ['rôle automatique', 'ancienneté', 'temps', 'vétéran', 'mois'],
     trigger: 'Attribuer un rôle après X jours d\u0027ancienneté sur le serveur',
     params: {
-      days: num('Jours d\u0029ancienneté requis', 30),
+      days: num('Jours d\u0027ancienneté requis', 30),
       rewardRoleId: str('Rôle à attribuer (ID)', ''),
       checkCron: cron('Rythme de vérification', '0 6 * * *'),
     },
@@ -99,7 +99,7 @@ export const automationBlueprints: DomainBlueprints = [
     tags: ['thread', 'archive auto', 'inactif', 'nettoyage', '1 semaine'],
     trigger: 'Archiver automatiquement les threads inactifs depuis N jours',
     params: {
-      idleDays: num('Jours d\u0029inactivité avant archivage', 7),
+      idleDays: num('Jours d\u0027inactivité avant archivage', 7),
     },
     requiredTools: ['trigger.schedule', 'getChannels', 'records.create'],
     workflow: '1. trigger.schedule quotidien. 2. Lister les threads actifs (getChannels). 3. Dernier message > idleDays : archivage + records.create collection thread_archives. 4. Rapport hebdo du nombre archivé.',
@@ -136,7 +136,7 @@ export const automationBlueprints: DomainBlueprints = [
       welcomeChannelId: chan('Salon des bienvenues'),
     },
     requiredTools: ['records.search', 'sendMessage', 'getMemberInfo'],
-    workflow: '1. EventTrigger member.join. 2. records.search collection known_members { userId }. 3. Déjà connu : message « re-bienvenue {{user.mention}}, content de te revoir » + restauration des rôles si récente. 4. Nouveau : parcours d\u0029accueil standard.',
+    workflow: '1. EventTrigger member.join. 2. records.search collection known_members { userId }. 3. Déjà connu : message « re-bienvenue {{user.mention}}, content de te revoir » + restauration des rôles si récente. 4. Nouveau : parcours d\u0027accueil standard.',
   },
   {
     slug: 'reaction-starboard-auto',
@@ -158,6 +158,6 @@ export const automationBlueprints: DomainBlueprints = [
     trigger: 'Rappels personnels par DM (« rappelle-moi X dans Y »)',
     params: {},
     requiredTools: ['trigger.schedule', 'sendDirectMessage', 'records.create'],
-    workflow: '1. Parser la demande (contenu + délai relatif). 2. trigger.schedule kind=once avec cancelKey = reminder-{{userId}}-{{ts}}. 3. À l\u0029échéance : sendDirectMessage avec le contenu + contexte (salon d\u0029origine). 4. Annulation possible en conversation (« annule mon rappel »).',
+    workflow: '1. Parser la demande (contenu + délai relatif). 2. trigger.schedule kind=once avec cancelKey = reminder-{{userId}}-{{ts}}. 3. À l\u0027échéance : sendDirectMessage avec le contenu + contexte (salon d\u0027origine). 4. Annulation possible en conversation (« annule mon rappel »).',
   },
 ];

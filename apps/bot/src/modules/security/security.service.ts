@@ -42,7 +42,7 @@ export class SecurityService implements SpraxiumOnBoot {
         permissions: ['ManageGuild'],
         destructive: false,
         systemPrompt:
-          'Couche d\u0029override fine : deny = bloque même un admin ; allow = autorise sans permissions Discord. Le nom du tool doit exister (liste via tools.list). Administrator bypassant Discord reste soumis au deny.',
+          'Couche d\u0027override fine : deny = bloque même un admin ; allow = autorise sans permissions Discord. Le nom du tool doit exister (liste via tools.list). Administrator bypassant Discord reste soumis au deny.',
         handler: async (input, ctx) => {
           if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
           const { tool, targetId, effect } = input as { tool: string; targetId: string; effect: 'allow' | 'deny' };

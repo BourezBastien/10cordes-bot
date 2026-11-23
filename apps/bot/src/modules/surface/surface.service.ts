@@ -20,6 +20,8 @@ import { defineTool } from '@10cordes/shared';
 import { deepMerge } from '../../shared/utils/object';
 import { SurfaceRenderer } from './surface.renderer';
 import { CacheStoreService } from '../../shared/cache/cache-store.service';
+import { bindSurfaceRuntime } from './surface.runtime';
+import { describeDefinitionError, listBindingKeys, surfaceNotFound } from './surface.errors';
 import { SurfacePipelineService, type PipelineContext, type PipelineVars, type ToolRunner } from './surface.pipeline';
 
 /**
@@ -71,6 +73,9 @@ export class SurfaceService implements SpraxiumOnBoot {
 
   onBoot(): void {
     this.renderer = new SurfaceRenderer(this.buttons);
+    // Runtime de rendu consommé par le registry (surfaces de confirmation) :
+    // lié ICI et non dans SurfaceModule, que le framework n'instancie pas.
+    bindSurfaceRuntime({ render: (surfaceId: string) => this.renderSurface(surfaceId) });
     getToolRegistry().register(this.surfaceCreateTool());
     getToolRegistry().register(this.surfacePatchStateTool());
     getToolRegistry().register(this.surfaceUpdateComponentTool());
@@ -272,7 +277,7 @@ export class SurfaceService implements SpraxiumOnBoot {
         try {
           definition = SurfaceDefinitionSchema.parse(JSON.parse(raw));
         } catch (error) {
-          return { ok: false, summary: `Définition invalide : ${error instanceof z.ZodError ? error.issues[0]?.message : 'JSON illisible'}` };
+          return { ok: false, summary: `Définition invalide : ${describeDefinitionError(error)}` };
         }
         // R0.3 — STRICT : pas de surface « coquille vide » (bug Probe/ping).
         if (!definition.title || definition.title.trim().length < 3) {
@@ -318,12 +323,12 @@ export class SurfaceService implements SpraxiumOnBoot {
       requiredModules: [],
       permissions: ['ManageGuild'],
       destructive: false,
-      systemPrompt: 'Pour initialiser/compléter l\u0029état (owner, compteurs, grilles, résultats de vote). Le re-rendu est automatique.',
+      systemPrompt: 'Pour initialiser/compléter l\u0027état (owner, compteurs, grilles, résultats de vote). Le re-rendu est automatique.',
       handler: async (input, ctx): Promise<ToolResult> => {
         if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
         const { surfaceId, messageId, state } = input as { surfaceId?: string; messageId?: string; state: Record<string, unknown> };
         const surface = await service.findSurface(ctx.guildId, surfaceId, messageId);
-        if (!surface) return { ok: false, summary: 'Surface introuvable (surfaceId ou messageId requis).' };
+        if (!surface) return { ok: false, summary: surfaceNotFound(surfaceId, messageId) };
         const merged = deepMerge(JSON.parse(surface.state || '{}') as Record<string, unknown>, state) as Record<string, unknown>;
         await service.saveState(surface.id, merged);
         await service.renderSurface(surface.id);
@@ -337,7 +342,7 @@ export class SurfaceService implements SpraxiumOnBoot {
     return defineTool({
       name: 'surface.updateComponent',
       description:
-        'Patche une surface puis re-rend le message : SOIT un composant par sa clé de binding (label, style, emoji, disabled), SOIT l\u0027en-tête (title, description) — ex : afficher les résultats d\u0029un vote dans la description. Identifie la surface par surfaceId OU par messageId.',
+        'Patche une surface puis re-rend le message : SOIT un composant par sa clé de binding (label, style, emoji, disabled), SOIT l\u0027en-tête (title, description) — ex : afficher les résultats d\u0027un vote dans la description. Identifie la surface par surfaceId OU par messageId.',
       category: 'surface',
       paramsSchema: z.object({
         surfaceId: z.string().min(1).optional().describe('ID de la surface (renvoyé par surface.create)'),
@@ -354,7 +359,7 @@ export class SurfaceService implements SpraxiumOnBoot {
       permissions: ['ManageGuild'],
       destructive: false,
       systemPrompt:
-        'La primitive « bouton rouge qui passe vert » ET « publier les résultats » : patch disabled/style/label d\u0027un binding, ou title/description de l\u0027en-tête (sans binding). Re-rendu immédiat. Pour clôturer un vote : patchState (résultats dans l\u0029état) + description avec les chiffres + disabled sur chaque bouton.',
+        'La primitive « bouton rouge qui passe vert » ET « publier les résultats » : patch disabled/style/label d\u0027un binding, ou title/description de l\u0027en-tête (sans binding). Re-rendu immédiat. Pour clôturer un vote : patchState (résultats dans l\u0027état) + description avec les chiffres + disabled sur chaque bouton.',
       handler: async (input, ctx): Promise<ToolResult> => {
         if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
         const { surfaceId, messageId, binding, title, description, ...patch } = input as {
@@ -369,7 +374,7 @@ export class SurfaceService implements SpraxiumOnBoot {
           disabled?: boolean;
         };
         const surface = await service.findSurface(ctx.guildId, surfaceId, messageId);
-        if (!surface) return { ok: false, summary: 'Surface introuvable (surfaceId ou messageId requis).' };
+        if (!surface) return { ok: false, summary: surfaceNotFound(surfaceId, messageId) };
         const definition = SurfaceDefinitionSchema.parse(JSON.parse(surface.definition));
         const touched: string[] = [];
         if (title !== undefined || description !== undefined) {
@@ -379,7 +384,12 @@ export class SurfaceService implements SpraxiumOnBoot {
         }
         if (binding !== undefined) {
           const target = this.findBinding(definition, binding);
-          if (!target) return { ok: false, summary: `Binding « ${binding} » introuvable.` };
+          if (!target) {
+            return {
+              ok: false,
+              summary: `Binding « ${binding} » introuvable. Clés disponibles : ${listBindingKeys(definition).join(', ')} (utilise la clé du binding, pas son label).`,
+            };
+          }
           Object.assign(target, { ...patch, ...(patch.label !== undefined ? { label: patch.label } : {}) });
           touched.push(`binding « ${binding} »`);
         }
@@ -396,7 +406,7 @@ export class SurfaceService implements SpraxiumOnBoot {
     return defineTool({
       name: 'trigger.schedule',
       description:
-        'Planifie un pipeline sur une surface : once (délai en secondes) ou cron. RATTRAPAGE GARANTI après reboot (plus de fenêtre de grâce : un once manqué s\u0029exécute au boot). cancelKey optionnel pour annulation (trigger.cancelByKey).',
+        'Planifie un pipeline sur une surface : once (délai en secondes) ou cron. RATTRAPAGE GARANTI après reboot (plus de fenêtre de grâce : un once manqué s\u0027exécute au boot). cancelKey optionnel pour annulation (trigger.cancelByKey).',
       category: 'surface',
       paramsSchema: z.object({
         surfaceId: z.string().min(1).optional(),
@@ -490,7 +500,7 @@ export class SurfaceService implements SpraxiumOnBoot {
         if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
         const { surfaceId, messageId } = input as { surfaceId?: string; messageId?: string };
         const row = await service.findSurface(ctx.guildId, surfaceId, messageId);
-        if (!row) return { ok: false, summary: 'Surface introuvable (surfaceId ou messageId requis).' };
+        if (!row) return { ok: false, summary: surfaceNotFound(surfaceId, messageId) };
         return { ok: true, summary: `Surface ${row.kind} : state=${row.state.slice(0, 400)}`, data: { surfaceId: row.id, definition: JSON.parse(row.definition), state: JSON.parse(row.state || '{}'), messageId: row.messageId } };
       },
     });

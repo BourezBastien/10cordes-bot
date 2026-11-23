@@ -245,7 +245,7 @@ export class VoiceService implements SpraxiumOnBoot {
           const track = { title: title ?? 'piste', url };
           if (state.nowPlaying || state.queue.length > 0) {
             if (state.queue.length >= MAX_QUEUE) {
-              return { ok: false, summary: `File d\u0027attente pleine (${MAX_QUEUE} max) : demande voice.skip d\u0029abord.` };
+              return { ok: false, summary: `File d\u0027attente pleine (${MAX_QUEUE} max) : demande voice.skip d\u0027abord.` };
             }
             state.queue.push(track);
             return {

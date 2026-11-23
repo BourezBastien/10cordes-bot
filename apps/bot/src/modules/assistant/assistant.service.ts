@@ -295,7 +295,7 @@ export class AssistantService {
       permissions: ['ManageChannels'],
       destructive: false,
       systemPrompt:
-        'Pour tout « remets comme avant / rollback » : compare ce snapshot à l\u0029état actuel (getServerStyle ou getChannels) puis restaure (renameChannel, moveChannel, setChannelOverwrite, createRole...). Jamais de « je ne peux pas revenir en arrière ».',
+        'Pour tout « remets comme avant / rollback » : compare ce snapshot à l\u0027état actuel (getServerStyle ou getChannels) puis restaure (renameChannel, moveChannel, setChannelOverwrite, createRole...). Jamais de « je ne peux pas revenir en arrière ».',
       handler: async (_input, ctx) => {
         if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
         const entry = await this.prisma.auditLog.findFirst({

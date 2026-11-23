@@ -72,7 +72,7 @@ export const formsBlueprints: DomainBlueprints = [
       reviewChannelId: chan('Salon staff des partenariats'),
     },
     requiredTools: ['surface.create', 'discordInviteResolve', 'records.create', 'records.update', 'sendMessage'],
-    workflow: '1. Formulaire : lien d\u0029invitation, description, membres estimés. 2. discordInviteResolve : stats réelles du serveur (nom, membres) vérifiées automatiquement. 3. Post staff avec Accepter / Refuser. 4. Accepter : sendMessage du lien partenaire dans le salon dédié + rôle Partenaire.',
+    workflow: '1. Formulaire : lien d\u0027invitation, description, membres estimés. 2. discordInviteResolve : stats réelles du serveur (nom, membres) vérifiées automatiquement. 3. Post staff avec Accepter / Refuser. 4. Accepter : sendMessage du lien partenaire dans le salon dédié + rôle Partenaire.',
   },
   {
     slug: 'event-registration-form',
@@ -81,10 +81,10 @@ export const formsBlueprints: DomainBlueprints = [
     trigger: 'Inscription à un événement avec formulaire et places limitées',
     params: {
       totalSlots: num('Places totales', 32),
-      waitlistSlots: num('Places en liste d\u0029attente', 8),
+      waitlistSlots: num('Places en liste d\u0027attente', 8),
     },
     requiredTools: ['surface.create', 'records.create', 'records.search', 'records.update', 'surface.updateComponent'],
-    workflow: '1. Surface avec bouton S\u0027inscrire + modal (pseudo, niveau). 2. records.create collection event_registrations { userId, slot }. 3. Compteur live : X/Y places (updateComponent). 4. Complet : bascule en liste d\u0029attente numérotée. 5. Désinscription : records.update + promotion du premier en attente + DM.',
+    workflow: '1. Surface avec bouton S\u0027inscrire + modal (pseudo, niveau). 2. records.create collection event_registrations { userId, slot }. 3. Compteur live : X/Y places (updateComponent). 4. Complet : bascule en liste d\u0027attente numérotée. 5. Désinscription : records.update + promotion du premier en attente + DM.',
   },
   {
     slug: 'feedback-survey-likert',
@@ -92,8 +92,8 @@ export const formsBlueprints: DomainBlueprints = [
     tags: ['sondage', 'enquête', 'satisfaction', 'likert', 'échelle', '1 à 5'],
     trigger: 'Enquête de satisfaction à échelle de Likert avec rapport',
     params: {
-      questions: str('Questions séparées par point-virgule', 'Clarté du règlement; Qualité de l\u0029accueil; Pertinence des salons'),
-      scaleMax: num('Maximum de l\u0029échelle', 5),
+      questions: str('Questions séparées par point-virgule', 'Clarté du règlement; Qualité de l\u0027accueil; Pertinence des salons'),
+      scaleMax: num('Maximum de l\u0027échelle', 5),
     },
     requiredTools: ['surface.create', 'records.create', 'records.search', 'surface.patchState'],
     workflow: '1. Surface à N questions, N rangées de boutons 1..scaleMax. 2. records.create collection survey_answers { userId, question, score }. 3. Un seul vote par question et membre (upsert). 4. surface.patchState : moyennes live affichées sous chaque question.',
@@ -135,7 +135,7 @@ export const formsBlueprints: DomainBlueprints = [
     slug: 'interview-scheduler-slots',
     domain: 'forms',
     tags: ['entretien', 'créneau', 'planning', 'staff', 'candidature'],
-    trigger: 'Planification d\u0029entretiens avec créneaux à réserver',
+    trigger: 'Planification d\u0027entretiens avec créneaux à réserver',
     params: {
       slots: str('Créneaux au format JJ/MM HHh séparés par virgules', ''),
     },
@@ -146,7 +146,7 @@ export const formsBlueprints: DomainBlueprints = [
     slug: 'form-response-export-csv',
     domain: 'forms',
     tags: ['export', 'CSV', 'réponses', 'formulaire', 'tableur'],
-    trigger: 'Exporter toutes les réponses d\u0029un formulaire en fichier',
+    trigger: 'Exporter toutes les réponses d\u0027un formulaire en fichier',
     params: {
       collection: str('Nom de la collection à exporter', 'applications'),
     },

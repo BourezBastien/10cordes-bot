@@ -14,7 +14,7 @@ export const moderationBlueprints: DomainBlueprints = [
       unlockButton: bool('Afficher un bouton Lever le lockdown au staff', true),
     },
     requiredTools: ['surface.create', 'setChannelOverwrite', 'sendMessage', 'lockdown'],
-    workflow: '1. Condition slidingWindow sur member.join (threshold, windowSec). 2. Déclenchement : lockdown + surface d\u0029alerte dans le salon staff avec bouton Lever (AccessPolicy ManageGuild). 3. Levée : unlock + message de retour à la normale.',
+    workflow: '1. Condition slidingWindow sur member.join (threshold, windowSec). 2. Déclenchement : lockdown + surface d\u0027alerte dans le salon staff avec bouton Lever (AccessPolicy ManageGuild). 3. Levée : unlock + message de retour à la normale.',
   },
   {
     slug: 'anti-spam-message-flood',
@@ -37,7 +37,7 @@ export const moderationBlueprints: DomainBlueprints = [
     params: {
       allowedChannelIds: str('Salons où les liens sont autorisés (IDs séparés par virgules)', ''),
       allowedRoleIds: str('Rôles exemptés (IDs séparés par virgules)', ''),
-      warnMessage: str('Message d\u0029avertissement', 'Les liens ne sont pas autorisés ici.'),
+      warnMessage: str('Message d\u0027avertissement', 'Les liens ne sont pas autorisés ici.'),
     },
     requiredTools: ['purgeMessages', 'sendMessage'],
     workflow: '1. EventTrigger message.create + condition regex https?:// 2. Filtre : salon PAS dans allowedChannelIds ET rôle PAS dans allowedRoleIds. 3. Action : deleteMessage + sendMessage avertissement éphémère.',
@@ -90,7 +90,7 @@ export const moderationBlueprints: DomainBlueprints = [
       timeoutMinutes: num('Minutes de timeout si punishment=timeout', 30),
     },
     requiredTools: ['purgeMessages', 'muteMember', 'records.create'],
-    workflow: '1. EventTrigger message.create regex (@everyone|@here). 2. Si l\u0029auteur n\u0027a pas de rôle exempt : selon punishment → deleteMessage / muteMember / records.create warn. 3. Log de modération systématique.',
+    workflow: '1. EventTrigger message.create regex (@everyone|@here). 2. Si l\u0027auteur n\u0027a pas de rôle exempt : selon punishment → deleteMessage / muteMember / records.create warn. 3. Log de modération systématique.',
   },
   {
     slug: 'badword-auto-mod',
@@ -127,7 +127,7 @@ export const moderationBlueprints: DomainBlueprints = [
       cronSchedule: str('Horaire cron', '0 21 * * *'),
     },
     requiredTools: ['trigger.schedule', 'getCases', 'surface.create'],
-    workflow: '1. trigger.schedule cron. 2. getCases (24 dernières heures) regroupées par action et modérateur. 3. surface.create panneau V2 : compteurs, top modérateurs, cas en attente d\u0029appel.',
+    workflow: '1. trigger.schedule cron. 2. getCases (24 dernières heures) regroupées par action et modérateur. 3. surface.create panneau V2 : compteurs, top modérateurs, cas en attente d\u0027appel.',
   },
   {
     slug: 'nickname-enforce-pattern',
@@ -156,7 +156,7 @@ export const moderationBlueprints: DomainBlueprints = [
     slug: 'slowmode-adaptive',
     domain: 'moderation',
     tags: ['slowmode', 'adaptive', 'ralentir', 'affluence', 'automatique'],
-    trigger: 'Slowmode automatique qui s\u0029active quand un salon devient trop rapide',
+    trigger: 'Slowmode automatique qui s\u0027active quand un salon devient trop rapide',
     params: {
       messageThreshold: num('Messages/seconde déclencheurs', 3),
       slowmodeSeconds: num('Slowmode à appliquer en secondes', 10),
@@ -169,7 +169,7 @@ export const moderationBlueprints: DomainBlueprints = [
     slug: 'ban-appeal-form',
     domain: 'moderation',
     tags: ['appel', 'ban', 'recours', 'formulaire', 'réintégration'],
-    trigger: 'Formulaire d\u0029appel de ban avec vote du staff',
+    trigger: 'Formulaire d\u0027appel de ban avec vote du staff',
     params: {
       appealChannelId: chan('Salon staff des appels'),
     },

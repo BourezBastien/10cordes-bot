@@ -102,7 +102,7 @@ export interface LlmStatus {
   maskedKey: string | null;
 }
 
-function normalizeBaseUrl(raw: string): string {
+export function normalizeBaseUrl(raw: string): string {
   return raw.trim().replace(/\/+$/, '');
 }
 
