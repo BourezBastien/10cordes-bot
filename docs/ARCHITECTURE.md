@@ -75,15 +75,16 @@
 │  │  └─ src/
 │  │     ├─ main.ts             # SpraxiumFactory + useGlobalGuards + listen()
 │  │     ├─ app.module.ts       # @HttpClientModule + @Module sur LA MÊME classe (règle framework)
-│  │     ├─ app.env.ts          # @EnvSchema : DISCORD_TOKEN, DATABASE_URL, AUTH_SECRET, AI_*, HTTP_API_KEY…
+│  │     ├─ app.env.ts          # @EnvSchema : DISCORD_TOKEN, DATABASE_URL, LLM_*, HTTP_API_KEY…
 │  │     ├─ auth/               # better-auth : auth.instance.ts, better-auth.middleware.ts, guards
-│  │     ├─ shared/             # helpers transverses (template renderer, durations…)
+│  │     ├─ core/               # security/ : BaseAccessPolicy + GuildAdminPolicy (POO)
+│  │     ├─ shared/             # helpers transverses (ui/, crypto/, cache/, template renderer…)
 │  │     └─ modules/
 │  │        ├─ module-manager/  # ✅ existant (global) + extension per-guild
-│  │        ├─ guild-config/    # GuildConfigService + /config + /setup
+│  │        ├─ guild-config/    # GuildConfigService + tools agent config.*
 │  │        ├─ api/             # controllers HTTP : guilds, modules, config, auth-info
-│  │        ├─ welcome/         # P1
-│  │        ├─ logging/         # P1
+│  │        ├─ assistant/       # agent conversationnel (gate, AgentLoop, SystemPromptBuilder)
+│  │        ├─ surface/         # moteur d'interactions générique (surfaces + triggers)
 │  │        └─ …
 │  └─ dashboard/                # phase 2 (scaffolding Vite, décrit §2.2)
 ├─ packages/
@@ -206,7 +207,7 @@ model UserLocale {
 ## 6. Extension du module-manager (per-guild + whitelists + cooldowns)
 
 ```
-Discord/Agent: config d'un module via /setup (catégorie Modules) ou langage naturel (enableModule/disableModule)
+Discord/Agent: config d'un module en langage naturel (enableModule/disableModule) - jamais de commande dédiée
   ├─ salon whitelist      → multi-select salons (autocomplète)
   ├─ rôle requis          → autocomplète rôles
   ├─ cooldown <durée>     → "1h30m" parsé (dayjs)
@@ -238,9 +239,9 @@ EnvValidator.validate(AppEnv)  ( échec → table + exit/hot-reload dev )
 ```
 ### 7.2 Édition config via Discord
 ```
-/config view|set <clé> <valeur>   (autocomplète sur les clés du schéma Zod, labels i18n)
+conversation naturelle (« passe les logs dans #modération ») → tool agent config.*
 → GuildConfigService.patch(guildId, patch) → Zod safeParse (erreur → ValidationException avec champ/reason)
-→ Prisma upsert → cache invalidé → réponse éphémère ✅ (effet immédiat sur tous les modules)
+→ Prisma upsert → cache invalidé → réponse V2 ✅ (effet immédiat sur tous les modules)
 ```
 ### 7.3 Édition config via dashboard (phase 2)
 ```
@@ -250,7 +251,7 @@ PATCH /api/v1/guilds/:id/config → SessionGuard → GuildAccessGuard → même 
 ### 7.4 Join du bot sur un nouveau serveur
 ```
 GuildCreate listener → Prisma Guild upsert (settings = defaults Zod) → log boot
-→ message éphémère Owner : /setup suggéré
+→ panel V2 de bienvenue + ingestion de l'historique (culture, ton, rôle des salons) en tâche de fond
 ```
 ### 7.5 Erreur
 ```
@@ -259,20 +260,15 @@ throw (SpraxiumException | HttpError | ZodError→ValidationException)
 → interne : Logger.error (DiscordTransport si configuré) ; jamais de stack côté user
 ```
 
-## 8. Couche IA (P3, interface dès P0 dans `packages/shared`)
+## 8. Couche IA (générique OpenAI-compatible)
 
 ```ts
-// packages/shared/src/ai/provider.ts
-export const AiProviderId = z.enum(['openai', 'openrouter', 'gemini', 'ollama']);
-export const AiConfigSchema = z.object({
-  provider: AiProviderId.default('openrouter'),
-  model: z.string().default('openai/gpt-4o-mini'),        // ids OpenRouter
-  fallbackModel: z.string().optional(),
-  budgetPerGuildPerDay: z.number().int().positive().default(50), // requêtes/jour
-});
+// app.env.ts (bootstrap optionnel)
+LLM_API_URL / LLM_API_KEY / LLM_MODEL / LLM_EFFORT   // préfixes génériques, zéro vendor lock
 ```
-- Registry `AiProviderService` (bot) : construit le model AI SDK selon config (OpenRouter via `@openrouter/ai-sdk-provider`, clé lue depuis env `AI_PROVIDER_API_KEY`/`OPENROUTER_API_KEY` - **jamais en DB ni en dur**) ; `generateText`/`streamText` ; fallback automatique sur `fallbackModel` en cas d'erreur provider.
-- Budget : compteur `AiUsage` en DB (guild, jour, requêtes) - 429-like `RateLimitException` au-delà.
+- **Deux sources de config, la DB prime** : bootstrap env (`LLM_*`) OU connexion depuis Discord (modale admin → `IntegrationService.upsert`) ; la clé est stockée **chiffrée AES-256-GCM** (dérivation `ENCRYPTION_SECRET`), jamais en clair.
+- `LlmService` : client OpenAI-compatible unique (DeepSeek, OpenRouter, OpenAI, llama serve…), `reasoning_effort` optionnel, cache de prompt statique côté provider (préfixe stable du system prompt).
+- Comptabilité : chaque appel loggé `logs/llm.jsonl` (cause, modèle, tokens, latence) ; `QuotaExhaustedError` typée pour les budgets.
 - Modules IA (résumé, traduction, modération assistée) : opt-in par serveur, jamais actifs par défaut.
 
 ## 9. Qualité & DX
@@ -290,10 +286,10 @@ export const AiConfigSchema = z.object({
 | 1 | Restructure monorepo (`apps/bot`, `packages/shared`), Biome, vitest | `pnpm i && pnpm -r typecheck && pnpm -r test` verts |
 | 2 | Prisma + SQLite + schema Guild/GuildModuleState (+ tables better-auth générées) | `migrate dev` OK, `prisma validate` OK |
 | 3 | `packages/shared` : `GuildConfigSchema`, `ModuleWhitelistSchema`, DTOs API, ids erreurs | tests Zod ≥ 80 % |
-| 4 | `GuildConfigService` (cache + patch + defaults) + `/config` (view/set, autocomplète) | toggle éditable en live, persist, testé |
-| 5 | Extension `ModuleEnabledGuard` : per-guild + whitelists + cooldowns (+ `/modules configure`) | matrice §6 testée |
+| 4 | `GuildConfigService` (cache + patch + defaults) + tools agent `config.*` | toggle éditable en live, persist, testé |
+| 5 | Extension `ModuleEnabledGuard` : per-guild + whitelists + cooldowns (+ tools agent modules) | matrice §6 testée |
 | 6 | API : `defineHttp` + CORS + better-auth (middleware + Discord OAuth) + SessionGuard + GuildAccessGuard + endpoints §4.2 | flux auth complet OK en local (curl/dashboard dev) |
-| 7 | `/setup` wizard v1 + `/info` + i18n fr/en (`@spraxium/i18n`) | setup guidé < 2 min |
+| 7 | Onboarding conversationnel (panel V2 + ingestion historique) + santé/diagnostic + i18n fr/en | agent opérationnel sans setup manuel |
 | 8 | Welcome & Leave (P1) branché sur GuildConfigService | flow §7 complet |
 
 Chaque étape = 1 PR reviewable. **Rien du dashboard ne bloque : l'API (étape 6) est consommable au curl.**
@@ -314,11 +310,11 @@ Le catalogue (`ModuleDescriptor`) gagne `dependsOn: string[]` (obligatoires) et 
 - `analyzeDisableCascade(catalog, activeSet, target)` → modules qui seraient désactivés en cascade ; un module survit s'il est requis par un autre module **restant actif** (protection).
 - `assertDependenciesActive(catalog, activeSet, target)` → liste des dépendances inactives (utilisée par le guard).
 
-Le guard bloque toute commande d'un module dont une dépendance est inactive (`ModuleDependencyException`). UI : `/modules disable` liste la cascade et demande confirmation (`confirm: true` en P0 ; upgrade boutons avec `@spraxium/components` en P1).
+Le guard bloque toute commande d'un module dont une dépendance est inactive (`ModuleDependencyException`). Conversationnel : l'agent liste la cascade et demande confirmation via une surface V2 (boutons).
 
 ## 13. i18n - langue par utilisateur (jamais par serveur)
 
-Résolution : préférence explicite (`/language set`, `UserLocale.source = manual`) > **langue du client Discord** (`interaction.locale`, capturée automatiquement à la première interaction si aucune préférence - `source = auto`) > défaut du bot. Persistance Prisma (`UserLocale`) + cache mémoire. L'interface `I18nStore` de `@spraxium/i18n` est implémentée par ce store Prisma. Toute la chaîne (messages bot, exceptions, layouts, dashboard i18next) consomme la même résolution. Référence framework : `I18nService.tUser(userId, key, vars)`.
+Résolution : préférence explicite (conversation ou dashboard, `UserLocale.source = manual`) > **langue du client Discord** (auto-détectée si aucune préférence - `source = auto`) > défaut du bot. Persistance Prisma (`UserLocale`) + cache mémoire. Toute la chaîne (messages bot, exceptions, layouts, dashboard i18next) consomme la même résolution.
 
 ## 14. ToolRegistry (MCP interne) & Assistant
 
@@ -403,4 +399,14 @@ Réfs : discord/embedded-app-sdk (1.4k⭐) · colyseus/discord-activity · embed
 - **AuditService** (pattern wardhive) : `record(guildId, source, action, actor, target, metadata)` fire-and-forget - une erreur d'audit n'échoue jamais sur l'action ; **feed unifié** mergant les tables hétérogènes (audit, sanctions, logs messages, ops agentic, jeux) en timeline normalisée.
 - **Coûts IA** (pattern Discord-AI-Bot) : table `model_usage` clé `cause` (reply | triage | admin-agent | game …), tokens + prix via API OpenRouter → page audit = « qui a fait quoi + ce que ça a coûté ».
 - **Error boundary** : tout throw non géré → layout utilisateur (langue du user) + log structuré (Logger.error) + option salon d'incidents ; jamais de stack côté utilisateur.
+
+## 20. Architecture POO (couche transverse)
+
+Trois stéréotypes stricts, audités par `pnpm arch:audit` (règles : UI_IN_SERVICE, PERMISSION_DISPERSED, GOD_CLASS, ANY_TYPE, PROCESS_ENV - exit 1 si violation) :
+
+- **Policy** (`src/core/security/access-policy.ts`) : `BaseAccessPolicy<TCtx>` abstraite (`isAuthorized(ctx)` + `assertAuthorized(ctx)` lève `ForbiddenDomainError`). `GuildAdminPolicy` = owner OU Administrator. **Uniquement** ici qu'un `PermissionFlagsBits` ou `guild.ownerId` peut apparaître - partout ailleurs le check est refusé par l'audit.
+- **Presenter** (`modules/*/presenters/`) : classe pure qui reçoit une vue (data) et retourne un payload Discord Components V2. Zéro appel API, zéro effet de bord. Ex : `IntegrationStatusPresenter` rend le panneau « fournisseur connecté / non connecté » avec bouton admin conditionnel.
+- **Handler** (`modules/*/handlers/`) : route une interaction Discord - garde Policy → erreur éphémère → délégation au service. Les handlers métier historiques (tickets, captcha, panels) sont remplacés par le **trio générique** `surface:act` / `surface:select` / `surface:modal` du moteur d'interactions.
+
+Flux type : interaction → Policy (garde) → Service (logique + FileLog) → Presenter (rendu) → réponse V2 unique. Les services ne construisent jamais d'UI.
 

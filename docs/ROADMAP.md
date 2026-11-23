@@ -2,7 +2,7 @@
 
 > Roadmap consolidée : périmètre produit + **analyse dédupliquée des 200+ suggestions validées de la communauté Crow Bots** (avril 2024 → novembre 2026). Chaque feature retenue cite sa demande communautaire (✅ = réactions de validation).
 >
-> **Fil rouge** : tout-en-un, **zéro slash command** (agent IA + panneau /setup), modules/sous-modules activables en live **avec dépendances**, **langue par utilisateur**, **registry d'outils (MCP interne)** consommé en chat, en vocal et via l'API.
+> **Fil rouge** : tout-en-un, **zéro slash command** (agent IA conversationnel + dashboard web), fonctionnalités construites à la demande via le **moteur d'interactions générique** (surfaces + triggers), **langue par utilisateur**, **registry d'outils (MCP interne)** consommé en chat, en vocal et via l'API.
 
 ---
 
@@ -11,16 +11,16 @@
 ## Etat au 16/11/2026
 
 Realisé et validé en production interne :
-- Zéro slash command : surface Discord = panneau de contrôle /setup (bouton, éphémère staff) uniquement.
+- Zéro slash command : surface Discord = conversation (mention, nom du bot, salon dédié) uniquement. Le registre Discord est purgé au boot.
 - Agent IA conversationnel : 60+ tools permission-gated (noms verbe-first camelCase), mémoire persistante serveur + membres, réponses éphémères hors salon dédié, queue workers (FIFO par utilisateur, 3 parallèles).
 - Dashboard : bouton "Panneau de configuration" sur le portail de l'agent (staff) -> panneau V2 éphémère par catégories.
 
 Prochaine phase : dashboard React (bot.10codes.io), feeds, jeux temps réel.
 
-1. **Slash commands uniquement** - le pipeline prefix du framework n'est pas utilisé.
+1. **Zéro commande, 100 % conversationnel** - ni slash commands ni préfixes : l'agent (gate + permissions re-vérifiées en code à chaque action) est l'unique surface.
 2. **Tout est module** - activable/désactivable en live (global + par serveur), avec **dépendances obligatoires** : désactiver `economy` désactive `shop` **sauf si `shop` est requis par un autre module actif** ; l'activation tire ses dépendances.
-3. **Langue par utilisateur** - `/language` par user, auto-détectée du client Discord (`interaction.locale`), jamais imposée par le serveur.
-4. **Live-edit** - tout se configure en commandes (`/config`, `/modules configure`, `/setup`), persisté en DB, effet immédiat.
+3. **Langue par utilisateur** - réglée en conversation ou sur le dashboard, auto-détectée du client Discord, jamais imposée par le serveur.
+4. **Live-edit** - tout se configure en langage naturel (agent) ou via le dashboard web, persisté en DB, effet immédiat.
 5. **Feedback systématique** - réponses éphémères par défaut, exceptions typées avec messages personnalisables par serveur.
 6. **Zéro paywall**, anti-aggro (pas de DM non sollicités, cooldowns raisonnables).
 7. **ToolRegistry (MCP interne)** - chaque module expose des tools typés ; consommés par l'assistant **chat**, l'assistant **vocal** et plus tard un serveur MCP over HTTP.
@@ -40,16 +40,16 @@ Prochaine phase : dashboard React (bot.10codes.io), feeds, jeux temps réel.
 | # | Fondation | Contenu | Priorité |
 |---|---|---|---|
 | 0.1 | **DB Prisma + SQLite** | `Guild.settings` (JSON typé Zod), `GuildModuleState` (état + contraintes par module/serveur), `UserLocale`. Switch Postgres = 1 var. | 🔴 P0 |
-| 0.2 | **GuildConfigService** | Config par serveur JSON typé, cache mémoire invalidé à l'écriture, **export/import/transfer** (`/config export\|import`, Crow 14✅ + 12✅), **messages d'erreur personnalisables par serveur** (16✅). | 🔴 P0 |
+| 0.2 | **GuildConfigService** | Config par serveur JSON typé, cache mémoire invalidé à l'écriture, **export/import/transfer** conversationnel (Crow 14✅ + 12✅), **messages d'erreur personnalisables par serveur** (16✅). | 🔴 P0 |
 | 0.3 | **ModuleManager per-guild + dépendances** | État par serveur, **graphe de dépendances** (cascade protégée à la désactivation, auto-enable à l'activation), **whitelists par module** (salons/rôles/users) - Crow valide : customs limitées à un salon (5✅), starboard whitelist salons (6✅), badwords par salon (4✅), salon dédié aux commandes staff (3✅/8✅). | 🔴 P0 |
 | 0.4 | **Cooldowns & quotas** | Cooldown par module/commande configurable live ; **mod quotas par rôle** (26✅ : « limite de 3 mutes/h pour les modos »), bypass admin configurable. | 🔴 P0 |
-| 0.5 | **i18n per-user** | `/language set` par user, auto-détection `interaction.locale`, store Prisma. Crow : langue par serveur (8✅), **langue par rôle/serveur multilingue** (5✅) → la préférence user prime toujours. | 🔴 P0 |
-| 0.6 | **`/setup` wizard** | Config de base guidée en < 2 min (buttons/selects, `@spraxium/components`). | 🟠 P1 |
-| 0.7 | **`/info` + santé** | Uptime, latences, version, modules actifs, stats DB ; rotation de présence (`PresenceManager`). | 🟠 P1 |
+| 0.5 | **i18n per-user** | réglage conversationnel par user, auto-détection du client Discord, store Prisma. Crow : langue par serveur (8✅), **langue par rôle/serveur multilingue** (5✅) → la préférence user prime toujours. | 🔴 P0 |
+| 0.6 | **Onboarding conversationnel** | À l'arrivée sur un serveur : panel V2 de bienvenue + ingestion de l'historique (culture, ton, rôle des salons) pour que l'agent soit opérationnel sans setup manuel. | 🟠 P1 |
+| 0.7 | **Santé/diagnostic** | Uptime, latences, version, modules actifs, stats DB ; rotation de présence (`PresenceManager`) ; demandable en conversation. | 🟠 P1 |
 | 0.8 | **Logging applicatif** | `Logger` + `DiscordTransport` erreurs critiques, masking tokens. | 🟠 P1 |
 | 0.9 | **TemplateEngine** | Moteur de variables `{{user}}`, `{{server}}`, `{{memberCount}}`, `{{inviter}}`, `{{timestamp}}`, `{{image}}`… réutilisé par welcome/customs/tickets/birthdays/levelup. Crow valide la demande massivement : variables help msg (8✅ + 11✅), {ServerPic}/{ServerBanner}/{MemberCountNoBots} (8✅), {Inviter_Code} (8✅), {Timestamp} (6✅), variables images (7✅), footer user mention (14✅). | 🔴 P0 |
 | 0.10 | **ToolRegistry** | Contrat `BotTool { name, description, paramsSchema (Zod), handler, requiredModules }` ; exécution filtrée par modules actifs ; frontends : chat / vocal / MCP-HTTP (P3). Inventory complet §Tools. | 🟠 P1 (contrat P0) |
-| 0.11 | **Audit logging + error boundary** | Logger global qui enregistre TOUT (actions, commandes, ops agentic, erreurs) ; table d'audit unifiée (acteur/action/cible/metadata - pattern wardhive, fire-and-forget) ; **page audit dashboard** + `/audit` commands ; **error boundary custom** : toute erreur → layout utilisateur (langue du user) + log structuré + option salon d'incidents. | 🟠 P1 |
+| 0.11 | **Audit logging + error boundary** | Logger global qui enregistre TOUT (actions, ops agentic, erreurs) ; table d'audit unifiée (acteur/action/cible/metadata - pattern wardhive, fire-and-forget) ; **page audit dashboard** ; **error boundary custom** : toute erreur → layout utilisateur (langue du user) + log structuré + option salon d'incidents. | 🟠 P1 |
 
 ## Couche 1 - Modules core
 
@@ -302,7 +302,7 @@ assistant ──•► (tous les modules actifs fournissent leurs tools)
 
 ```
 P0 (cette phase)  DB → GuildConfig (+transfer) → ModuleManager (deps+whitelists) → cooldowns/quotas → i18n per-user → TemplateEngine → ToolRegistry (contrat)
-P1  Welcome/Leave (+carte, milestones) → Logging (voice/filtres) → Modération (cases, quotas, mute-derank, panels) → Tags/Customs → /setup → /info
+P1  Welcome/Leave (+carte, milestones) → Logging (voice/filtres) → Modération (cases, quotas, mute-derank, panels) → Tags/Customs → onboarding conversationnel → santé/diagnostic
 P2  Tickets/Modmail → Reaction roles → Leveling → Assistant (chat + vocal + tools) → Suggestions → Feeds → Voice (temp voc) → Invites → Anti-raid/nuke → AutoMod → Rôles lifecycle → Birthdays
 P3  Économie → Game servers → Dashboard complet → MCP over HTTP → Vouch → Utilitaires fun
 P4  Musique (app séparée)

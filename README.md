@@ -2,7 +2,7 @@
 
 # 10cordes-bot
 
-**The agentic Discord bot - zero slash commands, you talk, it runs the server.**
+**The agentic Discord bot — zero commands, you talk, it runs the server.**
 
 Built on [Spraxium](https://github.com/spraxium/spraxium) (discord.js v14) · TypeScript · Prisma · Fully typed · Components V2 everywhere
 
@@ -18,139 +18,141 @@ Built on [Spraxium](https://github.com/spraxium/spraxium) (discord.js v14) · Ty
 
 ## What makes it different
 
-- **An AI agent runs the server with you, in plain language.** Mention it, type its name, or talk in the dedicated AI channel: it checks your permissions, chains its 80+ tools and answers directly in the chat. Every action re-verifies permissions in code (yours and the bot's), archives before deleting, and everything is audited.
-- **No confirmation ceremony.** Explicit request + permissions = immediate execution and a plain-text result. No plans, no approval buttons, no ephemeral portals, no DMs.
-- **Skills-first architecture.** Official skills (seeded per server: tickets, polls, moderation, trust score, welcome flows...) make the agent ask the right questions, recap, then build entire systems with its tools and wire recurring triggers as automations. Members can create their own skills and correct the agent's memory in conversation.
-- **Persistent memory.** Consolidated profiles per member and per server (LLM curator with anti-wipe and attribution guards) drive personalized answers and recommendations.
-- **Passive listening.** In the dedicated AI channel the agent follows the conversation and replies when relevant, without being named.
-- **80+ tools, permission-gated.** Channels, roles, members, messages, moderation, web search, news RSS (Le Monde/France24), Wikipedia, jokes/memes/trivia (FR/EN), PDF generation, weather, currency, holidays, GitHub, disdex, PixelLab - every tool documents its required permissions and rate limits, and every web fact is cross-checked with sources cited.
+- **100% conversation-driven.** No slash commands, no buttons to navigate. Mention the bot, type its name, or talk in the dedicated AI channel: it checks your permissions, chains its tools and answers directly. Every action re-verifies permissions in code, archives before deleting, and everything is audited.
+- **Generic interaction engine.** Tickets, polls, giveaways, verification gates, temp voice channels — all built on demand by the agent using `InteractiveSurface` (persistent layout + state), `InteractionBinding` (per-button access policies + action pipelines), `ScheduledTrigger` (BullMQ-backed, survives restarts), and `EventTrigger` (reactions, voice, member updates). Zero hard-coded business handlers.
+- **Encrypted integrations.** Connect any OpenAI-compatible LLM (DeepSeek, OpenAI, OpenRouter...) directly from Discord via a modal — the API key is stored AES-256-GCM encrypted. PixelLab and kie.ai work the same way. Server owners AND administrators can configure.
+- **Server rules enforced in code.** `GuildRule` per guild: free zones (bot responds without mention), strict mention elsewhere, destructive action confirmation (✅/❌ surface), muted channels (total silence even if mentioned). Rules are consulted before every action.
+- **Skill blueprints.** 47+ pre-built recipes (tickets with escalation, temp voice, anti-raid, giveaways, verification, counting games...) with parameters overridable by natural language. `search_skills` finds the right recipe; the agent follows its workflow.
+- **Persistent memory with opt-out.** Consolidated profiles per member and per server (LLM curator with anti-wipe guards). "Oublie-moi" purges everything and blocks future collection.
+- **Learning loop.** The bot detects repeated action patterns (3+ similar requests) and proposes creating a reusable skill.
 
 ## Quickstart
 
 **Requirements:** Node 22+ (or 24/26), pnpm 12, a Discord application token.
 
 ```bash
+git clone https://github.com/BourezBastien/10cordes-bot.git
+cd 10cordes-bot
 pnpm install
-cp apps/bot/.env.example apps/bot/.env   # fill DISCORD_TOKEN at minimum
-pnpm dev                                  # builds @10cordes/shared then starts spraxium dev
+
+# Configure (ONE required variable)
+cp apps/bot/.env.example apps/bot/.env
+# Edit .env: DISCORD_TOKEN=your-token
+
+# Enable MESSAGE CONTENT privileged intent in the Discord developer portal
+
+pnpm dev          # development (hot reload)
+pnpm build        # production build
+pnpm start        # production run (from apps/bot)
 ```
 
-Enable the **MESSAGE CONTENT** privileged intent in the Discord developer portal.
+**Never** start `node .spraxium/dist/src/main.mjs` directly — the ConfigLoader re-reads `spraxium.config.ts` and the bare ESM import fails.
 
-### Environment variables
+## Environment variables
 
-| Key | Required | Default | Description |
+| Variable | Required | Default | Description |
 |---|---|---|---|
-| `DISCORD_TOKEN` | **Yes** | - | Bot token (developer portal → Bot → Reset Token). |
-| `DEEPSEEK_API_KEY` | For the agent | - | DeepSeek API key (the agent's LLM brain, OpenAI-compatible). |
-| `DATABASE_URL` | No | `file:../data/bot.db` | SQLite database (Prisma 6; relative to `apps/bot/prisma`). |
-| `PORT` | No | `3000` | REST API port. |
-| `DASHBOARD_ORIGIN` | No | `http://localhost:5173` | Dashboard origin (CORS + OAuth redirect). |
-| `BETTER_AUTH_SECRET` | For the dashboard | - | better-auth encryption secret (min 32 chars, `openssl rand -base64 32`). |
-| `DISCORD_CLIENT_ID` | For the dashboard | - | OAuth2 application ID. |
-| `DISCORD_CLIENT_SECRET` | For the dashboard | - | OAuth2 client secret (dashboard login). |
-| `HTTP_API_KEY` | No | - | Optional server-to-server key (`x-api-key` header). |
-| `PIXELLAB_API_KEY` | No | - | PixelLab key (pixel art icons and emojis). Also configurable live by the owner via a modal. |
-| `KIE_API_KEY` | No | - | kie.ai key (Suno music generation + z-image generation). |
-| `KIE_MODEL` | No | `V6_MINI` | Suno model (`V6_MINI`, `V6`, `V6_WILD`). |
-| `DEEPSEEK_MODEL` | No | `deepseek-flash` | Model name served by the provider. |
-| `DEEPSEEK_EFFORT` | No | `low` | Reasoning effort (`low` = fast replies). |
-| `REDIS_URL` | No | `redis://127.0.0.1:6379` | Durable task queue; falls back to in-memory without it. |
-| `DISCORD_BOT_NAME` | No | `10cordes` | Bot name recognized in plain text (no mention needed). |
-| `DISCORD_BOT_ALIASES` | No | - | Extra nicknames recognized in plain text (comma-separated). |
-| `E2E_ENABLED` | No | `false` | Master switch for the E2E test rigs (dev server only). |
-| `E2E_STAFF_WEBHOOK_IDS` | No | - | Webhook IDs whose messages speak with staff permissions (test rig). |
+| `DISCORD_TOKEN` | **YES** | — | Bot token (Discord developer portal) |
+| `LLM_API_URL` | no | — | OpenAI-compatible base URL (bootstrap) |
+| `LLM_API_KEY` | no | — | API key for the LLM provider (bootstrap) |
+| `LLM_MODEL` | no | — | Model name (bootstrap) |
+| `LLM_EFFORT` | no | empty | Reasoning effort: low/medium/high |
+| `ENCRYPTION_SECRET` | no | derived | AES-256-GCM key for DB secrets |
+| `DATABASE_URL` | no | `file:../data/bot.db` | SQLite or PostgreSQL |
+| `REDIS_URL` | no | empty (= memory) | Queue + cache. `redis://redis:6379` in prod |
+| `PORT` | no | `3000` | HTTP server port |
+| `HTTP_HOST` | no | `127.0.0.1` | Bind address. `0.0.0.0` in Docker |
+| `HTTP_API_KEY` | no | — | API key header `x-api-key` |
+| `DASHBOARD_ORIGIN` | no | `http://localhost:5173` | CORS origin for the dashboard |
+| `BETTER_AUTH_SECRET` | no | — | Min 32 chars, required for dashboard |
+| `DISCORD_CLIENT_ID` | no | — | OAuth client ID |
+| `DISCORD_CLIENT_SECRET` | no | — | OAuth client secret |
+| `E2E_ENABLED` | no | `false` | Dev test rigs only |
 
-## Repository
+**Connect your AI provider** two ways (the second takes priority):
+1. **Bootstrap via env**: set `LLM_API_URL`, `LLM_API_KEY`, `LLM_MODEL` in `.env`
+2. **From Discord**: mention the bot without a key configured → a Components V2 panel appears with a "Connecter un fournisseur IA" button (visible to owners AND administrators) → fill the modal → key is encrypted and takes effect immediately
+
+## Architecture
 
 ```
-apps/bot          The Spraxium bot (agent, technical modules, REST API + better-auth)
-apps/dashboard    React dashboard (Discord OAuth, config, stats, agent chat)
-packages/shared   @10cordes/shared: Zod schemas, tool contracts, template engine
-docs/             ROADMAP.md (backlog and decisions) · ARCHITECTURE.md (deep dive)
+apps/bot/src/
+  main.ts                    Bootstrap + slash command purge
+  app.module.ts              Module tree (infra modules are @Global)
+  app.env.ts                 Typed env (LLM_* generic, no vendor lock)
+  core/
+    security/access-policy   BaseAccessPolicy + GuildAdminPolicy (POO)
+  auth/                      better-auth + guards
+  shared/
+    ui/                      Components V2 helpers (panel, text, separator)
+    crypto/secret-box        AES-256-GCM encryption
+    cache/                   ICacheStore (Redis + memory fallback)
+    actions/                 Component action registry + runToolAsActor
+  modules/
+    assistant/               Agent: gate, AgentLoop (12 iter + synthesis),
+                             SystemPromptBuilder (XML + SERVER_RULES),
+                             streaming SSE, ProgressiveResponder
+    surface/                 Generic engine: renderer, surface:act/select/modal
+                             handlers, triggers (BullMQ), event-router (10 events)
+    rules/                   GuildRule store + tools (zones, confirmation, mute)
+    integrations/            IntegrationService (AES-GCM) + Presenter + handlers
+    agent/                   Discord tools, 47 SkillBlueprint, skill service
+    records/                 Typed store (Zod collections)
+    memory/                  Profiles + curator + opt-out + ingestion
+    moderation/ logging/ ... Technical modules
+packages/shared/             Zod schemas, BotTool<T>, SkillBlueprint types
+apps/dashboard/              Web dashboard (React 19, Vite 8)
 ```
 
-Dependency rule: `apps/bot → @10cordes/shared ← apps/dashboard`.
+## POO layer (new)
 
-## Commands
+- **Policies** (`core/security/`): `GuildAdminPolicy` — the ONLY place where Discord permissions are checked. `arch-audit` enforces this.
+- **Presenters** (`modules/*/presenters/`): pure classes that receive data and return Discord payloads. No side effects, no API calls.
+- **Handlers** (`modules/*/handlers/`): interaction routing with policy guard → error handling → business logic delegation.
+
+## Diagnostic & logging
+
+Everything is logged to structured JSONL files:
+- `logs/bot-YYYY-MM-DD.jsonl` — every event (gate decisions, tool calls, surfaces, triggers, errors)
+- `logs/llm.jsonl` — every LLM call (cause, model, tokens, latency, success)
 
 ```bash
-pnpm dev          # build shared then spraxium dev (apps/bot)
-pnpm build        # build every workspace
-pnpm typecheck    # tsc --noEmit everywhere
-pnpm test         # vitest (packages/shared + bot)
-pnpm lint         # eslint flat config
-pnpm --filter 10cordes-bot exec prisma migrate dev   # DB migrations (Prisma 6)
+node scripts/diagnose.mjs        # Today's summary: top errors, LLM p95, slowest tools
+node scripts/diagnose.mjs 7      # Last 7 days
+pnpm arch:audit                  # POO architecture compliance check
 ```
 
-Production (apps/bot): `pnpm build` then `pnpm start` - never `node
-dist/main.mjs` directly (the ConfigLoader reads `spraxium.config.js`).
+## Test rigs (development)
 
-## Architecture in one paragraph
+```bash
+# With E2E_ENABLED=true in .env:
+node scripts/e2e-gate.mjs         # Gate: webhooks, mentions, GitHub links
+node scripts/e2e-features4.mjs    # Primitives: votes, counters, audit events
+node scripts/tool-evals.mjs       # 8 canonical prompts
+node scripts/e2e-surface.mjs      # Pivot: surface + trigger + reboot
+```
 
-Technical modules only: logging, ticket buttons, role menus, welcome
-templates, moderation cases, polls, giveaways, voice streaming, and plumbing
-(database, audit, HTTP, components, tool registry, module manager, health).
-All behavior lives in **skills** (`apps/bot/src/modules/agent/skills.library.ts`
-+ `agent_skills` table, official library seeded per server at boot with
-duplicate-guards, member-created skills welcome) and **automations**
-(`createAutomation`: Discord event -> actions, executed by listeners with
-bot-permission gates). The agent itself is a tool registry of 90+
-permission-gated tools: every mutation archives a pre-state in the audit
-log and a full server snapshot precedes the first structural tool of a
-request, so anything can be rolled back (`getLastSnapshot`). Progress is
-visible: a single in-place status line (`[THINKING]...` / `[TOOL] ...`)
-tracks long builds and analyses. Replies are plain text in the request
-channel; a response cache deduplicates repeated questions; provider failures
-(402 quota / 401 auth / 5xx) produce distinct, honest user notices.
+Test webhooks are auto-created by the bot (named `agent-e2e-guardian`) and auto-recognized when `E2E_ENABLED=true`.
 
-## Agent capabilities in production
+## Docker
 
-**Create**
+```bash
+docker compose up -d
+```
 
-- **Music generation** (kie.ai / Suno V6_MINI, 12 credits per song, 90 s cap):
-  topical lyrics are researched first (web + news, sources verified but not
-  cited), lyrics calibrated to the duration, the MP3 is posted as a real
-  attachment with its title - and nothing else.
-- **Voice streaming** (@discordjs/voice, pure-JS stack: opusscript +
-  libsodium + ffmpeg-static): `voice.join/play/skip/stop/leave/status`,
-  queue of 20, SSRF-guarded URLs only.
-- **Image generation**: free-form images via kie.ai / z-image (0.8 credit,
-  ~6 s, ratio-aware) delivered as attachments; pixel art icons and emojis
-  stay on PixelLab.
+The Dockerfile builds the Spraxium bundle, copies config, and runs the compiled bot. `HTTP_HOST=0.0.0.0` is set by compose.
 
-**Community**
+## Monorepo structure
 
-- **Polls**: `createPoll` posts a button-per-option panel, one vote per
-  member (changeable), auto-closes at the deadline (timer + boot sweep,
-  restart-safe) and edits the message with results: counts, percentages,
-  bars, winner, buttons removed.
-- **Tickets**: the agent builds categories per type, validates them on the
-  right guild, posts a panel (buttons or selector, each entry carries its
-  category), and every opened ticket gets a Components V2 welcome embed with
-  Claim / Close / Ask-for-help buttons (staff-gated, transcript on close).
-- **Universal panels**: `sendPanel` builds any Components V2 embed on the
-  fly (title, description, accent color, footer) with typed buttons -
-  open a ticket, post a canned message, external link. Persisted: panel
-  interactions survive restarts.
+```
+apps/bot          Spraxium bot + REST API + better-auth
+apps/dashboard    Web dashboard (React 19 + Vite 8 + Tailwind 4)
+packages/shared   Zod schemas, BotTool<T>, SkillBlueprint, RegisteredToolName
+docs/             Architecture docs, roadmap, audit reports
+```
 
-**Run the server**
-
-- **Server analysis**: `analyzeActivity` measures real inactivity (bots and
-  webhooks excluded, dates included) for archive campaigns; long analyses and
-  builds are narrated live (`announceStep`) with per-item counters.
-- **Guaranteed rollback**: destructive and structural actions archive their
-  pre-state plus a full server snapshot (categories, channels, roles) in the
-  audit log; `getLastSnapshot` feeds exact restorations.
-- **Progressive context**: full analyses are memorized (`saveServerMemory`)
-  so follow-up questions on the same topic answer instantly.
-
-## Docs
-
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - detailed plumbing
-- [docs/ROADMAP.md](docs/ROADMAP.md) - backlog, platform verdicts, decisions
-- [apps/bot/README.md](apps/bot/README.md) · [apps/dashboard/README.md](apps/dashboard/README.md)
+Dependency rule: `apps/bot → @10cordes/shared ← apps/dashboard`
 
 ## License
 
-MIT
+MIT — see [LICENSE](./LICENSE)
