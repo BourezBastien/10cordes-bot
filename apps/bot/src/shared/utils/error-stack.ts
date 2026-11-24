@@ -1,5 +1,3 @@
-import { sep } from 'node:path';
-
 /** Nombre de cadres gardés dans une pile journalisée. */
 const DEFAULT_FRAMES = 6;
 const FRAME_MAX_CHARS = 200;
@@ -7,8 +5,8 @@ const MESSAGE_MAX_CHARS = 180;
 /** Profondeur maximale de la chaîne des causes. */
 const CAUSE_MAX_DEPTH = 3;
 
-/** Dossier courant, séparateurs normalisés : les cadres du projet s'écrivent par rapport à lui. */
-const root = `${process.cwd().replaceAll(sep, '/')}/`;
+/** Dossier courant, séparateurs toujours `/` : les cadres du projet s'écrivent par rapport à lui. */
+const root = `${process.cwd().replaceAll('\\', '/')}/`;
 
 /**
  * Un chemin absolu hors du dossier courant (dépendance) : ses deux derniers
@@ -38,14 +36,14 @@ export function describeError(error: unknown): string {
 }
 
 /**
- * Une cadre, lisible et courte : séparateurs toujours `/`, chemin du projet
- * relatif au dossier courant, chemin d'une dépendance réduit à ses deux
- * derniers segments. Même écriture sous Windows et sous Linux.
+ * Une cadre, lisible et courte : séparateurs toujours `/`, quel que soit le
+ * système (même écriture d'un journal à l'autre), chemin du projet relatif au
+ * dossier courant, chemin d'une dépendance réduit à ses deux derniers segments.
  */
 function shortenFrame(line: string): string {
   return line
     .replace(/^at\s+/u, '')
-    .replaceAll(sep, '/')
+    .replaceAll('\\', '/')
     .replaceAll(root, '')
     // Les cadres des modules ES portent leur adresse (file:///...) : il ne reste que le chemin.
     .replaceAll('file:///', '')

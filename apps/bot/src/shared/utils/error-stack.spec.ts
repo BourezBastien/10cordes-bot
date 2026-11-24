@@ -1,4 +1,3 @@
-import { sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { describeError, stackExcerpt } from './error-stack';
 
@@ -48,7 +47,7 @@ describe('stackExcerpt', () => {
     const excerpt = stackExcerpt(outer());
     expect(excerpt).toMatch(/^inner \(src\//u);
     expect(excerpt).toContain('outer (src/shared/utils/error-stack.spec.ts');
-    expect(excerpt).not.toContain(process.cwd().replaceAll(sep, '/'));
+    expect(excerpt).not.toContain(`${process.cwd().replaceAll('\\', '/')}/`);
     // Ligne unique : une ligne du journal JSONL reste une ligne.
     expect(excerpt).not.toContain('\n');
   });

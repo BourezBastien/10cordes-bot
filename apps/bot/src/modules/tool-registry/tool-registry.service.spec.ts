@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { sep } from 'node:path';
 import { z } from 'zod';
 import type { BotTool, ToolRunContext } from '@10cordes/shared';
 import { setFileLog, type FileLogService } from '../logging/file-log.service';
@@ -88,7 +87,7 @@ describe('ToolRegistryService · exception du handler', () => {
     expect(failed?.data).toMatchObject({ tool: PROBE, guildId: GUILD, requestId: 'req-panne', error: 'Error: réseau coupé' });
     // La pile commence là où l'erreur est née (ce fichier), sans chemin absolu.
     expect(failed?.data?.stack).toMatch(/^Object\.handler \(src\/modules\/tool-registry/u);
-    expect(String(failed?.data?.stack)).not.toContain(process.cwd().replaceAll(sep, '/'));
+    expect(String(failed?.data?.stack)).not.toContain(`${process.cwd().replaceAll('\\', '/')}/`);
     // Aucune ligne de succès n'est écrite pour cet appel.
     expect(events.some((entry) => entry.event === 'tool.run')).toBe(false);
   });
