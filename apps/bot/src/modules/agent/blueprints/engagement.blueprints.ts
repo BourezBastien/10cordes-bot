@@ -1,4 +1,3 @@
-import type { SkillBlueprint } from '@10cordes/shared';
 import { bool, chan, dur, num, role, str, type DomainBlueprints } from './blueprint.helpers';
 
 /** ENGAGEMENT & JEUX (14) : sondages, giveaways, comptage, streaks, casinos. */

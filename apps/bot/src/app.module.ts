@@ -2,8 +2,6 @@ import { Module } from '@spraxium/common';
 import { ComponentsModule } from '@spraxium/components';
 import { HttpModule, HttpClientModule, LoggerMiddleware } from '@spraxium/http';
 import { AuthController } from './auth/auth.controller';
-import { SessionGuard } from './auth/guards/session.guard';
-import { GuildAccessGuard } from './auth/guards/guild-access.guard';
 import { AgentModule } from './modules/agent/agent.module';
 import { SurfaceModule } from './modules/surface/surface.module';
 import { GuildRulesModule } from './modules/rules/guild-rules.module';

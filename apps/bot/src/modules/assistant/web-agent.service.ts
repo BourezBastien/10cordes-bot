@@ -1,6 +1,6 @@
 import { Injectable } from '@spraxium/common';
 import { Logger } from '@spraxium/logger';
-import { Client, type Guild, type TextChannel } from 'discord.js';
+import { Client, type TextChannel } from 'discord.js';
 import { AuditService } from '../audit/audit.service';
 import { MemoryService } from '../memory/memory.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
@@ -9,7 +9,7 @@ import { LlmService, type ChatMessage, type OpenAiTool } from './llm.service';
 import { fetchRecentActions } from './agent-history';
 import { sanitizeTranscriptLine } from './reply-text';
 import { buildSystemPrompt } from './system-prompt.builder';
-import { selectRelevantTools, toolToOpenAiTool } from './tool-selection';
+import { pinnedToolGuidance, selectRelevantTools, toolToOpenAiTool } from './tool-selection';
 import { detectRequestIntent } from './request-intent';
 import { AgentLoopService } from './agent-loop.service';
 import { getSkillTriggers } from '../agent/skill.service';
@@ -125,7 +125,7 @@ export class WebAgentService {
         content: buildSystemPrompt(locale, guild.name, channel?.name ?? 'web', [...openAiTools.map((tool) => tool.function.name), 'search_tools'], permissions, {
           guildMemories,
           memberMemories,
-        }, recentActions, skillTriggers, serverRules),
+        }, recentActions, skillTriggers, serverRules, pinnedToolGuidance(relevant)),
       },
       {
         role: 'user',

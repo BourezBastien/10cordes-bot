@@ -67,7 +67,7 @@ export class HealthMonitor implements SpraxiumOnBoot, SpraxiumOnShutdown {
     if (!ok) {
       this.incidentSince = now;
       this.log.warn(`Incident : ${causes.join(', ')}`);
-      await this.audit.record({
+      this.audit.record({
         source: 'system',
         action: 'monitor.incident',
         metadata: { causes },
@@ -80,7 +80,7 @@ export class HealthMonitor implements SpraxiumOnBoot, SpraxiumOnShutdown {
     const durationSec = this.incidentSince ? Math.round((now.getTime() - this.incidentSince.getTime()) / 1000) : null;
     this.incidentSince = null;
     this.log.info('Rétabli.');
-    await this.audit.record({ source: 'system', action: 'monitor.recovered', metadata: { durationSec } });
+    this.audit.record({ source: 'system', action: 'monitor.recovered', metadata: { durationSec } });
     await this.broadcast(
       durationSec ? `**Rétabli** : tous les systèmes sont de nouveau opérationnels (durée de l'incident : ${durationSec}s).` : '**Rétabli** : tous les systèmes sont opérationnels.',
     );

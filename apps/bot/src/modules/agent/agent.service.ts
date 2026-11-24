@@ -15,7 +15,7 @@ export interface PlanOpResult {
 }
 
 /**
- * Agent Admin — exécution directe des ops destructives (décision 17/11 :
+ * Agent Admin : exécution directe des ops destructives (décision 17/11 :
  * plus de plans ni confirmation). Gates re-vérifiées par op : demandeur ET
  * bot. Archive-first pour les suppressions, audit complet.
  *
@@ -87,8 +87,8 @@ interface OpContext {
 
 type OpHandler = (op: AdminOp, ctx: OpContext) => Promise<PlanOpResult>;
 
-/** Extraction typée d'une variante d'op (narrowing sûr après check runtime). */
-function asOp<T extends AdminOp['type']>(op: AdminOp, type: T): Extract<AdminOp, { type: T }> {
+/** Extraction typée d'une variante d'op (narrowing sûr après check runtime). Le second argument ne sert qu'à fixer la variante attendue. */
+function asOp<T extends AdminOp['type']>(op: AdminOp, _type: T): Extract<AdminOp, { type: T }> {
   return op as Extract<AdminOp, { type: T }>;
 }
 
@@ -96,7 +96,7 @@ const ok = (label: string, detail: string): PlanOpResult => ({ ok: true, label, 
 const fail = (label: string, detail: string): PlanOpResult => ({ ok: false, label, detail });
 
 /**
- * Table Strategy des ops — chaque handler re-vérifie la permission du BOT
+ * Table Strategy des ops : chaque handler re-vérifie la permission du BOT
  * en code. Les ops de création/renommage ne sont PAS ici : les tools
  * createChannel/renameChannel/createRole etc. les implémentent directement.
  */

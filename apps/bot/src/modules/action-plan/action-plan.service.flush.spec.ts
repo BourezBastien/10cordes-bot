@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MessageFlags } from 'discord.js';
 import type { ToolRunContext } from '@10cordes/shared';
-import type { PlanAction } from '../../core/security/action-plan.policy';
 import { ActionPlanService } from './action-plan.service';
 import { PLAN_LIMITS } from './action-plan.types';
 

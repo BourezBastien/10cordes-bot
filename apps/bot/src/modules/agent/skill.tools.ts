@@ -34,6 +34,7 @@ export function buildSkillTools(deps: SkillToolsDeps): BotTool[] {
       description:
         'Ouvre un skill actif : renvoie son trigger et la règle complète à appliquer. La liste des triggers actifs figure dans ton prompt système : ouvre CHAQUE skill dont le trigger s\u2019applique à la demande, puis suis sa règle strictement.',
       category: 'agent',
+      keywords: ['recette', 'skill', 'workflow', 'ticket', 'système', 'systeme', 'règle', 'regle'],
       paramsSchema: z.object({ skillId: z.string().min(1).describe('ID du skill, pris dans la liste des triggers actifs') }),
       requiredModules: [],
       destructive: false,
@@ -45,12 +46,14 @@ export function buildSkillTools(deps: SkillToolsDeps): BotTool[] {
         const { skillId } = input as { skillId?: string };
         const skill = await deps.openSkill(guildId, String(skillId ?? ''));
         if (!skill) return { ok: false, summary: 'Skill introuvable ou supprimé.' };
+        // Les tools de la recette deviennent appelables dès le tour suivant :
+        // le modèle n'a plus à les chercher un à un (chaque recherche coûtait un tour).
+        const tools = recipeToolNames(skill.rule).map((tool) => ({ name: tool }));
+        const callable = tools.length > 0 ? `\nTools de la recette désormais appelables, inutile de les chercher : ${tools.map((entry) => entry.name).join(', ')}.` : '';
         return {
           ok: true,
-          summary: `Skill ouvert (trigger : ${skill.trigger}). Règle : ${skill.rule}`,
-          // Les tools de la recette deviennent appelables dès le tour suivant :
-          // le modèle n'a plus à les chercher un à un (chaque recherche coûtait un tour).
-          data: { trigger: skill.trigger, rule: skill.rule, tools: recipeToolNames(skill.rule).map((tool) => ({ name: tool })) },
+          summary: `Skill ouvert (trigger : ${skill.trigger}). Règle : ${skill.rule}${callable}`,
+          data: { trigger: skill.trigger, rule: skill.rule, tools },
         };
       },
     },
@@ -65,7 +68,7 @@ export function buildSkillTools(deps: SkillToolsDeps): BotTool[] {
       }),
       requiredModules: [],
       // ManageGuild : une skill est une règle DURABLE injectée dans
-      // chaque prompt du serveur — pas un contenu qu'un membre lambda
+      // chaque prompt du serveur, pas un contenu qu'un membre lambda
       // doit pouvoir imposer (injection de comportement).
       permissions: ['ManageGuild'],
       destructive: false,

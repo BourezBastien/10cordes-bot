@@ -13,7 +13,7 @@ import { SurfaceMessagePresenter } from './surface.presenter';
 import { SurfaceStore, type SurfaceRow } from './surface.store';
 import { buildSurfaceTools } from './surface.tools';
 import { buildTriggerTools, type TriggerToolsDeps } from './surface-trigger.tools';
-import { SurfacePipelineService, type PipelineContext, type PipelineVars, type ToolRunner } from './surface.pipeline';
+import { SurfacePipelineService, type PipelineContext, type ToolRunner } from './surface.pipeline';
 
 export interface RunSurfaceInteractionArgs {
   surfaceId: string;

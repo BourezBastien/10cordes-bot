@@ -160,7 +160,7 @@ export function ConfigPage() {
     onSuccess: () => {
       toast.success(t('common.saved'));
       setPatch({});
-      queryClient.invalidateQueries({ queryKey: ['guild', guildId, 'config'] });
+      void queryClient.invalidateQueries({ queryKey: ['guild', guildId, 'config'] });
     },
     onError: (error: unknown) => {
       if (error instanceof ApiError && error.details) {

@@ -243,4 +243,36 @@ Le clic sur « ✅ Appliquer » exige une interaction Discord réelle, qu'un rig
 | skills.casino | PASS | |
 | ingest.status | interrompu | `fetch failed` côté rig |
 
-Ce passage n'a rien laissé : aucune surface créée, règle inchangée, aucun salon de test. Les quatre salons « e2e » encore présents sur le serveur datent du 17 au 20 novembre.
+Ce passage n'a rien laissé : aucune surface créée, règle inchangée, aucun salon de test. Les quatre salons « e2e » encore présents sur le serveur datent du 17 au 20 novembre. Ils ont été supprimés le 24/11 (voir §13).
+
+## 13. Correctif du 24/11 : `tickets.surface` en moins de 5 tours
+
+Seul ce scénario a été rejoué, avec `E2E_ONLY="tickets.surface"` écrit dans la commande (le filtre figure désormais sur la première ligne du journal du rig). Serveur `1550835980116824136`, trois routes de conversation sur `deepseek-flash`, règle de confirmation inactive.
+
+### Ce que le rig mesure désormais
+
+Chaque scénario conversationnel rapporte ses tours LLM : les lignes de `logs/llm.jsonl` écrites entre l'audit `tools.selected` et l'audit `assistant.reply` de la demande, sur le serveur testé, et la capacité qui les a servis. La méthode est validée sur l'historique : elle retrouve exactement les runs en échec de la nuit (12 tours, 8 `search_tools`). `tickets.surface` passe sous 5 tours, sans plafond d'étapes, et supprime ce qu'il a créé : le message du panneau, sa ligne, et l'entrée de mémoire écrite à son sujet. Il refuse aussi toute référence `{{steps.N.data.x}}` dans la définition (voir plus bas).
+
+### Trois passages
+
+| Heure | Build | Verdict | Tours LLM | `search_tools` | Déroulé |
+|---|---|---|---|---|---|
+| 11:32 | avant la correction des consignes | **FAIL** | 7 (budget 5) | 2 | `openSkill`, `search_tools`, `surface.get` en échec, `search_tools`, `surface.create` refusé, `surface.create`, `saveServerMemory` |
+| 13:03 | corrigé | **PASS** | 4 | 1 | `surface.get` en échec, `search_tools`, `surface.create` réussi du premier coup |
+| 13:05 | corrigé | **PASS** | 4 | 1 | même déroulé |
+
+Les trois passages sont partis sur `chat.reasoning` : c'est attendu, « Crée ici un panneau de tickets » est une action. Les primitives n'ont plus été cherchées : la recherche restante porte sur `setChannelOverwrite`, un outil de la recette que le plafond de pertinence n'avait pas retenu. Jetons consommés : 165 682 au premier passage, 85 967 au second.
+
+### Ce que le premier passage a révélé
+
+1. **Les références de résultat des pipelines n'étaient pas documentées.** L'exécuteur range le résultat d'un `runTool` à plat : `ok`, `summary`, puis les champs renvoyés par l'outil. Pour `createChannel`, la référence est donc `{{steps.0.channelId}}`. Le modèle a écrit `{{steps.0.data.id}}` dans quatre étapes. La surface a été acceptée, sa forme est valide, mais son bouton aurait échoué au clic : un défaut invisible pour le rig, qui ne simule pas les clics. La consigne de `surface.create` dit désormais que tout outil passe par `runTool` et comment lire son résultat ; le rig refuse les références en `steps.N.data`.
+2. **Le premier `surface.create` avait un nom d'outil comme type d'étape.** `setChannelOverwrite` écrit à la place de `runTool{name,input}` : refus, puis un tour de plus. Même consigne, corrigée.
+3. **Le rig laissait un piège au run suivant.** Il supprimait le panneau, pas l'entrée de mémoire que le modèle écrivait à son sujet. Le run d'après lisait cette entrée, appelait `surface.get` sur une surface supprimée et perdait un tour. Le scénario retire désormais cette entrée, et le nettoyage global retire les entrées de mémoire du serveur de test qui citent une surface n'existant plus (3 retirées au passage de 13:03).
+4. **`openSkill` ne disait pas que les outils de la recette devenaient appelables.** Le modèle les cherchait ensuite. Le résultat de l'outil le dit maintenant.
+
+### Limites
+
+- Deux réussites seulement sur le build corrigé, à un tour du budget (4 sur 5) : le comportement d'un modèle varie, ce n'est pas une garantie.
+- Chaque passage compte un outil en échec, affiché dans la note : `surface.get` sur la surface du passage précédent. Le rig la supprime, mais sa trace reste dans les actions récentes du bot et dans l'historique du salon ; le modèle applique « lire avant d'écrire », ne la trouve pas, et continue. C'est un artefact du rig joué en série.
+- Le clic sur le bouton « Support » n'est pas vérifié : le pipeline (`createChannel`, deux `setChannelOverwrite`, `sendMessage`) n'a jamais été exécuté.
+- Les autres scénarios n'ont pas été rejoués, conformément à la demande.

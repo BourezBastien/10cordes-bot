@@ -86,5 +86,5 @@ Conséquence de la purge : tickets, captcha, panels, rôles, accueil, niveaux et
 1. Dette d'architecture : remboursée, 0 violation (voir 05 §3). La garantie tient tant que `pnpm verify` et la CI restent stricts.
 2. Les recettes citent des collections dynamiques : le store `records.*` les accepte désormais, sous quota (voir 01 §3).
 3. `GuildHistoryIngestionService.trigger()` exige un fournisseur LLM configuré.
-4. `pnpm lint` ne linte aucun fichier TypeScript (voir 04 §3).
+4. `pnpm lint` linte les fichiers TypeScript avec quatre règles de bugs réels depuis le 24/11 (voir 04 §3) ; le bloc de style reste désactivé.
 5. Le clic réel sur un bouton de surface ne se simule pas : les handlers sont couverts par 13 tests unitaires, le clic reste à faire à la main (un panneau « Blackjack, table de test clic » a été laissé dans le salon IA du serveur de dév à cet effet).

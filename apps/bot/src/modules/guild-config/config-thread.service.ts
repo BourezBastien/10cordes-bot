@@ -231,7 +231,7 @@ export class ConfigThreadService implements SpraxiumOnBoot {
     return defineTool({
       name: 'config.thinking',
       description:
-        'Règle le mode thinking du modèle pour ce serveur : adaptive (défaut - thinking activé SEULEMENT pendant l\u0027exécution de tools/compétences, off en conversation simple et en synthèse finale), always, off.',
+        'Règle le mode thinking du modèle pour ce serveur : adaptive (défaut : raisonnement activé seulement quand une recette correspond à la demande ou quand la demande exprime une action, par exemple créer, supprimer, configurer ou planifier ; off en conversation simple et en synthèse finale), always, off.',
       category: 'guild-config',
       paramsSchema: z.object({
         mode: z.enum(['adaptive', 'always', 'off']).describe('adaptive = recommandé (économique et rapide en simple conversation)'),

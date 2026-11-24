@@ -1,5 +1,4 @@
-import type { SkillBlueprint } from '@10cordes/shared';
-import { bool, dur, emoji, num, str, type DomainBlueprints } from './blueprint.helpers';
+import { dur, emoji, num, str, type DomainBlueprints } from './blueprint.helpers';
 
 /** VOCAUX TEMPORAIRES (13) : générateurs, contrôle, permissions, stats. */
 export const voiceBlueprints: DomainBlueprints = [

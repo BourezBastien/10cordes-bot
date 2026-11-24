@@ -1,4 +1,3 @@
-import type { SkillBlueprint } from '@10cordes/shared';
 import { chan, num, role, str, type DomainBlueprints } from './blueprint.helpers';
 
 /** FORMULAIRES & CANDIDATURES (14) : candidatures, suggestions, bugs, tournois, quiz. */

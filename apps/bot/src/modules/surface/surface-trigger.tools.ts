@@ -16,6 +16,7 @@ function triggerScheduleTool(deps: TriggerToolsDeps): BotTool {
     description:
       'Planifie un pipeline sur une surface : once (délai en secondes) ou cron. RATTRAPAGE GARANTI après reboot (plus de fenêtre de grâce : un once manqué s\u0027exécute au boot). cancelKey optionnel pour annulation (trigger.cancelByKey).',
     category: 'surface',
+    keywords: ['planifi', 'schedul', 'timer', 'cron', 'rappel', 'reminder', 'délai', 'delai', 'programm'],
     paramsSchema: z.object({
       surfaceId: z.string().min(1).optional(),
       cancelKey: z.string().min(1).max(80).optional(),
@@ -85,6 +86,7 @@ function triggerCancelTool(deps: TriggerToolsDeps): BotTool {
     name: 'trigger.cancelByKey',
     description: 'Annule les triggers armés portant cette clé d\u0027annulation (ex : ne pas supprimer un vocal rejoint pendant le délai).',
     category: 'surface',
+    keywords: ['annul', 'cancel'],
     paramsSchema: z.object({ cancelKey: z.string().min(1).max(80) }),
     requiredModules: [],
     permissions: ['ManageGuild'],

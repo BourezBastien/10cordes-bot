@@ -6,6 +6,7 @@ export * from './schemas/errors.js';
 export * from './module-dependencies.js';
 export * from './template-engine.js';
 export * from './tools/types.js';
+export { rankTools, toolMatchScore, wordsOf } from './tools/tool-search.js';
 export { AdminOpSchema, type AdminOp, opLabel } from './tools/admin-ops.js';
 export { REGISTERED_TOOL_NAMES, type RegisteredToolName } from './tools/registry-names.js';
 export type {

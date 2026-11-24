@@ -90,7 +90,7 @@ export function lockdownTool(deps: ServerlifeToolsDeps): BotTool {
       if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
       const guild = deps.guildOf(ctx);
       if (!guild) return { ok: false, summary: 'Contexte de serveur requis.' };
-      const { action, scope, categoryId } = input as { action: 'lock' | 'unlock'; scope?: 'all' | 'category'; categoryId?: string };
+      const { action, categoryId } = input as { action: 'lock' | 'unlock'; scope?: 'all' | 'category'; categoryId?: string };
       const channels = [...guild.channels.cache.values()].filter(
         (channel) => channel.type === ChannelType.GuildText && (!categoryId || channel.parentId === categoryId),
       );

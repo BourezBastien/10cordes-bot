@@ -2,7 +2,6 @@ import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
 import { Logger } from '@spraxium/logger';
 import { Client } from 'discord.js';
 import { GameDig } from 'gamedig';
-import type { BotTool } from '@10cordes/shared';
 import { IntegrationService } from '../integrations/integration.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { CapabilityRouterService } from '../providers/capability-router.service';

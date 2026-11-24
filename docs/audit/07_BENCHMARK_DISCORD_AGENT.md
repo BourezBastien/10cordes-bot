@@ -149,7 +149,7 @@ Trois tables sur cinq sont mortes, et quatre des cinq causes de l'énumération 
 | Dimension | `discord-agent` | 10cordes avant | 10cordes après |
 |---|---|---|---|
 | Boucle | `streamText`, 50 étapes, un outil forcé par tour, réponse par outil | `AgentLoop`, 12 itérations, synthèse forcée au plafond, réponse streamée | inchangé |
-| Jeu d'outils | 160 outils Discord fins, filtré par message | 171 tools, noyau de 14 plus sélection par pertinence | inchangé |
+| Jeu d'outils | 160 outils Discord fins, filtré par message | 171 tools, noyau de 20 depuis le 24/11 (primitives épinglées), plus sélection par pertinence | noyau de 14 au moment du benchmark |
 | Outils qui modifient | 69 jamais exposés, 26 directs, 14 destructifs | 14 destructifs, exécutables par le modèle, bloqués par une règle de serveur | 14 destructifs, exécution par le seul plan approuvé quand la règle est active |
 | Approbation | plan de 1 à 10 actions, boutons Appliquer / Annuler | un panneau par tool, le clic pose une clé en cache | un plan par demande, boutons ✅ Appliquer / ❌ Annuler |
 | Qui exécute après le clic | le code, séquentiellement, sans modèle | le modèle, s'il relance le tool lui-même | le code, séquentiellement, sans modèle |

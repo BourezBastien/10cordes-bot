@@ -56,7 +56,7 @@ export function ModulesPage() {
         return next;
       });
       toast.success(t('common.saved'));
-      queryClient.invalidateQueries({ queryKey: ['guild', guildId, 'modules'] });
+      void queryClient.invalidateQueries({ queryKey: ['guild', guildId, 'modules'] });
     },
     onError: () => toast.error(t('common.error')),
   });

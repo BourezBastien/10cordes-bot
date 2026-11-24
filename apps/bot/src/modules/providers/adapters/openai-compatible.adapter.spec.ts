@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ChatMessage, OpenAiTool } from '../../../shared/llm/chat-contract';
+import type { OpenAiTool } from '../../../shared/llm/chat-contract';
 import { LlmFormatLeakError } from '../../../shared/llm/format-leak.error';
 import { ProviderError, type ChatTurnInput, type ProviderConfig } from '../provider.types';
 import { OpenAiCompatibleAdapter } from './openai-compatible.adapter';

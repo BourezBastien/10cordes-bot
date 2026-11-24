@@ -13,7 +13,7 @@ import {
 } from './access-policy';
 import { adminOpPolicy, requiredPermissionFor } from './admin-op.policy';
 import { BotMissingPermissionError, BotPermissionPolicy, botPermissionPolicy } from './bot-permission.policy';
-import { MemberPermissionPolicy, memberPermissionPolicy } from './member-permission.policy';
+import { MemberPermissionPolicy } from './member-permission.policy';
 import { isAssignablePermissionName } from './permission-name';
 import { permissionNamesPolicy } from './permission-names.policy';
 

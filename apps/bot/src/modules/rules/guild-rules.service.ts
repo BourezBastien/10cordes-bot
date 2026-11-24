@@ -8,7 +8,7 @@ import { getToolRegistry, ToolRegistryService, bindRegistryRuntimeDeps } from '.
 import { bindGuildRules } from './guild-rules.runtime';
 
 /**
- * Règles Serveur (R0.4) — le système demandé en langage naturel par les
+ * Règles Serveur (R0.4) : le système demandé en langage naturel par les
  * admins, appliqué À DEUX NIVEAUX :
  * - EN CODE : la Gate (zone libre vs mention stricte) et le ToolRegistry
  *   (confirmation ✅/❌ des actions destructives) lisent ce store ;
@@ -76,7 +76,8 @@ export class GuildRulesService implements SpraxiumOnBoot {
     return rules;
   }
 
-  async invalidate(guildId: string): Promise<void> {
+  /** Vidage du cache d'un serveur : synchrone, il n'y a rien à attendre. */
+  invalidate(guildId: string): void {
     this.cache.delete(guildId);
   }
 

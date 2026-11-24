@@ -1,5 +1,4 @@
-import type { SkillBlueprint } from '@10cordes/shared';
-import { chan, dur, emoji, num, str, type DomainBlueprints } from './blueprint.helpers';
+import { chan, dur, num, str, type DomainBlueprints } from './blueprint.helpers';
 
 /** ÉVÉNEMENTS (14) : RSVP, rappels, événements récurrents, réunions, streams. */
 export const eventsBlueprints: DomainBlueprints = [

@@ -7,8 +7,6 @@ import type {
   PartialMessage,
   PartialMessageReaction,
   PartialUser,
-  Presence,
-  ThreadChannel,
   User,
   VoiceState,
 } from 'discord.js';
@@ -236,7 +234,7 @@ export class SurfaceEventMemberUpdateListener {
 
   @On()
   async onGuildMemberUpdate(oldMember: GuildMember | import('discord.js').PartialGuildMember, newMember: GuildMember): Promise<void> {
-    // Diff minimal : rôles ajoutés (boost inclus) — les départs de rôle
+    // Diff minimal : rôles ajoutés (boost inclus), les départs de rôle
     // suivront avec le même pattern si un cas le réclame.
     const added = [...newMember.roles.cache.keys()].filter((id) => !oldMember.roles?.cache?.has(id));
     for (const roleId of added) {

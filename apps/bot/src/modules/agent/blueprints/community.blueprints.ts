@@ -1,5 +1,4 @@
-import type { SkillBlueprint } from '@10cordes/shared';
-import { bool, chan, cron, num, role, str, type DomainBlueprints } from './blueprint.helpers';
+import { chan, cron, num, role, str, type DomainBlueprints } from './blueprint.helpers';
 
 /** COMMUNAUTÉ (14) : anniversaires, réputation, fun, culture, distinction. */
 export const communityBlueprints: DomainBlueprints = [

@@ -35,7 +35,7 @@
 
 ## 2. Registry et exécution
 
-- 163 tools. Routing façon Anthropic : noyau de quelques tools toujours présents + `search_tools` qui expose le reste à la demande (économie de contexte).
+- 171 tools. Routing façon Anthropic : noyau de 20 tools toujours présents (lectures, `search_tools`, `search_skills` et primitives de surface et de trigger, épinglées le 24/11), jusqu'à 24 tools pertinents hors noyau, puis `search_tools` qui expose le reste à la demande parmi les tools que l'appelant peut exécuter (économie de contexte).
 - Permissions vérifiées en code au registry : `permissions: ['ManageGuild']`, etc., et nodes RBAC allow/deny par rôle ou membre (deny prioritaire, même pour un Administrator Discord).
 - Porte de confirmation destructive (règle serveur) avant le handler : voir `02-bot-core-moteur.md` §3.
 - `defineTool<T>` dans tout le code récent (plus de cast manuel).

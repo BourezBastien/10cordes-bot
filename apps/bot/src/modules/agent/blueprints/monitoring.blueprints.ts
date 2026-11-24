@@ -1,4 +1,3 @@
-import type { SkillBlueprint } from '@10cordes/shared';
 import { chan, num, str, type DomainBlueprints } from './blueprint.helpers';
 
 /** MONITORING & STATS (13) : santé, sondes, rapports, alertes. */

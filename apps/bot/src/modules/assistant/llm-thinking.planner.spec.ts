@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { BotTool } from '@10cordes/shared';
+import { detectRequestIntent } from './request-intent';
 import { ReasoningEffortPlanner } from './llm-thinking.planner';
 
 /**
@@ -53,5 +55,25 @@ describe('ReasoningEffortPlanner · effort envoyé, selon l\u0027endpoint', () =
 
   it('DeepSeek : `none` coupe vraiment quand la requête ne raisonne pas', async () => {
     expect(await planner({ mode: 'adaptive', instanceUrl: DEEPSEEK }).plan(request, false)).toBe('none');
+  });
+});
+
+describe('ReasoningEffortPlanner · de la phrase à l\u0027effort', () => {
+  // Clé calculée : sync-tool-names.mjs repère la clé name suivie d'une chaîne.
+  const NAME = 'name';
+  /** Tools modifiants que le routage injecte pour presque n'importe quelle phrase. */
+  const ROUTED_MUTATING: BotTool[] = ['deleteChannel', 'provider.upsert', 'capability.bind', 'records.create', 'rules.set'].map((id) => ({ [NAME]: id } as BotTool));
+
+  const planFor = async (subject: ReasoningEffortPlanner, phrase: string) => {
+    const actionIntent = detectRequestIntent(phrase, ROUTED_MUTATING, []).action;
+    return { wants: await subject.wants(request, actionIntent), effort: await subject.plan(request, actionIntent) };
+  };
+
+  it.each(['réponds exactement « sonnette-ok » et rien d\u0027autre', 'salut ça va', 'quelle heure est-il'])('« %s » : ni raisonnement ni effort, malgré les tools routés', async (phrase) => {
+    expect(await planFor(planner({ instanceUrl: DEEPSEEK }), phrase)).toEqual({ wants: false, effort: 'none' });
+  });
+
+  it('une action demandée poliment raisonne', async () => {
+    expect(await planFor(planner({ instanceUrl: DEEPSEEK }), 'est-ce que tu peux créer un système de tickets ?')).toEqual({ wants: true, effort: 'high' });
   });
 });

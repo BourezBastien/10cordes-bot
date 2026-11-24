@@ -17,7 +17,6 @@ Input.displayName = 'Input';
 
 export const Label = forwardRef<HTMLLabelElement, LabelHTMLAttributes<HTMLLabelElement>>(
   ({ className, ...props }, ref) => (
-    // eslint-disable-next-line jsx-a11y/label-has-associated-control
     <label ref={ref} className={cn('text-sm font-medium text-ink', className)} {...props} />
   ),
 );

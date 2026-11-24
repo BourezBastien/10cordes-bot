@@ -1,6 +1,6 @@
 /**
  * SystemPromptBuilder (Phase 2.2) : le prompt système est découpé en
- * PARTIE STATIQUE (constante, en tête : cache préfixe DeepSeek — deux
+ * PARTIE STATIQUE (constante, en tête : cache préfixe DeepSeek, deux
  * demandes successives partagent le même préfixe system) et PARTIE
  * DYNAMIQUE (contexte serveur, permissions, tools, mémoires, actions).
  * Le ton et l'humour d'origine sont conservés à l'identique.
@@ -57,8 +57,8 @@ const STATIC_SYSTEM_PROMPT = [
   '<TOOL_USE_GUIDANCE>',
   'Read-before-write : toujours lire l\u0027état actuel avant de modifier.',
   'Ne devine jamais un ID : résous les noms via les tools de liste.',
-  'Chaîne tes appels : tu peux enchaîner plusieurs tools avant de répondre (jusqu\u0027à 8 étapes).',
-  'COMPOSITION D\u0027ABORD : pour construire un SYSTÈME (sondage, tickets, suggestions, RSVP, collectif, modération légère...), cherche d\u0027abord la recette avec search_skills, puis COMPOSE avec les primitives : surface.create (panneau Components V2 avec boutons à pipelines), surface.patchState et surface.updateComponent (état et rendu, y compris titre et description), records.* (store typé), trigger.schedule et jobs.* (planification). Ces primitives s\u0027obtiennent par search_tools. Les tools dédiés ne servent QUE pour ce que les primitives ne couvrent pas (generateMusic, generateImage, voice.*, sanctions ciblées). Ne demande jamais à l\u0027utilisateur « quel module veux-tu » : TU construis le système sur mesure.',
+  'Chaîne tes appels : tu peux enchaîner plusieurs tools avant de répondre (jusqu\u0027à 12 tours de tools).',
+  'COMPOSITION D\u0027ABORD : pour construire un SYSTÈME (sondage, tickets, suggestions, RSVP, collectif, modération légère...), cherche d\u0027abord la recette avec search_skills, puis COMPOSE avec les primitives : surface.create (panneau Components V2 avec boutons à pipelines), surface.patchState et surface.updateComponent (état et rendu, y compris titre et description), records.* (store typé), trigger.schedule et jobs.* (planification). Ces primitives sont DÉJÀ dans ta boîte à outils, avec leurs consignes : appelle-les directement, sans les chercher. Les tools dédiés ne servent QUE pour ce que les primitives ne couvrent pas (generateMusic, generateImage, voice.*, sanctions ciblées). Ne demande jamais à l\u0027utilisateur « quel module veux-tu » : TU construis le système sur mesure.',
   'PROGRESSION VISIBLE : pour tout montage multi-étapes (tickets, panels, catégories, rôles, automatisations) ou analyse longue (scan de salons, membres, rôles), appelle announceStep à CHAQUE phase avec des compteurs concrets (« création des 3 catégories... », « salons analysés : 24/57... »). L\u0027utilisateur doit voir ce que tu fais en direct, jamais un silence de 2 minutes suivi du résultat final.',
   'JAMAIS DE SURFACE DE TEST : n\u0027écris jamais de surface d\u0027essai (titre ou texte « probe » ou « test », boutons A/B/C) avant la vraie, elle est refusée. Un refus de surface.create nomme le champ exact à corriger : corrige la définition et relance. Les pipelines se vérifient par leur résultat (re-rendu, réponse éphémère au clic), jamais par des sondes postées dans le salon. Chaque étape d\u0027un montage coûte un tour : ouvre la recette (openSkill), appelle ses tools directement, et n\u0027appelle search_tools QUE pour un tool qui n\u0027est pas encore appellable.',
   'INFO MANQUANTE = RECHERCHE : si la demande touche un sujet que tu ne maîtrises pas assez (actualité, personne, jeu, événement), cherche d\u0027abord via searchInternet / getNews avant de répondre. Vérifie la cohérence entre plusieurs sources fiables ; ne cite PAS les sources dans ta réponse (sauf demande explicite). Ne télécharge JAMAIS rien sur la machine : lecture web uniquement.',
@@ -112,11 +112,17 @@ export function buildSystemPrompt(
   recentActions: string[],
   skillTriggers: string[],
   serverRules: string[] = [],
+  /** Consignes des tools épinglés (pinnedToolGuidance) : visibles dès le tour 1. */
+  toolGuidance: string[] = [],
 ): string {
   const isAdministrator = permissionNamesPolicy.isAdmin(permissions);
   const permissionLine = isAdministrator
     ? 'Cet utilisateur est ADMINISTRATEUR : accès complet aux tools de gestion.'
     : `Permissions de cet utilisateur : ${permissions.length > 0 ? permissions.join(', ') : 'aucune particulière'}.`;
+  const guidanceBlock =
+    toolGuidance.length > 0
+      ? ['CONSIGNES DES PRIMITIVES (déjà à toi : appelle-les, ne les cherche pas) :', ...toolGuidance.map((line) => `- ${line}`)]
+      : [];
 
   const staticPart = STATIC_SYSTEM_PROMPT.replace(
     '__LOCALE_LINE__',
@@ -139,7 +145,8 @@ export function buildSystemPrompt(
     '</SERVER_CONTEXT>',
     '<TOOLSET>',
     `Tools actifs : ${toolNames.join(', ') || 'aucun'}.`,
-    'ROUTING : ta boîte à outils active est volontairement PETITE. Si la demande (ou une étape intermédiaire) exige une capacité absente de la liste, appelle search_tools {query} : les tools trouvés sont listés avec leurs consignes et deviennent immédiatement appelables. N\u0027invente JAMAIS un tool : cherche-le, ou dis honnêtement que la capacité n\u0027existe pas.',
+    'ROUTING : ta boîte à outils active est volontairement PETITE. Si la demande (ou une étape intermédiaire) exige une capacité absente de la liste ET des consignes ci-dessous, appelle search_tools {query} UNE fois : les tools trouvés sont listés avec leurs consignes et deviennent immédiatement appelables. N\u0027invente JAMAIS un tool : cherche-le, ou dis honnêtement que la capacité n\u0027existe pas.',
+    ...guidanceBlock,
     '</TOOLSET>',
     '<SCOPE_AND_PERMISSIONS>',
     permissionLine,

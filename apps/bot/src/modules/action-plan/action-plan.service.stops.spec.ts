@@ -139,7 +139,6 @@ const textsOf = (components: unknown): string[] => flat(components).filter((node
 const buttonIdsOf = (components: unknown): string[] => flat(components).filter((node) => node.type === ComponentType.Button).map((node) => node.custom_id ?? '');
 const auditRow = (action: string, metadata: Record<string, unknown>) => ({ guildId: GUILD, source: 'agent', action, actorId: USER, metadata });
 const auditActions = (h: Harness): string[] => h.audit.record.mock.calls.map(([row]) => row.action);
-const receiptOf = (h: Harness): string => textsOf(h.interaction.editReply.mock.calls[0][0].components).join('\n');
 
 /** Un plan arrêté : pris puis refermé dans cet état, panneau remplacé par ce résultat (sans boutons), trace finale, accusé éphémère. */
 function expectStopped(h: Harness, outcome: { status: string; report: unknown; panel: unknown[]; receipt: unknown; audit: ReturnType<typeof auditRow> }): void {

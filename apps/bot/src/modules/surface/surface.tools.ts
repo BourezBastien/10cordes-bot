@@ -36,7 +36,7 @@ const DEFINITION_SHAPE =
 
 /** Champs EXACTS des étapes d'un pipeline (le modèle écrivait des étapes incomplètes, refusées une à une). */
 const STEP_REFERENCE =
-  'Champs EXACTS des étapes (pipeline) : runTool{name,input} · setState{path,value,mode:set|increment|decrement|toggle} · updateComponent{binding,patch:{label,style,emoji,disabled}} · sendMessage{content,channelId?} · replyEphemeral{content} · openModal{modal:{title,inputs:[{id,label,style,required}]}, en PREMIÈRE étape} · record.write{collection,data} · trigger.schedule{steps,delaySec? OU cron?,key?,condition?} · trigger.cancelByKey{key} · random{min,max} → steps.N.value · llm{prompt,maxChars?,saveTo?,parseJson?} → steps.N.text, et state.<saveTo> si saveTo (objet si parseJson) · if{condition,then,else?} · forEach{over,steps,roleId?|collection?,limit,as} · claimOnce{key,ttlSec?,winnerVar?}. Une condition est un OBJET, jamais une chaîne : {"kind":"state","path":"total","op":"eq|ne|gt|gte|lt|lte|exists|contains","value":21}, ou {"kind":"regex","input":"{{state.x}}","pattern":"..."}, ou {"kind":"all","conditions":[...]} / {"kind":"any","conditions":[...]} / {"kind":"not","condition":{...}}. setState.value accepte une référence : "{{steps.0.value}}" ou "{{state.x}}" garde le type. Les textes de la surface (titre, description, footer, labels) affichent l\u0027état en direct avec {{state.chemin}}.';
+  'Champs EXACTS des étapes (pipeline) : runTool{name,input} (TOUT tool du registry passe par là, par exemple createChannel, setChannelOverwrite ou sendMessage : jamais un nom de tool comme type d\u0027étape ; le résultat du tool se lit dans {{steps.N.ok}}, {{steps.N.summary}} et les champs qu\u0027il renvoie, à plat : createChannel → {{steps.N.channelId}}, createRole → {{steps.N.roleId}}, sendMessage → {{steps.N.messageId}}) · setState{path,value,mode:set|increment|decrement|toggle} · updateComponent{binding,patch:{label,style,emoji,disabled}} · sendMessage{content,channelId?} · replyEphemeral{content} · openModal{modal:{title,inputs:[{id,label,style,required}]}, en PREMIÈRE étape} · record.write{collection,data} · trigger.schedule{steps,delaySec? OU cron?,key?,condition?} · trigger.cancelByKey{key} · random{min,max} → steps.N.value · llm{prompt,maxChars?,saveTo?,parseJson?} → steps.N.text, et state.<saveTo> si saveTo (objet si parseJson) · if{condition,then,else?} · forEach{over,steps,roleId?|collection?,limit,as} · claimOnce{key,ttlSec?,winnerVar?}. Une condition est un OBJET, jamais une chaîne : {"kind":"state","path":"total","op":"eq|ne|gt|gte|lt|lte|exists|contains","value":21}, ou {"kind":"regex","input":"{{state.x}}","pattern":"..."}, ou {"kind":"all","conditions":[...]} / {"kind":"any","conditions":[...]} / {"kind":"not","condition":{...}}. setState.value accepte une référence : "{{steps.0.value}}" ou "{{state.x}}" garde le type. Les textes de la surface (titre, description, footer, labels) affichent l\u0027état en direct avec {{state.chemin}}.';
 
 /** Texte (titre ou description) qui trahit une surface de sonde, sinon null. */
 function probeTextOf(definition: SurfaceDefinition): 'titre' | 'description' | null {
@@ -57,6 +57,7 @@ function surfaceCreateTool(deps: SurfaceToolsDeps): BotTool {
         ' ' +
         STEP_REFERENCE,
     category: 'surface',
+    keywords: ['panneau', 'panel', 'bouton', 'button', 'modal', 'menu', 'select', 'composant', 'formulaire', 'embed'],
     paramsSchema: z.object({
       channelId: z.string().min(1),
       kind: z.string().min(1).max(40).default('custom'),
@@ -66,7 +67,7 @@ function surfaceCreateTool(deps: SurfaceToolsDeps): BotTool {
     permissions: ['ManageGuild'],
     destructive: false,
       systemPrompt:
-        'Forme : {"title","description","initialState","rows":[{"kind":"buttons","buttons":[{"key","label","style","pipeline":[étapes]}]}]}. rows = tableau d\u0027objets, pipeline = tableau d\u0027étapes (jamais un objet). Contenu RÉEL demandé (titre explicite, labels métier, pipelines complets), JAMAIS de coquille vide ni de placeholder. openModal uniquement en PREMIÈRE étape. Clés de bindings kebab-case uniques. Réponds en UNE phrase après création.',
+        'Forme : {"title","description","initialState","rows":[{"kind":"buttons","buttons":[{"key","label","style","pipeline":[étapes]}]}]}. rows = tableau d\u0027objets, pipeline = tableau d\u0027étapes (jamais un objet). Un tool s\u0027exécute par runTool{name,input}, et son résultat se lit dans {{steps.N.<champ renvoyé>}} (createChannel → {{steps.N.channelId}}). Contenu RÉEL demandé (titre explicite, labels métier, pipelines complets), JAMAIS de coquille vide ni de placeholder. openModal uniquement en PREMIÈRE étape. Clés de bindings kebab-case uniques. Réponds en UNE phrase après création.',
     handler: async (input, ctx): Promise<ToolResult> => {
       if (!ctx.guildId) return { ok: false, summary: GUILD_REQUIRED };
       const { channelId, kind, definition: raw } = input as { channelId: string; kind?: string; definition: string };
@@ -131,6 +132,7 @@ function surfacePatchStateTool(deps: SurfaceToolsDeps): BotTool {
     description:
       'Modifie l\u0027état JSON persistant d\u0027une surface (fusion profonde) puis la RE-REND automatiquement. Identifie la surface par surfaceId OU par messageId (l\u0027id du message Discord qui l\u0027affiche).',
     category: 'surface',
+    keywords: ['etat', 'état', 'state', 'compteur', 'grille', 'vote'],
     paramsSchema: z.object({
       surfaceId: z.string().min(1).optional().describe('ID de la surface (renvoyé par surface.create)'),
       messageId: z.string().min(1).optional().describe('ID du message Discord qui affiche la surface (alternative à surfaceId)'),
@@ -159,6 +161,7 @@ function surfaceUpdateComponentTool(deps: SurfaceToolsDeps): BotTool {
     description:
       'Patche une surface puis re-rend le message : SOIT un composant par sa clé de binding (label, style, emoji, disabled), SOIT l\u0027en-tête (title, description), par exemple pour afficher les résultats d\u0027un vote dans la description. Identifie la surface par surfaceId OU par messageId.',
     category: 'surface',
+    keywords: ['titre', 'title', 'label', 'libelle', 'libellé', 'rendu', 'resultat', 'résultat'],
     paramsSchema: z.object({
       surfaceId: z.string().min(1).optional().describe('ID de la surface (renvoyé par surface.create)'),
       messageId: z.string().min(1).optional().describe('ID du message Discord qui affiche la surface'),

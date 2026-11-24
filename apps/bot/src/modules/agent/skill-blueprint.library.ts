@@ -8,7 +8,7 @@ import { getToolRegistry } from '../tool-registry/tool-registry.service';
 import { BLUEPRINT_LIBRARY } from './skills.blueprints';
 
 /**
- * SkillBlueprintLibrary (P3.1) — remplace skills.library + seedLibrary :
+ * SkillBlueprintLibrary (P3.1), remplace skills.library + seedLibrary :
  * les recettes officielles sont des SkillBlueprint typés (params
  * configurables, requiredTools vérifiés à la compilation, workflow
  * déclaratif composé de primitives (surface, records, triggers).
@@ -93,7 +93,7 @@ export class SkillBlueprintLibrary implements SpraxiumOnBoot {
           });
         }
         // Purge : les skills library dont le trigger n'est PLUS au catalogue
-        // (recette retirée) — uniquement createdByUserId = 'library'.
+        // (recette retirée), uniquement createdByUserId = 'library'.
         const librarySkills = await this.prisma.agentSkill.findMany({
           where: { guildId: guild.id, createdByUserId: 'library', deletedAt: null },
           select: { id: true, trigger: true },
@@ -203,7 +203,6 @@ export class SkillBlueprintLibrary implements SpraxiumOnBoot {
   }
 
   private listBlueprintsTool(): BotTool {
-    const library = this;
     return defineTool({
       name: 'blueprints.list',
       description: 'Liste les domaines et recettes disponibles au catalogue de skills officiels.',

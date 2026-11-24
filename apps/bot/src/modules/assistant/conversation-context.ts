@@ -16,7 +16,7 @@ import type { AgentRequest } from './queue/types';
 import { ReplySession } from './reply-session';
 import { detectRequestIntent, type RequestIntent } from './request-intent';
 import { sanitizeTranscriptLine } from './reply-text';
-import { selectRelevantTools, toolToOpenAiTool } from './tool-selection';
+import { pinnedToolGuidance, selectRelevantTools, toolToOpenAiTool } from './tool-selection';
 import { buildSystemPrompt } from './system-prompt.builder';
 
 const TRANSCRIPT_SIZE = 12;
@@ -89,7 +89,7 @@ export class ConversationContextBuilder {
     const messages: ChatMessage[] = [
       {
         role: 'system',
-        content: buildSystemPrompt(locale, guild.name, channel.name, [...toolset.active.map((tool) => tool.function.name), 'search_tools'], permissions, memory, recentActions, skillTriggers, serverRules),
+        content: buildSystemPrompt(locale, guild.name, channel.name, [...toolset.active.map((tool) => tool.function.name), 'search_tools'], permissions, memory, recentActions, skillTriggers, serverRules, pinnedToolGuidance(routed)),
       },
       {
         role: 'user',

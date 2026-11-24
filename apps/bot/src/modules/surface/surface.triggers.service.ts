@@ -1,6 +1,5 @@
 import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
 import { Logger } from '@spraxium/logger';
-import { Cron } from 'croner';
 import { PipelineStepSchema } from '@10cordes/shared';
 import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -15,7 +14,7 @@ const TICK_MS = 15_000;
  * Moteur des ScheduledTrigger : la DB est la source de vérité, le tick
  * exécute les triggers dus. RATTRAPAGE GARANTI : un `once` manqué pendant un
  * arrêt s'exécute AU PREMIER TICK au retour (plus de fenêtre de grâce qui le
- * désactivait silencieusement — bug d'audit). Les `cron` sautent à la
+ * désactivait silencieusement, bug d'audit). Les `cron` sautent à la
  * prochaine occurrence si elles ont raté plus d'un cycle.
  *
  * Chaque exécution passe par un runner système (runToolAsSystem) et est
@@ -144,7 +143,7 @@ export class SurfaceTriggersService implements SpraxiumOnBoot {
       await this.prisma.scheduledTrigger.update({ where: { id: triggerId }, data: { lastError: result.error ?? 'erreur' } }).catch(() => {});
     }
     // Re-render : le pipeline a pu muter l'état / patcher des composants
-    // (bouton rouge → vert) — le message Discord se redessine immédiatement.
+    // (bouton rouge → vert) : le message Discord se redessine immédiatement.
     if (surfaceId && (result.stateChanged || result.definitionChanged)) {
       await this.surfaces.applyTriggerPatches(surfaceId, vars.steps).catch(() => {});
       await this.surfaces.renderSurface(surfaceId).catch(() => {});

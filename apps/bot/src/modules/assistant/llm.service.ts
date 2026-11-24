@@ -7,7 +7,7 @@ import { ImagelabService } from '../imagelab/imagelab.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import { AgentSettingsService } from '../guild-config/agent-settings.service';
 import { IntegrationService } from '../integrations/integration.service';
-import { CapabilityRouterService, type RouteAttempt } from '../providers/capability-router.service';
+import { CapabilityRouterService } from '../providers/capability-router.service';
 import { ProviderError } from '../providers/provider.types';
 import { setLlmAccessor } from './llm.accessor';
 import { isFallbackWorthy, LlmFormatLeakError } from './llm.errors';

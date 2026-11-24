@@ -1,5 +1,4 @@
-import type { SkillBlueprint } from '@10cordes/shared';
-import { bool, chan, num, role, str, type DomainBlueprints } from './blueprint.helpers';
+import { bool, chan, num, str, type DomainBlueprints } from './blueprint.helpers';
 
 /** MODÉRATION & ANTI-RAID (14) : raid, spam, filtres, escalade, sanctions temporaires. */
 export const moderationBlueprints: DomainBlueprints = [

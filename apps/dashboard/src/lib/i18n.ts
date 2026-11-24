@@ -151,7 +151,8 @@ const en = {
 
 const stored = localStorage.getItem('10cordes-locale');
 
-i18n.use(initReactI18next).init({
+// Initialisation « fire and forget » : les ressources sont en ligne, la traduction est disponible dès le premier rendu.
+void i18n.use(initReactI18next).init({
   resources: { fr: { translation: fr }, en: { translation: en } },
   lng: stored ?? 'fr',
   fallbackLng: 'fr',

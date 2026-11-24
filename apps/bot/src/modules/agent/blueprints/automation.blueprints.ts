@@ -1,4 +1,3 @@
-import type { SkillBlueprint } from '@10cordes/shared';
 import { bool, chan, cron, emoji, num, str, type DomainBlueprints } from './blueprint.helpers';
 
 /** AUTOMATISATION & TIMERS (13) : récurrents, horaires, stickies, feeds. */

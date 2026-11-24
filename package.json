@@ -10,8 +10,8 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
+    "lint": "pnpm --filter @10cordes/shared build && eslint . && eslint --config eslint.ts.config.mjs apps packages",
+    "lint:fix": "pnpm --filter @10cordes/shared build && eslint . --fix && eslint --config eslint.ts.config.mjs apps packages --fix",
     "check:modules": "node scripts/check-modules.mjs",
     "check:tools": "node apps/bot/scripts/sync-tool-names.mjs --check",
     "arch:audit": "node apps/bot/scripts/arch-audit.mjs",
@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@bluzzi/eslint-config": "^2.4.2",
-    "eslint": "^10.15.0"
+    "eslint": "^10.15.0",
+    "typescript-eslint": "^8.72.2"
   }
 }

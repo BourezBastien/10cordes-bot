@@ -2,7 +2,7 @@ import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
 import { Logger } from '@spraxium/logger';
 import { Client } from 'discord.js';
 import { z } from 'zod';
-import type { BotTool, ToolResult, ToolRunContext } from '@10cordes/shared';
+import type { BotTool, ToolRunContext } from '@10cordes/shared';
 import { IntegrationService } from '../integrations/integration.service';
 import { safeFetch } from '../../shared/utils/safe-fetch';
 import { AppEnv } from '../../app.env';

@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { BotTool } from '@10cordes/shared';
 import { AppEnv } from '../../app.env';
 import type { AbstractProviderAdapter } from '../providers/provider-adapter';
 import type { IntegrationService } from '../integrations/integration.service';
@@ -7,6 +8,7 @@ import { ProviderError, type ProviderConfig } from '../providers/provider.types'
 import { NOT_CONFIGURED_MESSAGE } from './llm-endpoint';
 import { ProviderAuthError, isFallbackWorthy } from './llm.errors';
 import { LlmService } from './llm.service';
+import { detectRequestIntent } from './request-intent';
 
 /**
  * Client LLM, orchestrateur du moteur multi-fournisseurs. Ce que fixent ces
@@ -83,19 +85,24 @@ function bridge(run: (turn: { onDelta?: (text: string) => void }) => Promise<voi
   } as unknown as AbstractProviderAdapter & { chat: ReturnType<typeof vi.fn> };
 }
 
-function harness(options: { route?: ResolvedRoute | null; adapters?: AbstractProviderAdapter[]; env?: Record<string, string>; mode?: 'adaptive' | 'always' | 'off' } = {}) {
-  const active = options.route ?? null;
-  const adapters = options.adapters ?? [];
-  const attempts = active
-    ? [active.provider, ...(active.fallback ? [active.fallback.provider] : [])].map((candidate, index) => ({
+/** Essais d'une route : fournisseur principal, puis repli. */
+function attemptsOf(target: ResolvedRoute | null, adapters: AbstractProviderAdapter[]) {
+  return target
+    ? [target.provider, ...(target.fallback ? [target.fallback.provider] : [])].map((candidate, index) => ({
         provider: candidate,
-        modelId: index === 0 ? active.modelId : active.fallback?.modelId ?? '',
+        modelId: index === 0 ? target.modelId : target.fallback?.modelId ?? '',
         adapter: adapters[index] ?? adapters[0] ?? ({} as AbstractProviderAdapter),
       }))
     : [];
+}
+
+function harness(options: { route?: ResolvedRoute | null; reasoning?: ResolvedRoute; adapters?: AbstractProviderAdapter[]; env?: Record<string, string>; mode?: 'adaptive' | 'always' | 'off' } = {}) {
+  const active = options.route ?? null;
+  const adapters = options.adapters ?? [];
+  // Comme CapabilityRouterService : la requête qui raisonne prend la route chat.reasoning du serveur, sinon chat.default.
   const router = {
-    chatEndpoint: vi.fn(async () => active),
-    attemptsOf: vi.fn(() => attempts),
+    chatEndpoint: vi.fn(async (_guildId: string | null, _cause: string, preferReasoning: boolean) => (preferReasoning ? options.reasoning : null) ?? active),
+    attemptsOf: vi.fn((target: ResolvedRoute | null = active) => attemptsOf(target, adapters)),
     noteFallback: vi.fn(),
     reconcileInstance: vi.fn(async () => ({ checked: 0, updated: 0 })),
   };
@@ -109,6 +116,10 @@ function harness(options: { route?: ResolvedRoute | null; adapters?: AbstractPro
 
 const chatOptions = (overrides: Record<string, unknown> = {}) => ({ userId: ACTOR, guildId: GUILD, cause: 'reply' as const, reasoningEffort: null, preferReasoning: false, ...overrides });
 const messages = () => [{ role: 'user' as const, content: 'bonjour' }];
+/** Phrases banales : elles ne doivent jamais partir sur la route de raisonnement. */
+const BANAL_PHRASES = ['réponds exactement « sonnette-ok » et rien d\u0027autre', 'salut ça va', 'quelle heure est-il'];
+const ROUTED_MUTATING: BotTool[] = ['deleteChannel', 'provider.upsert', 'capability.bind', 'records.create', 'rules.set'].map((id) => ({ name: id } as BotTool));
+const DEEPSEEK = provider('api.deepseek.com', { baseUrl: 'https://api.deepseek.com' });
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -239,6 +250,19 @@ describe('LlmService · effort et capacité de conversation, décidés une fois'
   it('mode off : jamais de raisonnement, quel que soit le fournisseur', async () => {
     const { service } = harness({ route: route(provider('api.deepseek.com', { baseUrl: 'https://api.deepseek.com' })), mode: 'off' });
     expect(await service.planRequest({ userId: ACTOR, guildId: GUILD, cause: 'reply' }, true)).toEqual({ preferReasoning: false, reasoningEffort: 'none' });
+  });
+
+  it('une phrase banale part sur chat.default avec effort `none`, même des tools modifiants routés', async () => {
+    const fetchMock = serveByHost({});
+    const reasoning: ResolvedRoute = { ...route(DEEPSEEK), capability: 'chat.reasoning', modelId: 'reasoner-model' };
+    const { service } = harness({ route: route(DEEPSEEK), reasoning });
+    for (const phrase of BANAL_PHRASES) {
+      const action = detectRequestIntent(phrase, ROUTED_MUTATING, []).action;
+      const plan = await service.planRequest({ userId: ACTOR, guildId: GUILD, cause: 'reply' }, action);
+      const result = await service.chat([{ role: 'user', content: phrase }], [], { ...chatOptions(), ...plan });
+      expect(result.served).toMatchObject({ capability: 'chat.default', model: 'primary-model' });
+      expect(bodyOf(fetchMock.mock.calls.at(-1)?.[1])).toMatchObject({ model: 'primary-model', reasoning_effort: 'none' });
+    }
   });
 });
 

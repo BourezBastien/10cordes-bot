@@ -1,6 +1,6 @@
 import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
 import { Logger } from '@spraxium/logger';
-import { ChannelType, Client, PermissionFlagsBits, type Guild, type Message, type TextChannel } from 'discord.js';
+import { ChannelType, Client, type Guild, type Message, type TextChannel } from 'discord.js';
 import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { botPermissionPolicy } from '../../core/security/bot-permission.policy';
@@ -34,7 +34,6 @@ const MESSAGES_PER_LLM_BATCH = 200;
 const MAX_LLM_CALLS = 20;
 const FETCH_DELAY_MS = 600;
 const MESSAGE_SNIPPET_CHARS = 300;
-const PROFILE_BUDGET = 2000;
 /** Join « frais » =GuildCreate réel ; au-delà = replay de login, ignoré. */
 export const FRESH_JOIN_WINDOW_MS = 5 * 60_000;
 
@@ -245,7 +244,7 @@ export class GuildHistoryIngestionService implements SpraxiumOnBoot {
     }
   }
 
-  /** Filtre privacy : bots, webhooks, opt-out, vide — puis troncature. */
+  /** Filtre privacy : bots, webhooks, opt-out, vide, puis troncature. */
   private snippet(message: Message, optOuts: Set<string>): string | null {
     if (message.author.bot) return null;
     if (message.webhookId !== null && message.webhookId !== undefined) return null;

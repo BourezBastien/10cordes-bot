@@ -41,7 +41,6 @@ export function registerDefaultComponentExecutors(): void {
     if (action.type !== 'removeRole') return 'Action inattendue.';
     if (!ctx.member) return 'Membre introuvable.';
     const guild = ctx.member.guild;
-    const me = guild.members.me;
     const role = guild.roles.cache.get(action.roleId);
     if (!role) return 'Rôle introuvable (supprimé ?).';
     if (!botPermissionPolicy.canInGuild(guild, 'ManageRoles')) return botPermissionPolicy.refusal('ManageRoles');

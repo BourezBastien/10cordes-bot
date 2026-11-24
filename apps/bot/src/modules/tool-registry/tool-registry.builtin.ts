@@ -1,13 +1,16 @@
 import type { BotTool, ToolRunContext } from '@10cordes/shared';
+import { rankTools, wordsOf } from '@10cordes/shared';
 import { z } from 'zod';
 import type { GuildConfigService } from '../guild-config/guild-config.service';
 import type { ModuleManagerService } from '../module-manager/module-manager.service';
 import { permissionNamesPolicy } from '../../core/security/permission-names.policy';
 import { setPath } from '../../shared/utils/object';
 
-/** Ce que les tools système demandent au registry : le catalogue seul. */
+/** Ce que les tools système demandent au registry : le catalogue. */
 export interface ToolCatalog {
   list(): BotTool[];
+  /** Tools dont les modules sont actifs sur ce serveur. */
+  listForGuild(guildId: string | null): Promise<BotTool[]>;
 }
 
 export interface BuiltinToolsDeps {
@@ -20,8 +23,12 @@ const guildOnly = (ctx: ToolRunContext): ctx is ToolRunContext & { guildId: stri
 
 const GUILD_REQUIRED = 'Guild context required.';
 
+/** Cartes compactes : la boucle tronque le résultat d'un tool à 4000 caractères. */
+const CARD_DESCRIPTION_MAX = 160;
+const CARD_GUIDANCE_MAX = 200;
+
 /** Tool search_tools : élargit le toolset actif (routage façon Anthropic). */
-function searchToolsTool(registry: ToolCatalog): BotTool {
+export function searchToolsTool(registry: ToolCatalog): BotTool {
   return {
     name: 'search_tools',
     description:
@@ -35,35 +42,31 @@ function searchToolsTool(registry: ToolCatalog): BotTool {
     permissions: [],
     destructive: false,
     systemPrompt:
-      'Tool routing (Anthropic pattern): your active toolset is intentionally SMALL. When a request needs a capability you do not have, search_tools FIRST, read the guidance of the tools found, then call the right one directly.',
-    handler: async (input) => {
+      'Tool routing: your active toolset already contains the core tools and the building primitives (surface.create, surface.patchState, surface.updateComponent, trigger.schedule, trigger.cancelByKey, search_skills). Call them directly, never search for them. Use search_tools at most ONCE per missing capability: the tools found become callable immediately.',
+    handler: async (input, ctx) => {
       const { query, limit } = input as { query: string; limit?: number };
-      const words = query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((word) => word.length > 1);
-      const scored = registry
-        .list()
-        .map((tool) => {
-          const haystack = `${tool.name} ${tool.description} ${tool.category}`.toLowerCase();
-          const score = words.reduce((sum, word) => sum + (haystack.includes(word) ? 1 : 0), 0);
-          return { tool, score };
-        })
-        .filter((entry) => entry.score > 0)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, limit ?? 8);
-      if (scored.length === 0) {
+      // Seuls les tools que l'APPELANT peut exécuter sont annoncés : modules
+      // actifs du serveur et permissions, comme getAvailableTools.
+      const catalog = await registry.listForGuild(ctx.guildId);
+      const usable = catalog.filter((tool) => permissionNamesPolicy.hasAll(ctx.permissions, tool.permissions ?? []));
+      const found = rankTools(usable, wordsOf(query, 2), limit ?? 8);
+      if (found.length === 0) {
         return { ok: true, summary: `Aucun tool ne correspond à « ${query} » : cette capacité n'existe pas. Dis-le honnêtement à l'utilisateur.`, data: { tools: [] } };
       }
-      const cards = scored.map(({ tool }) => ({
+      const cards = found.map((tool) => ({
         name: tool.name,
-        description: tool.description.slice(0, 220),
+        description: tool.description.slice(0, CARD_DESCRIPTION_MAX),
         category: tool.category,
-        guidance: tool.systemPrompt?.slice(0, 400) ?? null,
+        guidance: tool.systemPrompt?.slice(0, CARD_GUIDANCE_MAX) ?? null,
         destructive: tool.destructive ?? false,
       }));
       const lines = cards.map((card) => `- **${card.name}** (${card.category})${card.destructive ? ' [destructif]' : ''} : ${card.description}${card.guidance ? ` | Consigne : ${card.guidance}` : ''}`);
+      // data AVANT summary : la boucle tronque le résultat à 4000 caractères,
+      // les cards doivent survivre à un résumé long (elles étendent le toolset).
       return {
         ok: true,
-        summary: `${cards.length} tool(s) trouvé(s), désormais appelables :\n${lines.join('\n')}`,
         data: { tools: cards },
+        summary: `${cards.length} tool(s) trouvé(s), désormais appelables :\n${lines.join('\n')}`,
       };
     },
   };

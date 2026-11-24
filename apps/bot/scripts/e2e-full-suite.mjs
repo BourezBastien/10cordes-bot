@@ -7,6 +7,7 @@
  * 3. server.overview   : « montre ta configuration » → server.overview (PAS getConfig)
  * 4. config.panel      : panneau V2 posté dans le fil privé ⚙️┃config-bot
  * 5. tickets.surface   : panneau de tickets via surface.create (moteur générique)
+ *                        en moins de TICKETS_MAX_TURNS tours LLM, surface supprimée
  * 6. skills.voice      : recherche de recette « vocaux temporaires » (search_skills)
  * 7. skills.casino     : recherche de recette « casino » (135 blueprints)
  * 8. polls.compose     : sondage surface + votes DB + clôture avec résultats
@@ -36,6 +37,12 @@ const BOT_DIR = resolve(SCRIPT_DIR, '..');
 const API = 'https://discord.com/api/v10';
 const WEBHOOK_NAME = 'agent-e2e-guardian';
 const COOLDOWN_MS = 5_000;
+/**
+ * Budget de tours LLM d'un montage simple. Le 23/11, les primitives étaient
+ * derrière search_tools : le modèle a recherché 8 fois sans jamais appeler
+ * surface.create et buté sur le plafond de 12 tours de la boucle.
+ */
+const TICKETS_MAX_TURNS = 5;
 
 function loadEnv() {
   const env = {};
@@ -64,6 +71,8 @@ process.env.DATABASE_URL ??= env.DATABASE_URL ?? 'file:../data/bot.db';
 
 const GUILD_ID = env.E2E_GUILD_ID;
 const LOG_FILE = join(BOT_DIR, 'logs', `e2e-suite-${GUILD_ID}.jsonl`);
+/** Journal d'usage du LLM : une ligne par tour de la boucle de l'agent. */
+const LLM_LOG = join(BOT_DIR, 'logs', 'llm.jsonl');
 mkdirSync(join(BOT_DIR, 'logs'), { recursive: true });
 // Append-only + runId : chaque exécution CUMULE le forensique (jamais tronqué).
 const RUN_ID = new Date().toISOString().replace(/[:.]/gu, '-');
@@ -104,6 +113,54 @@ async function newAuditSince(since, actionPrefix = 'assistant.') {
 }
 
 /**
+ * Fenêtre de la demande d'un scénario sur le serveur testé : instant du
+ * routage de ses tools (tools.selected) et instant de sa réponse.
+ */
+function requestWindow(watermark) {
+  return prisma((p) =>
+    p.auditLog.findMany({
+      where: { guildId: GUILD_ID, createdAt: { gt: watermark }, action: { in: ['tools.selected', 'assistant.reply', 'assistant.error'] } },
+      orderBy: { createdAt: 'asc' },
+      select: { action: true, createdAt: true },
+    }),
+  );
+}
+
+/**
+ * Tours LLM de la demande : lignes du journal d'usage écrites entre le
+ * routage des tools et la réponse. Ce journal ne porte pas l'identifiant de
+ * la demande, c'est la fenêtre temporelle qui la délimite.
+ */
+function llmTurns(window) {
+  const selected = window.find((e) => e.action === 'tools.selected');
+  const reply = window.find((e) => e.action === 'assistant.reply' || e.action === 'assistant.error');
+  if (!selected || !reply) return null;
+  let lines;
+  try {
+    lines = readFileSync(LLM_LOG, 'utf8').split(/\r?\n/u).filter(Boolean);
+  } catch {
+    return null;
+  }
+  const from = selected.createdAt.toISOString();
+  const to = reply.createdAt.toISOString();
+  return lines.flatMap((line) => {
+    try {
+      const row = JSON.parse(line);
+      return row.cause === 'reply' && row.ts >= from && row.ts <= to ? [row] : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
+/** Résumé des tours d'une demande : leur nombre et la capacité de conversation qui les a servis. */
+const turnsLabel = (turns) => {
+  if (!turns) return 'tours LLM : inconnus';
+  const capabilities = [...new Set(turns.map((turn) => turn.capability).filter(Boolean))];
+  return `${turns.length} tour(s) LLM sur ${capabilities.join(', ') || 'capacité inconnue'}`;
+};
+
+/**
  * Attend la fin du traitement d'une demande : une réponse (ou une erreur) est
  * audible dans l'audit ET plus aucune entrée n'apparaît pendant quietMs.
  * La première version recalculait l'instant du dernier changement à chaque
@@ -131,7 +188,9 @@ async function waitQuiescent(watermark, { maxMs = 150_000, quietMs = 5_000 } = {
 async function main() {
   const only = process.env.E2E_ONLY ? process.env.E2E_ONLY.split(',').map((s) => s.trim()) : null;
   console.log(`[E2E-suite] démarrage ${new Date().toISOString()} (guild ${GUILD_ID})`);
-  journal('suite_start', { guildId: GUILD_ID });
+  // Le filtre figure sur la première ligne du journal : un rig lancé sans
+  // E2E_ONLY rejoue toute la suite (24/11, récidive).
+  journal('suite_start', { guildId: GUILD_ID, only });
 
   const me = await rest('/users/@me');
   const guilds = await rest('/users/@me/guilds');
@@ -159,6 +218,13 @@ async function main() {
     });
   const webhookUserId = hook.id;
 
+  /** Messages du bot dans le salon dédié depuis la marque horaire d'un scénario. */
+  const botMessagesSince = async (watermark) => {
+    const messages = await rest(`/channels/${channelId}/messages?limit=50`).catch(() => []);
+    return messages.filter((message) => message.author?.id === me.id && Date.parse(message.timestamp) > watermark.getTime());
+  };
+  const messageText = (message) => `${message.content ?? ''} ${JSON.stringify(message.components ?? '')}`;
+
   const results = [];
   const verdict = (name, pass, note = '') => {
     results.push({ name, pass });
@@ -182,10 +248,11 @@ async function main() {
     } else {
       entries = await waitQuiescent(watermark);
     }
+    const turns = expectQuiet ? null : llmTurns(await requestWindow(watermark).catch(() => []));
     let pass = false;
     let note = '';
     try {
-      const out = await check({ entries, watermark });
+      const out = await check({ entries, watermark, turns });
       pass = out.pass;
       note = out.note ?? '';
     } catch (error) {
@@ -196,6 +263,7 @@ async function main() {
     // échec retenté avec succès est une auto-correction, pas un PASS propre).
     const failed = failedTools(entries);
     if (failed.length > 0) note += ` [tools en échec : ${failed.join(' ; ')}]`;
+    if (turns) note += ` [${turnsLabel(turns)}]`;
     journal('scenario_tools', {
       scenario: name,
       actions: entries.filter((e) => e.action.startsWith('assistant.tool.')).map((e) => `${e.action.replace('assistant.tool.', '')}${toolMeta(e).ok === true ? '' : '(échec)'}`),
@@ -267,15 +335,43 @@ async function main() {
 
   // ---- 5. Tickets par le moteur générique ----
   // La surface doit avoir été créée PENDANT ce scénario (l'ancien contrôle
-  // acceptait une surface restée d'un run précédent).
-  await scenario('tickets.surface', 'Crée ici un panneau de tickets simple : un bouton « Support » qui ouvrira un salon privé au demandeur (surface.create, kind ticket).', async ({ entries, watermark }) => {
+  // acceptait une surface restée d'un run précédent), et SANS chercher : le
+  // 23/11 les primitives étaient derrière search_tools et le modèle a
+  // recherché 8 fois sans jamais les appeler (plafond de 12 tours atteint).
+  // Elle est ensuite supprimée : rien ne reste sur le serveur.
+  await scenario('tickets.surface', 'Crée ici un panneau de tickets simple : un bouton « Support » qui ouvrira un salon privé au demandeur (surface.create, kind ticket).', async ({ entries, watermark, turns }) => {
     const createdId = entries
       .filter((e) => e.action === 'assistant.tool.surface.create' && toolMeta(e).ok === true)
       .map((e) => /surfaceId ([a-z0-9]+)/u.exec(String(toolMeta(e).summary ?? ''))?.[1])
       .find(Boolean);
     const row = createdId ? await prisma((p) => p.interactiveSurface.findUnique({ where: { id: createdId } })) : null;
     const fresh = Boolean(row && row.guildId === GUILD_ID && row.createdAt > watermark);
-    return { pass: fresh, note: fresh ? `surface « ${row.kind} » ${createdId.slice(-6)} créée pendant le scénario` : 'aucune surface créée avec succès pendant le scénario' };
+    const ceiling = fresh ? (await botMessagesSince(watermark)).some((message) => messageText(message).includes("Limite d'étapes atteinte")) : false;
+    // Un runTool range le résultat à plat ({{steps.N.channelId}}) : une référence
+    // {{steps.N.data.x}} résout vide et le bouton casse au clic, invisible au rig.
+    const badRefs = row ? (JSON.stringify(JSON.parse(row.definition)).match(/steps\.\d+\.data\./gu)?.length ?? 0) : 0;
+    // Restaure : ni le panneau, ni sa ligne, ni l'entrée de mémoire écrite à son sujet.
+    let removed = false;
+    let forgotten = 0;
+    if (fresh) {
+      if (row.messageId) await rest(`/channels/${row.channelId}/messages/${row.messageId}`, { method: 'DELETE' }).catch(() => {});
+      await prisma((p) => p.interactiveSurface.deleteMany({ where: { id: row.id } }));
+      removed = (await prisma((p) => p.interactiveSurface.findUnique({ where: { id: row.id } }))) === null;
+      forgotten = await prisma((p) => p.guildMemory.deleteMany({ where: { guildId: GUILD_ID, createdAt: { gt: watermark }, content: { contains: row.id } } }))
+        .then((out) => out.count)
+        .catch(() => 0);
+    }
+    const count = turns?.length ?? null;
+    const searches = entries.filter((e) => e.action === 'assistant.tool.search_tools').length;
+    const budget = count === null ? 'tours LLM : inconnus' : `${count} tour(s) LLM sur un budget de ${TICKETS_MAX_TURNS}`;
+    const pass = fresh && count !== null && count < TICKETS_MAX_TURNS && !ceiling && removed && badRefs === 0;
+    return {
+      pass,
+      note:
+        `${fresh ? `surface « ${row.kind} » ${createdId.slice(-6)} créée pendant le scénario` : 'aucune surface créée avec succès pendant le scénario'}` +
+        ` · ${budget} · ${searches} search_tools${ceiling ? " · plafond d'étapes atteint" : ''}${badRefs > 0 ? ` · ${badRefs} référence(s) de résultat inconnue(s) (steps.N.data)` : ' · références de résultat valides'}` +
+        ` · ${fresh ? (removed ? `surface de test supprimée, ${forgotten} entrée(s) de mémoire retirée(s)` : 'surface de test NON supprimée') : 'rien à supprimer'}`,
+    };
   });
 
   // ---- 6. Recette vocaux temporaires ----
@@ -510,7 +606,20 @@ async function main() {
       if (surface.messageId) await rest(`/channels/${surface.channelId}/messages/${surface.messageId}`, { method: 'DELETE' }).catch(() => {});
       await prisma((p) => p.interactiveSurface.deleteMany({ where: { id: surface.id } }));
     }
-    journal('cleanup', { scope: 'memory_opt_out + test votes + surfaces de test', surfaces: stale.length });
+    // Mémoire serveur qui cite une surface supprimée depuis : les runs
+    // précédents effaçaient le panneau, pas l'entrée, et le modèle cherchait à
+    // lire cette surface à chaque run (un tour perdu).
+    const memories = await prisma((p) => p.guildMemory.findMany({ where: { guildId: GUILD_ID }, select: { id: true, content: true } }));
+    let staleMemories = 0;
+    for (const memory of memories) {
+      const cited = [...String(memory.content ?? '').matchAll(/(?:surfaceId|surface) ([a-z0-9]{20,30})/giu)].map((m) => m[1]);
+      if (cited.length === 0) continue;
+      const alive = await prisma((p) => p.interactiveSurface.count({ where: { id: { in: cited } } }));
+      if (alive > 0) continue;
+      await prisma((p) => p.guildMemory.deleteMany({ where: { id: memory.id } }));
+      staleMemories += 1;
+    }
+    journal('cleanup', { scope: 'memory_opt_out + test votes + surfaces de test + mémoire des surfaces disparues', surfaces: stale.length, staleMemories });
   } catch (error) {
     journal('cleanup_error', { error: error.message.slice(0, 120) });
   }

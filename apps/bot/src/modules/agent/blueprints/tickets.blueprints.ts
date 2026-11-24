@@ -1,4 +1,3 @@
-import type { SkillBlueprint } from '@10cordes/shared';
 import { chan, dur, emoji, num, role, str, type DomainBlueprints } from './blueprint.helpers';
 
 /** TICKETS & SUPPORT (13) : files, escalade, feedback, modmail, priorités, stats. */

@@ -29,7 +29,6 @@ export class AutomationExecutor {
       return;
     }
 
-    const me = guild.members.me;
     const member = ctx.member ?? (ctx.userId ? await guild.members.fetch(ctx.userId).catch(() => null) : null);
     // Vocabulaire de templates UNIFIÉ ({{user.mention}} etc., comme welcome)
     // + les clés courtes historiques conservées pour compat des automatisations existantes.

@@ -1,4 +1,3 @@
-import type { SkillBlueprint } from '@10cordes/shared';
 import { chan, num, role, str, type DomainBlueprints } from './blueprint.helpers';
 
 /** ONBOARDING & VÉRIFICATION (13) : gates, rôles, acceptation, boost, retour. */

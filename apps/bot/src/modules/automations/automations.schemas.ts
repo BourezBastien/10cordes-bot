@@ -8,7 +8,6 @@ import { z } from 'zod';
  */
 
 export const TRIGGER_TYPES = ['message.created', 'member.joined', 'member.left', 'channel.created'] as const;
-const ACTION_TYPES = ['sendMessage', 'sendDm', 'addRole', 'removeRole'] as const;
 
 const TriggerFilterSchema = z
   .object({

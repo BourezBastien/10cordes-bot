@@ -3,7 +3,7 @@ import type { z } from 'zod';
 /** Contexte d'exécution fourni au tool par son appelant (assistant, dashboard, MCP). */
 export interface ToolRunContext {
   guildId: string | null;
-  /** Canal d'où provient la demande — requis par les tools qui créent des plans/proposals. */
+  /** Canal d'où provient la demande : requis par les tools qui créent des plans/proposals. */
   channelId?: string | null;
   userId: string;
   locale: string;
@@ -28,7 +28,7 @@ export interface ToolRunContext {
   progress?: (text: string) => Promise<void>;
   /**
    * IDs des rôles de l'appelant (pour les permission nodes allow/deny par
-   * tool, résolus côté serveur — jamais choisis par le modèle). Optionnel.
+   * tool, résolus côté serveur, jamais choisis par le modèle). Optionnel.
    */
   roleIds?: string[];
 }
@@ -41,14 +41,14 @@ export interface ToolResult {
 
 /**
  * Contrat d'un tool du registry (MCP interne).
- * Chaque MODULE exporte ses tools — même registry pour l'assistant chat/vocal,
+ * Chaque MODULE exporte ses tools : même registry pour l'assistant chat/vocal,
  * le dashboard et le futur serveur MCP over HTTP.
  */
 export interface BotTool {
   /** Nom namespacé : "config.get", "moderation.warn", "image.icon"… */
   name: string;
   description: string;
-  /** Id du module propriétaire — filtrage par modules actifs du serveur. */
+  /** Id du module propriétaire : sert au filtrage par modules actifs du serveur. */
   category: string;
   /** Schéma Zod des paramètres : validation à l'exécution + futur schéma LLM. */
   paramsSchema: z.ZodType;
@@ -74,8 +74,16 @@ export interface BotTool {
   /** Tier 3 (irréversible) → whitelist d'IDs + confirmation obligatoire. */
   destructive: boolean;
   /**
+   * Mots-clés de routage, en langue courante ("panneau", "bouton", "schedule") :
+   * le nom et la description ne suffisent pas toujours à retrouver un tool.
+   * Un mot de la demande qui COMMENCE par un mot-clé le classe dans les tools
+   * pertinents (selectRelevantTools, search_tools).
+   */
+  keywords?: string[];
+  /**
    * Consigne DÉDIÉE à ce tool (préconditions, effets, exemples valides/invalides,
-   * cas de refus) — injectée dans le prompt de l'assistant. Un prompt par tool.
+   * cas de refus). Injectée dans le prompt de l'assistant pour les tools
+   * épinglés du noyau ; pour les autres, montrée dans la carte de search_tools.
    */
   systemPrompt?: string;
   handler: (input: unknown, ctx: ToolRunContext) => Promise<ToolResult>;
@@ -84,7 +92,7 @@ export interface BotTool {
 /**
  * Factory typée pour déclarer un tool SANS cast `input as` : le handler
  * reçoit l'input déjà typé `z.infer<T>`. La validation reste faite par le
- * registry (safeParse avec refus actionnable) AVANT l'appel — le narrowing
+ * registry (safeParse avec refus actionnable) AVANT l'appel, donc le narrowing
  * interne est donc sûr par construction, et le cast n'existe plus qu'ICI.
  */
 export function defineTool<T extends z.ZodType>(

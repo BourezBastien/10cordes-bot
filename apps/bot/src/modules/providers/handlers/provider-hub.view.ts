@@ -1,7 +1,7 @@
 import type { ProviderAdapterRegistry } from '../provider-adapter.registry';
 import type { GuildProviderService, ResolvedRoute } from '../provider-store.service';
 import type { ProviderConfig } from '../provider.types';
-import { describeProvider, describeRoute, type ProviderView, type RouteView } from '../provider-views';
+import { describeProvider, describeRoute } from '../provider-views';
 import type { ProviderHubView } from '../presenters/provider-hub.presenter';
 import { nativeCapability } from '../presenters/provider-hub.parts';
 import type { HubParams } from './provider-hub.params';
