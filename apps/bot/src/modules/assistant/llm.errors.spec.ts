@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ProviderAuthError, ProviderUnavailableError, QUOTA_EXHAUSTED_MESSAGE, QuotaExhaustedError, throwProviderError } from './llm.errors';
+import { ProviderError } from '../providers/provider.types';
+import { ProviderAuthError, ProviderTimeoutError, ProviderUnavailableError, QUOTA_EXHAUSTED_MESSAGE, QuotaExhaustedError, isFallbackWorthy, throwProviderError } from './llm.errors';
 
 /** Une réponse HTTP d'échec doit toujours devenir une erreur TYPÉE du fournisseur. */
 
@@ -39,5 +40,34 @@ describe('throwProviderError · table de décision des statuts HTTP', () => {
   it('la notice de quota est la même pour la boucle et la livraison, sans tiret cadratin', () => {
     expect(QUOTA_EXHAUSTED_MESSAGE).toContain('crédits DeepSeek épuisés');
     expect(QUOTA_EXHAUSTED_MESSAGE).not.toContain('\u2014');
+  });
+});
+
+/** Une seule table de décision pour la bascule sur le fournisseur de repli, erreurs du client comme des adaptateurs. */
+describe('isFallbackWorthy · erreurs qui font basculer sur le fournisseur de repli', () => {
+  it.each([
+    ['429 du client', throws(429, 'rate limited')],
+    ['5xx du client', throws(503, 'unavailable')],
+    ['panne réseau', new ProviderUnavailableError()],
+    ['délai dépassé', new ProviderTimeoutError()],
+    ['limite de débit d\u0027un adaptateur', new ProviderError('HTTP 429', 'rate-limit', 429)],
+    ['erreur serveur d\u0027un adaptateur', new ProviderError('HTTP 503', 'unavailable', 503)],
+    ['délai d\u0027un adaptateur', new ProviderError('trop lent', 'timeout')],
+  ])('%s : bascule', (_label, error) => {
+    expect(isFallbackWorthy(error)).toBe(true);
+  });
+
+  it.each([
+    ['401 du client', throws(401, 'bad key')],
+    ['crédits épuisés', throws(402, '')],
+    ['400 du client', throws(400, 'bad request')],
+    ['clé refusée par un adaptateur', new ProviderError('HTTP 401', 'auth', 401)],
+    ['crédits épuisés côté adaptateur', new ProviderError('HTTP 402', 'quota', 402)],
+    ['demande invalide', new ProviderError('modèle inconnu', 'invalid')],
+    ['capacité non servie', new ProviderError('non supporté', 'unsupported')],
+    ['erreur neutre', new Error('réseau cassé')],
+    ['annulation', new DOMException('aborted', 'AbortError')],
+  ])('%s : jamais de bascule', (_label, error) => {
+    expect(isFallbackWorthy(error)).toBe(false);
   });
 });

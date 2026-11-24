@@ -192,7 +192,7 @@ export class AssistantService {
   ): Promise<void> {
     // A4 : délégation au Presenter. Un SEUL message V2, le bouton « Connecter »
     // inclus quand le demandeur est owner ou Administrator (GuildAdminPolicy).
-    if (!this.llm.configured) {
+    if (!(await this.llm.isConfiguredFor(guild.id))) {
       const member = await guild.members.fetch(request.userId).catch(() => null);
       const canConfigure = guildAdminPolicy.isAuthorized(guildAccessContext(guild, request.userId, member));
       await channel

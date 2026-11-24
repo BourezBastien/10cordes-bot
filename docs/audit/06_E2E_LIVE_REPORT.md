@@ -162,3 +162,40 @@ Le panneau du second passage a été laissé dans le salon IA du serveur de dév
 ### Limite
 
 Le clic réel n'est pas simulable en REST. L'acquittement des clics est couvert par 13 tests unitaires sur les handlers (`surface.handlers.spec.ts`).
+
+## 11. Moteur multi-fournisseurs : rig `e2e-providers` (nuit du 23 au 24/11)
+
+### Build E
+
+`pnpm verify` vert sur les sources finales : typecheck, 542 tests bot et 20 shared, build des trois workspaces, cohérence des modules, registre des 171 tools, audit d'architecture strict à 0 violation (348 fichiers). Démarrages vérifiés à 00:32, 00:42, 00:48 et 00:57 : module `ProvidersModule` chargé (5 providers, 10 handlers, 3 exports), 4 protocoles enregistrés, connecté sur 2 serveurs, aucun `ERROR`.
+
+### Rig
+
+`apps/bot/scripts/e2e-providers.mjs`, 6 scénarios, sur le serveur `1550835980116824136` (salon IA `1550835981006020640`, webhook `agent-e2e-guardian`). Critères : `metadata.ok` de la ligne d'audit `assistant.tool.*` et tour du journal `logs/llm.jsonl` postérieur au fil de la demande. L'état final du serveur est comparé à un état de référence pris après la migration.
+
+### Résultat final (23:58 à 00:04) : 6/6
+
+| Scénario | Verdict | Preuve |
+|---|---|---|
+| `providers.migrated` | PASS | tour servi par `chat.reasoning` sur `deepseek-official` / `deepseek-flash` ; 3 routes de conversation présentes |
+| `providers.list` | PASS | `provider.list` ok, `capability.list` ok |
+| `providers.test` | PASS | « Connecté : 2 modèle(s) disponible(s). Catalogue enregistré. » (`deepseek-flash`, `deepseek-v4-pro`) |
+| `providers.rebind` | PASS | `capability.bind` ok : `chat.default` sur `deepseek-v4-pro`, `chat.reasoning` et `chat.ingestion` liées ont suivi ; le tour suivant est servi par `deepseek-v4-pro` ; retour sur `deepseek-flash`, les routes liées reviennent |
+| `providers.fallback` | PASS | fournisseur `e2e-noir` (`https://192.0.2.1/v1`, jamais joignable) lié à `chat.reasoning` avec `deepseek-official` en repli ; audit `capability.fallback` de `e2e-noir` vers `deepseek-official` ; tour servi par le repli, réponse livrée en 11 s |
+| `providers.panel` | PASS | `providers.panel` ok : panneau dans le fil `1574442755646693498` avec `provider:select`, `provider:capability`, `provider:model`, `provider:add` ; `config.panel` ok, bloc « Fournisseurs et modèles de ce serveur » |
+
+État final : identique à l'état de référence (3 routes sur `deepseek-flash`, thinking `adaptive`). Restauré par le bot lui-même : fournisseur de test supprimé par `provider.delete`, route de raisonnement par `capability.bind`, mode thinking par `config.thinking`.
+
+La migration, elle, a eu lieu pendant le premier passage (00:42) : au premier message du serveur sur le nouveau build, `deepseek-official` a été créé depuis l'instance (variables d'environnement, la table `IntegrationConfig` est vide sur cette base), avec ses trois routes et la trace `provider.legacy_migrated`.
+
+### Trois passages, deux corrections
+
+1. **00:42 : 2/7.** Deux défauts du rig, pas du bot. Il lisait l'audit sans décoder son contenu (la base le garde en texte JSON) : quatre « échecs » alors que tous les tools avaient réussi. Et il prenait son état de référence avant la migration, donc n'avait rien à restaurer quand la suppression du fournisseur de test a emporté la route `chat.reasoning` par cascade. Le serveur de test est resté sans cette route le temps de la réparation, faite à la main.
+2. **23:49 : 5/6.** Un vrai défaut de produit, attrapé par `providers.rebind` : `capability.bind` avait bien mis `chat.default` sur `deepseek-v4-pro`, mais le tour suivant est parti sur `chat.reasoning`, resté sur `deepseek-flash`. Sur les 12 tours journalisés de ce passage, 12 sont passés par `chat.reasoning`, y compris « réponds exactement sonnette-ok ». Correctif : routes de conversation liées (voir `05` §8d, anomalie 16).
+3. **23:58 : 6/6.**
+
+### Limites
+
+- Le clic sur les menus, les boutons et la modale du panneau exige une interaction Discord réelle : 68 tests unitaires couvrent les handlers et le presenter, le clic reste à faire à la main.
+- Un seul fournisseur réel a été exercé (DeepSeek, protocole `openai-chat`). Anthropic Messages, kie.ai et les opérations `generic-http` n'ont que des tests unitaires sur `fetch` simulé.
+- La bascule a été vue en live sur une panne réseau. Le 429 et le 5xx sont couverts par les tests unitaires (`capability-router.service.spec`, `llm.service.spec`), pas par un fournisseur réel.

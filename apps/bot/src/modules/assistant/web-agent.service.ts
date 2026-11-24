@@ -145,13 +145,13 @@ export class WebAgentService {
     };
 
     const executed: WebChatResult['tools'] = [];
-    // THINKING STABLE : l'effort se décide une fois, avant le premier tour.
-    const reasoningEffort = await this.llm.planReasoningEffort(
+    // THINKING STABLE : l'effort et le modèle se décident une fois, avant le premier tour.
+    const plan = await this.llm.planRequest(
       { userId: discordUserId, guildId, cause: 'web' },
       detectRequestIntent(trimmed, relevant, skillTriggers).action,
     );
     const outcome = await this.loop
-      .run(messages, toolset, ctx, { userId: discordUserId, guildId, reasoningEffort }, {
+      .run(messages, toolset, ctx, { userId: discordUserId, guildId, ...plan }, {
         cause: 'web',
         quotaExhaustedMessage: 'IA désactivée : crédits DeepSeek épuisés. Recharge le compte API.',
         onToolResult: (name, result) => {

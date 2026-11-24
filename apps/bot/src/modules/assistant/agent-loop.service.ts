@@ -1,6 +1,6 @@
 import { Injectable } from '@spraxium/common';
 import type { ToolResult, ToolRunContext } from '@10cordes/shared';
-import { LlmFormatLeakError, LlmService, QuotaExhaustedError, toApiToolName, type ChatCause, type ChatCompletionResult, type ChatMessage, type OpenAiTool } from './llm.service';
+import { LlmFormatLeakError, LlmService, QuotaExhaustedError, toApiToolName, type ChatCause, type ChatCompletionResult, type ChatMessage, type ChatOptions, type OpenAiTool } from './llm.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { fileLog } from '../logging/file-log.service';
 import { stringifySafe } from '../../shared/utils/object';
@@ -68,6 +68,9 @@ export interface AgentLoopToolset {
   byName: Map<string, OpenAiTool>;
 }
 
+/** Options identiques sur tous les tours d'une même requête. */
+export type TurnOptions = ChatOptions & { reasoningEffort: string | null; preferReasoning: boolean | undefined };
+
 export interface AgentLoopRequest {
   userId: string;
   guildId: string | null;
@@ -77,6 +80,8 @@ export interface AgentLoopRequest {
    * le premier tour, et le garde identique sur tous les tours.
    */
   reasoningEffort?: string | null;
+  /** Même règle pour le modèle : la requête part sur `chat.reasoning` ou `chat.default`, sur tous ses tours. */
+  preferReasoning?: boolean;
 }
 
 /** Message honnête au plafond : la demande n'est PAS terminée, on dit ce qui a été fait et comment reprendre. */
@@ -119,11 +124,14 @@ export class AgentLoopService {
     const executed: string[] = [];
     const openAiTools = [...toolset.active];
 
-    const reasoningEffort =
+    // THINKING STABLE : l'effort ET la capacité de conversation (donc le
+    // modèle) se décident UNE fois, par l'appelant ou ici, et restent
+    // identiques sur tous les tours de la requête.
+    const plan =
       options.reasoningEffort !== undefined
-        ? options.reasoningEffort
-        : await this.llm.planReasoningEffort({ userId: options.userId, guildId: options.guildId, cause: hooks.cause }, openAiTools.length > 0);
-    const callOptions = { userId: options.userId, guildId: options.guildId, cause: hooks.cause, reasoningEffort };
+        ? { reasoningEffort: options.reasoningEffort, preferReasoning: options.preferReasoning }
+        : await this.llm.planRequest({ userId: options.userId, guildId: options.guildId, cause: hooks.cause }, openAiTools.length > 0);
+    const callOptions: TurnOptions = { userId: options.userId, guildId: options.guildId, cause: hooks.cause, reasoningEffort: plan.reasoningEffort, preferReasoning: plan.preferReasoning };
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
       await hooks.onIterationStart?.(iteration, messages);
@@ -134,7 +142,8 @@ export class AgentLoopService {
       const turn = await this.chatTurn(messages, openAiTools, callOptions).catch((error: unknown) => {
         if (error instanceof QuotaExhaustedError) {
           quotaExhausted = true;
-          return { completion: { content: hooks.quotaExhaustedMessage, toolCalls: [], reasoningContent: null, usage: undefined }, text: '' };
+          const notice: ChatCompletionResult = { content: hooks.quotaExhaustedMessage, toolCalls: [], reasoningContent: null, usage: undefined };
+          return { completion: notice, text: '' };
         }
         throw error;
       });
@@ -146,7 +155,11 @@ export class AgentLoopService {
       }
       fileLog()?.llm({
         cause: hooks.cause,
-        model: 'runtime',
+        // Le modèle qui a réellement répondu (fournisseur de la route du serveur, ou de son repli).
+        model: completion.served?.model ?? 'runtime',
+        provider: completion.served?.provider,
+        fallback: completion.served?.fallback,
+        capability: completion.served?.capability,
         promptTokens: completion.usage?.promptTokens ?? 0,
         completionTokens: completion.usage?.completionTokens ?? 0,
         ms: Date.now() - iterationStartedAt,
@@ -258,7 +271,7 @@ export class AgentLoopService {
   private async chatTurn(
     messages: ChatMessage[],
     openAiTools: OpenAiTool[],
-    callOptions: { userId: string; guildId: string | null; cause: ChatCause; reasoningEffort: string | null },
+    callOptions: TurnOptions,
   ): Promise<{ completion: ChatCompletionResult; text: string }> {
     let text = '';
     const stream = async (): Promise<ChatCompletionResult> => {

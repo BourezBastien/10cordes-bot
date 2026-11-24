@@ -48,12 +48,12 @@ export class AgentReplyRunner {
     };
     let snapshotTaken = false;
 
-    // THINKING STABLE : l'effort de raisonnement se décide ICI, une seule
-    // fois, et reste identique sur tous les tours de la demande.
-    const reasoningEffort = await llm.planReasoningEffort({ userId: request.userId, guildId: guild.id, cause: 'reply' }, conversation.intent.action);
+    // THINKING STABLE : l'effort et le modèle (capacité de conversation) se
+    // décident ICI, une seule fois, et restent identiques sur tous les tours.
+    const plan = await llm.planRequest({ userId: request.userId, guildId: guild.id, cause: 'reply' }, conversation.intent.action);
 
     const loopOutcome = await loop
-      .run(messages, toolset, runContext, { userId: request.userId, guildId: guild.id, reasoningEffort }, {
+      .run(messages, toolset, runContext, { userId: request.userId, guildId: guild.id, ...plan }, {
         cause: 'reply',
         quotaExhaustedMessage: QUOTA_EXHAUSTED_MESSAGE,
         onIterationStart: (iteration) => {

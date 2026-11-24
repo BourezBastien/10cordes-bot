@@ -65,6 +65,12 @@ export interface BotTool {
    * "user" = info personnelle → le frontend répond en privé (MP).
    */
   scope?: 'guild' | 'user';
+  /**
+   * Noms des paramètres qui transportent un secret (clé API...) : leur valeur
+   * est MASQUÉE dans l'audit de l'appel. Le résultat du tool ne doit jamais
+   * les restituer non plus.
+   */
+  sensitiveInputs?: string[];
   /** Tier 3 (irréversible) → whitelist d'IDs + confirmation obligatoire. */
   destructive: boolean;
   /**

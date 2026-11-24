@@ -262,15 +262,25 @@ throw (SpraxiumException | HttpError | ZodError→ValidationException)
 → interne : Logger.error (DiscordTransport si configuré) ; jamais de stack côté user
 ```
 
-## 8. Couche IA (générique OpenAI-compatible)
+## 8. Couche IA (moteur multi-fournisseurs)
 
 ```ts
-// app.env.ts (bootstrap optionnel)
+// app.env.ts (bootstrap optionnel de l'INSTANCE)
 LLM_API_URL / LLM_API_KEY / LLM_MODEL / LLM_EFFORT   // préfixes génériques, zéro vendor lock
 ```
-- **Deux sources de config, la DB prime** : bootstrap env (`LLM_*`) OU connexion depuis Discord (modale admin → `IntegrationService.upsert`) ; la clé est stockée **chiffrée AES-256-GCM** (dérivation `ENCRYPTION_SECRET`), jamais en clair.
-- `LlmService` : client OpenAI-compatible unique (DeepSeek, OpenRouter, OpenAI, llama serve…), `reasoning_effort` optionnel, cache de prompt statique côté provider (préfixe stable du system prompt).
-- Comptabilité : chaque appel loggé `logs/llm.jsonl` (cause, modèle, tokens, latence) ; `QuotaExhaustedError` typée pour les budgets.
+
+- **Trois niveaux de configuration** ; un tour part du niveau le plus précis dont dispose le serveur.
+  1. Instance, bootstrap env (`LLM_*`).
+  2. Instance, depuis Discord (modale owner ou admin → `LlmService.applyConfig` : contrôle de connexion, rechargement, persistance chiffrée **AES-256-GCM**, alignement des copies des serveurs).
+  3. Serveur : fournisseurs et routes (tables `GuildProvider`, `CapabilityRoute`), par le panneau « Fournisseurs et modèles » ou en langage naturel (`provider.*`, `capability.*`). Au premier appel résolu d'un serveur, `ProviderLegacyMigration` copie l'instance dans ses fournisseurs et routes (une fois par serveur, audit `provider.legacy_migrated`) ; les copies portent la marque `_source` et suivent l'instance quand elle change.
+- **Contrat** (`shared/llm/chat-contract.ts`) : messages, tools, options (`reasoningEffort` et `preferReasoning` décidés UNE fois par requête), résultat (`served` : capacité, fournisseur, modèle, repli).
+- **Adaptateurs** (`modules/providers/adapters/`, sans état, un par protocole) : `openai-chat`, `anthropic-messages`, `kie-unified`, `generic-http` (opérations REST décrites en gabarits `{{param}}`). Contrat `AbstractProviderAdapter` : `testConnection`, `discoverModels`, `execute`, `chat`. La clé ne ressort jamais (résultats, erreurs et journaux sont masqués).
+- **Routage** (`CapabilityRouterService`) : route active d'une capacité, tentatives ordonnées (principal, puis repli), exécution avec bascule automatique, clé d'une capacité hors conversation (musique, images). Capacités natives : `chat.default`, `chat.reasoning`, `chat.ingestion`, `image.generate`, `image.edit`, `music.generate`, `tts.speak`, `video.generate`, `web.search` ; toute capacité `custom.*` est acceptée.
+- **Client LLM** (`modules/assistant/`) : `LlmService` orchestre ; `ChatEndpointPlanner` décide où envoyer (la route du serveur, sinon l'instance) ; `ChatTransport` sert lui-même les protocoles à SSE (`chat/completions` : corps de requête, refus de `reasoning_effort`, watchdog d'inactivité) et passe les autres à leur adaptateur.
+- **Bascule sur le repli** (`isFallbackWorthy`) : limite de débit (429), erreur serveur (5xx), panne réseau, délai, et seulement avant tout texte publié. Clé refusée ou crédit épuisé : jamais de bascule, c'est à l'administrateur de corriger.
+- **Requêtes sortantes** : https et hôte public uniquement (`safeFetch`, `assertSafeUrl`). Un serveur de modèles local (Ollama, vLLM...) est refusé par conception (SSRF) : passer par une passerelle HTTPS publique.
+- **Champs réservés** : `user_id` ne part que vers DeepSeek (un endpoint OpenAI strict le refuse en 400) ; `reasoning_effort` seulement vers les endpoints qui l'acceptent, et plus du tout vers un hôte qui l'a refusé.
+- Comptabilité : chaque tour dans `logs/llm.jsonl` (cause, capacité, fournisseur, modèle, repli, tokens, latence) ; `QuotaExhaustedError` typée pour les budgets.
 - Modules IA (résumé, traduction, modération assistée) : opt-in par serveur, jamais actifs par défaut.
 
 ## 9. Qualité & DX

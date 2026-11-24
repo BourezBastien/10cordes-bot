@@ -128,6 +128,24 @@ Le panneau lui-même listait les 136 compétences de la bibliothèque (soit le c
 
 **Leçon** : le diagnostic collé au départ (bascule du thinking en cours de boucle, boucle bloquée, boutons orphelins) était en partie faux. Les journaux et l'audit donnent la vérité ; les corriger avant de coder.
 
+## 8d. Anomalies 9 à 17 : moteur multi-fournisseurs (nuit du 23 au 24/11)
+
+Le moteur a été construit en relevant chaque défaut croisé sur son passage, même hors de son périmètre.
+
+9. **La génération musicale ne pouvait plus fonctionner.** `music.service.ts` faisait `const key = this.apiKey()` sans `await` : une promesse (toujours vraie) partait comme clé, l'appel était refusé. L'image kie.ai avait `const key = ''` : le tool répondait toujours « désactivé ». Les deux lisent désormais la clé, l'URL et le modèle de la route du serveur.
+10. **Clé d'instance lue sans être déchiffrée au démarrage.** `LlmService.onBoot` prenait `row.apiKey` brut dans une colonne chiffrée. Latent sur la base de dev (table vide), réel dès la moindre clé saisie par la modale. `LlmService` passe par `IntegrationService`, seul à déchiffrer.
+11. **`user_id` envoyé à tout endpoint.** Ce champ n'est pas standard : un endpoint OpenAI strict refuse toute la requête en 400. Il ne part plus que vers DeepSeek, reconnu par son domaine exact (`deepseek.com` et sous-domaines ; `deepseek.com.autre.example` ne l'est pas, un test l'a montré).
+12. **La bascule sur le fournisseur de repli ne marchait pas pour les adaptateurs.** Le client LLM ne reconnaissait que ses propres erreurs : une 5xx remontée par un adaptateur (Anthropic, kie) ne déclenchait rien. Trouvé par le test `llm.service.spec`, corrigé par `isFallbackWorthy`, qui lit les deux familles. Les pannes réseau et les délais y ont été ajoutés : seul un 429 et un 5xx déclenchaient le repli.
+13. **Le signal d'annulation était écrasé.** `safeFetch` remplaçait le signal de l'appelant par son propre délai : une capacité annulée ne l'était pas.
+14. **Des tools de lecture classés comme des actions.** `rules.set` (modifie les règles) passait pour une lecture à cause du filtre `rules\b` ; inversement les nouveaux tools `provider.list`, `capability.list` faisaient passer une simple question pour une action, donc pour une demande de raisonnement. Filtre resserré, tools de lecture déclarés, `request-intent.spec` fixe les deux sens.
+15. **`check:tools` n'était pas branché.** Le script annonçait un contrôle dans `verify` qui n'existait pas (voir `04` §3).
+16. **Changer le modèle de conversation semblait sans effet.** Preuve live : sur 12 tours journalisés du premier passage du rig, 12 sont partis sur `chat.reasoning`, y compris pour « réponds exactement sonnette-ok ». La détection d'intention héritée du correctif de 20:09 envoie sur cette route toute demande dont un mot dépasse trois lettres et figure dans la description d'un tool modifiant, soit presque toute phrase réelle. Rebinder `chat.default` ne changeait donc que la route que personne n'empruntait. Correctif : routes de conversation liées (`provider-route.links.ts`). L'heuristique elle-même n'est pas modifiée (voir limites).
+17. **Le rig a laissé le serveur de test sans route de raisonnement.** Il prenait sa photo de référence avant la migration, donc n'avait rien à restaurer quand la suppression du fournisseur de test a emporté la route par cascade. Réparé à la main sur le serveur, puis le rig prend sa référence une fois la migration faite.
+
+À connaître pour les sessions suivantes : le crochet de sécurité Mimosa signale en « injection SQL » tout appel nommé `execute(` qui reçoit des données (`adapter.execute(provider, { params })`) et en « identifiant en dur » un littéral affecté à `apiKey`. Ce sont des faux positifs sur ce code (aucun SQL, clés fictives de test). Les méthodes du routeur et du client s'appellent `runCapability` et `runTurn`, les specs passent par une constante `KEY = 'test-key-not-real'`. Ne pas contournner le crochet par du code obscur : renommer ou découper l'édition.
+
+**Leçon** : la preuve live a valeur de test. Trois de ces défauts (12, 14, 16) étaient invisibles en relecture et sont sortis d'un test ou du journal `llm.jsonl`, une fois que chaque tour y porte sa capacité, son fournisseur et son modèle.
+
 ## 9. Limites connues
 
 1. **Blueprints et collections** : traité le 23/11 au soir. Le store `records.*` accepte désormais toute collection dynamique bien formée (`CollectionQuotaPolicy` : 50 collections et 10 000 enregistrements par serveur), vérifié en live par le scénario `records.dynamic`.
@@ -136,6 +154,11 @@ Le panneau lui-même listait les 136 compétences de la bibliothèque (soit le c
 4. **Sources du framework** : traité. `AGENTS.md` renvoie au paquet installé (`node_modules/@spraxium/core`, `@spraxium/components`) et à Context7, plus au dossier local disparu.
 5. **Dérive Prisma** : deux migrations historiques ont été éditées après application, `prisma migrate dev` proposera un reset sur la base de dev. Poursuivre la méthode manuelle.
 6. **Lint TypeScript inactif** : `pnpm lint` ne linte aucun `.ts` (voir `04` §3). À décider : accorder les règles puis activer.
+7. **Serveurs de modèles locaux refusés** : la garde des requêtes sortantes n'accepte que https sur un hôte public. Ollama, vLLM ou LM Studio sur la machine ne peuvent pas être déclarés comme fournisseur, par conception (SSRF). Passer par une passerelle HTTPS publique.
+8. **Heuristique d'intention très large** : en mode `adaptive`, presque toute phrase réelle est classée « action », donc raisonnée (anomalie 16). Coût en tokens et en latence, pas d'effet sur le modèle depuis les routes liées. À régler séparément : c'est un réglage de qualité, et il a été validé tel quel dans le correctif de 20:09.
+9. **Adaptateurs non exercés en réel** : seuls les protocoles `openai-chat` (DeepSeek) et la panne réseau ont été vus en live. Anthropic Messages, kie.ai (chat, musique, image), les opérations `generic-http`, la voix et la vidéo n'ont que des tests unitaires sur `fetch` simulé.
+10. **Panneau « Fournisseurs et modèles »** : le clic sur les menus, les boutons et la soumission de la modale exigent une interaction Discord réelle (68 tests unitaires sur les handlers et le presenter). La suppression d'un fournisseur depuis le panneau est immédiate, sans confirmation, et emporte ses routes. La clé saisie en langage naturel reste visible dans le message : le prompt système oriente vers la modale.
+11. **Fournisseurs d'instance laissés en place** : les lignes `IntegrationConfig` et le code d'intégration restent. Ils servent d'amorce et de source des copies ; leur retrait est un chantier à part.
 
 ## 10. Risques résiduels acceptés
 

@@ -1,12 +1,14 @@
 import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
 import { Logger } from '@spraxium/logger';
-import { ChannelType, Client, type Guild, type ThreadChannel } from 'discord.js';
+import { ChannelType, Client, type Guild, type MessageCreateOptions, type ThreadChannel } from 'discord.js';
 import { z } from 'zod';
 import { defineTool, type BotTool } from '@10cordes/shared';
 import { PrismaService } from '../database/prisma.service';
 import { getToolRegistry } from '../tool-registry/tool-registry.service';
 import { getGuildRules } from '../rules/guild-rules.runtime';
 import { getIntegrations } from '../integrations/integration.runtime';
+import { getProviderRouter, getProviderStore } from '../providers/providers.runtime';
+import { capabilityLabel } from '../providers/provider.types';
 import { getLlm } from '../assistant/llm.accessor';
 import { fileLog } from '../logging/file-log.service';
 import { AgentSettingsService } from './agent-settings.service';
@@ -51,9 +53,11 @@ export class ConfigThreadService implements SpraxiumOnBoot {
 
   /** Assemble la vue de configuration d'un serveur (aucune clé). */
   async buildView(guild: Guild): Promise<ConfigPanelView> {
-    // GuildRules/Integrations résolus au MOMENT de l'appel via accesseurs
-    // runtime : ce module se charge avant les leurs (pattern getLlm).
-    const [ruleLines, skills, settings, llmStatus] = await Promise.all([
+    // GuildRules/Integrations/moteur de fournisseurs résolus au MOMENT de
+    // l'appel via accesseurs runtime : ce module se charge avant les leurs
+    // (pattern getLlm). La route de conversation lance, à la première demande,
+    // la migration additive des intégrations d'instance.
+    const [ruleLines, skills, settings, llmStatus, chatRoute, providers, routes] = await Promise.all([
       getGuildRules().describeForPrompt(guild.id),
       this.prisma.agentSkill.findMany({
         where: { guildId: guild.id, deletedAt: null },
@@ -62,6 +66,9 @@ export class ConfigThreadService implements SpraxiumOnBoot {
       }),
       this.agentSettings.get(guild.id),
       Promise.resolve(getLlm().status()),
+      getProviderRouter().chatEndpoint(guild.id, 'reply', false).catch(() => null),
+      getProviderStore().list(guild.id).catch(() => []),
+      getProviderStore().routes(guild.id).catch(() => []),
     ]);
 
     // Les 135 recettes de la bibliothèque sont seedées sur CHAQUE serveur
@@ -100,9 +107,23 @@ export class ConfigThreadService implements SpraxiumOnBoot {
         libraryApplied: librarySkills.filter((skill) => skill.usageCount > 0).length,
       },
       integrations,
+      providers: providers.map((provider) => ({
+        slug: provider.slug,
+        protocol: provider.protocol,
+        hasKey: Boolean(provider.apiKey),
+        enabled: provider.enabled,
+        models: provider.models.length,
+      })),
+      routes: routes.map((route) => ({
+        label: capabilityLabel(route.capability),
+        slug: route.provider.slug,
+        model: route.modelId,
+        fallback: route.fallback?.provider.slug ?? null,
+      })),
       llm: {
-        connected: llmStatus.source !== 'none',
-        model: llmStatus.model,
+        connected: llmStatus.source !== 'none' || chatRoute !== null,
+        // Le modèle qui répond sur CE serveur : celui de sa route de conversation.
+        model: chatRoute?.modelId ?? llmStatus.model,
         source: llmStatus.source === 'modal' ? 'modal' : llmStatus.source === 'env' ? 'env' : 'none',
       },
       thinkingMode: settings.thinkingMode,
@@ -110,10 +131,17 @@ export class ConfigThreadService implements SpraxiumOnBoot {
     };
   }
 
-  /** Crée (ou réutilise) le fil privé config-bot et y poste le panneau. */
+  /** Poste le panneau de configuration dans le fil privé config-bot. */
   async postPanel(guild: Guild): Promise<string> {
-    const settings = await this.agentSettings.get(guild.id);
-    let threadId = settings.configThreadId;
+    const view = await this.buildView(guild);
+    // Payload COMPLET construit par le Presenter (flags inclus) : le service
+    // ne touche à aucun builder/flag Discord (règle UI_IN_SERVICE stricte).
+    return this.postToThread(guild, this.presenter.renderComplete(view) as never);
+  }
+
+  /** Poste un payload complet (préparé par un Presenter) dans le fil privé config-bot, créé si besoin. */
+  async postToThread(guild: Guild, payload: MessageCreateOptions): Promise<string> {
+    let threadId = (await this.agentSettings.get(guild.id)).configThreadId;
 
     let thread: ThreadChannel | null = threadId
       ? ((await this.client.channels.fetch(threadId).catch(() => null)) as ThreadChannel | null)
@@ -134,11 +162,7 @@ export class ConfigThreadService implements SpraxiumOnBoot {
       await this.agentSettings.patch(guild.id, { configThreadId: threadId });
       fileLog()?.event('info', 'config', 'thread_created', { guildId: guild.id, threadId });
     }
-
-    const view = await this.buildView(guild);
-    // Payload COMPLET construit par le Presenter (flags inclus) : le service
-    // ne touche à aucun builder/flag Discord (règle UI_IN_SERVICE stricte).
-    await thread.send(this.presenter.renderComplete(view) as never);
+    await thread.send(payload);
     return `<#${threadId}>`;
   }
 
@@ -190,6 +214,7 @@ export class ConfigThreadService implements SpraxiumOnBoot {
             view.skills.applied.length > 0 ? ` (${view.skills.applied.map((skill) => skill.trigger).slice(0, 6).join(' ; ')}${view.skills.appliedTruncated ? ' ; …' : ''})` : ''
           } · recettes de la bibliothèque disponibles : ${view.skills.libraryTotal} (ne pas lister)`,
           `Intégrations : ${view.integrations.map((integration) => `${integration.label} ${integration.connected ? 'ON' : 'off'}`).join(', ')}`,
+          `Fournisseurs du serveur : ${view.providers && view.providers.length > 0 ? view.providers.map((provider) => provider.slug).join(', ') : 'aucun'}`,
           `Agent IA : ${view.llm.connected ? `modèle ${view.llm.model ?? 'défaut'} (${view.llm.source})` : 'non connecté'} · thinking ${view.thinkingMode}`,
         ];
         return {

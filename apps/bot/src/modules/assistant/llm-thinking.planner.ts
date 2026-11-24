@@ -6,7 +6,7 @@ import { endpointAcceptsThinking, reasoningEffortValue, shouldEnableThinkingForR
 export interface ReasoningEffortPlannerDeps {
   readonly env: Pick<AppEnv, 'LLM_EFFORT'>;
   readonly agentSettings: Pick<AgentSettingsService, 'get'>;
-  /** URL de base du fournisseur configuré à l'instant T. */
+  /** URL de base du fournisseur d'instance (modale owner ou env). */
   readonly baseUrl: () => string | null;
 }
 
@@ -18,13 +18,23 @@ export interface ReasoningEffortPlannerDeps {
 export class ReasoningEffortPlanner {
   constructor(private readonly deps: ReasoningEffortPlannerDeps) {}
 
-  async plan(options: Pick<ChatOptions, 'userId' | 'guildId' | 'cause'>, actionIntent: boolean): Promise<string | null> {
-    const effort = this.deps.env.LLM_EFFORT;
-    if (!effort) return null;
-    const baseUrl = this.deps.baseUrl() ?? '';
-    if (!endpointAcceptsThinking(baseUrl)) return null;
+  /**
+   * La requête doit-elle penser, selon le réglage du serveur ? Indépendant de
+   * l'endpoint : c'est elle qui choisit la capacité de conversation
+   * (`chat.reasoning` ou `chat.default`), l'effort envoyé en découle.
+   */
+  async wants(options: Pick<ChatOptions, 'guildId'>, actionIntent: boolean): Promise<boolean> {
     let mode: ThinkingMode = 'adaptive';
     if (options.guildId) mode = (await this.deps.agentSettings.get(options.guildId)).thinkingMode;
-    return reasoningEffortValue(baseUrl, shouldEnableThinkingForRequest(mode, actionIntent), effort);
+    return shouldEnableThinkingForRequest(mode, actionIntent);
+  }
+
+  /** `baseUrl` : celle du fournisseur qui exécutera la requête ; absente, celle de l'instance. */
+  async plan(options: Pick<ChatOptions, 'userId' | 'guildId' | 'cause'>, actionIntent: boolean, baseUrl?: string | null): Promise<string | null> {
+    const effort = this.deps.env.LLM_EFFORT;
+    if (!effort) return null;
+    const url = baseUrl ?? this.deps.baseUrl() ?? '';
+    if (!endpointAcceptsThinking(url)) return null;
+    return reasoningEffortValue(url, await this.wants(options, actionIntent), effort);
   }
 }

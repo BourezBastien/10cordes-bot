@@ -1,16 +1,23 @@
 import type { Client } from 'discord.js';
 import type { ToolResult, ToolRunContext } from '@10cordes/shared';
 import { safeFetch } from '../../shared/utils/safe-fetch';
+import type { CapabilityCredentials } from '../providers/provider.types';
 
-const KIE_API_BASE = 'https://api.kie.ai/api/v1';
+const DEFAULT_MODEL = 'z-image';
+
+/** Résout, pour un serveur, le fournisseur qui sert sa capacité image kie.ai. */
+export type KieCredentialsResolver = (guildId: string | null) => Promise<CapabilityCredentials | null>;
 
 /**
  * Génération d'image via kie.ai puis livraison en pièce jointe dans le salon
  * de la demande. Collaborateur NON injectable : WebToolsService l'instancie
- * comme champ de classe avec le client Discord.
+ * comme champ de classe avec le client Discord et le résolveur de clé.
  */
 export class KieImageGenerator {
-  constructor(private readonly client: Client) {}
+  constructor(
+    private readonly client: Client,
+    private readonly credentials: KieCredentialsResolver,
+  ) {}
 
   /**
    * Génération d'image via kie.ai (jobs API, z-image / Tongyi-MAI) :
@@ -20,8 +27,11 @@ export class KieImageGenerator {
    * et postée en pièce jointe (Discord n'accepte pas de PJ sur un edit).
    */
   async generate(prompt: string, ctx: ToolRunContext, label: string, aspectRatio: string): Promise<ToolResult> {
-    const key = '';
-    if (!key) return { ok: false, summary: 'Génération d\u0027image désactivée : intégration kie.ai via le bot.' };
+    const credentials = await this.credentials(ctx.guildId);
+    const key = credentials?.apiKey;
+    if (!credentials || !key) return { ok: false, summary: 'Génération d\u0027image désactivée : intégration kie.ai via le bot.' };
+    const apiBase = `${credentials.baseUrl.replace(/\/+$/u, '')}/api/v1`;
+    const model = credentials.modelId || DEFAULT_MODEL;
     if (!ctx.channelId) return { ok: false, summary: 'Salon de la demande introuvable.' };
     const channel = await this.client.channels.fetch(ctx.channelId).catch(() => null);
     if (!channel?.isTextBased() || !('send' in channel)) {
@@ -34,11 +44,11 @@ export class KieImageGenerator {
       await ctx.progress?.(message);
     };
 
-    const created = await safeFetch(`${KIE_API_BASE}/jobs/createTask`, {
+    const created = await safeFetch(`${apiBase}/jobs/createTask`, {
       timeoutMs: 30_000,
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model: 'z-image', input: { prompt, aspect_ratio: aspectRatio } }),
+      body: JSON.stringify({ model, input: { prompt, aspect_ratio: aspectRatio } }),
     });
     const createdData = (await created.json().catch(() => ({}))) as { code?: number; data?: { taskId?: string }; msg?: string };
     if (createdData.code !== 200 || !createdData.data?.taskId) {
@@ -52,7 +62,7 @@ export class KieImageGenerator {
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 4_000));
       elapsed += 4;
-      const record = await safeFetch(`${KIE_API_BASE}/jobs/recordInfo?taskId=${createdData.data.taskId}`, {
+      const record = await safeFetch(`${apiBase}/jobs/recordInfo?taskId=${createdData.data.taskId}`, {
         timeoutMs: 15_000,
         headers: { Authorization: `Bearer ${key}` },
       });

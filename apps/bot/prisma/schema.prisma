@@ -44,6 +44,8 @@ model Guild {
   memberMemoryProfiles MemberMemoryProfile[]
   ingestionCursors     IngestionCursor[]
   agentSettings        GuildAgentSettings?
+  providers            GuildProvider[]
+  capabilityRoutes     CapabilityRoute[]
 
   @@map("guilds")
 }
@@ -312,6 +314,55 @@ model GuildAgentSettings {
   guild          Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@map("guild_agent_settings")
+}
+
+// ── Moteur multi-fournisseurs ─────────────────────────────────────
+
+/// Un fournisseur IA connecté par un serveur (API, clé chiffrée, catalogue).
+model GuildProvider {
+  id                String   @id @default(cuid())
+  guildId           String
+  slug              String // stable et lisible (deepseek-official, kie-main, openrouter...)
+  displayName       String
+  protocol          String // openai-chat | anthropic-messages | kie-unified | generic-http
+  baseUrl           String
+  authType          String   @default("bearer") // bearer | header | query | none
+  authHeaderName    String? // ex : Authorization, X-API-Key
+  encryptedApiKey   String? // CHIFFRÉE AES-256-GCM (v1:<iv>:<tag>:<data>)
+  customHeadersJson String? // objet clef/valeur libre
+  extraConfigJson   String? // paramètres libres du fournisseur (opérations d'un generic-http...)
+  cachedModelsJson  String? // catalogue découvert ou saisi
+  enabled           Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  guild             Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  routesAsPrimary   CapabilityRoute[] @relation("RoutePrimaryProvider")
+  routesAsFallback  CapabilityRoute[] @relation("RouteFallbackProvider")
+
+  @@unique([guildId, slug])
+  @@index([guildId, enabled])
+  @@map("guild_providers")
+}
+
+/// Associe une capacité du bot au modèle d'un fournisseur, pour un serveur.
+model CapabilityRoute {
+  id                 String   @id @default(cuid())
+  guildId            String
+  capability         String // chat.default, image.generate, music.generate, custom.*
+  providerId         String
+  modelId            String
+  fallbackProviderId String?
+  fallbackModelId    String?
+  paramsJson         String? // surcharge libre de paramètres par capacité
+  enabled            Boolean  @default(true)
+  updatedAt          DateTime @updatedAt
+  guild              Guild        @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  provider           GuildProvider @relation("RoutePrimaryProvider", fields: [providerId], references: [id], onDelete: Cascade)
+  fallbackProvider   GuildProvider? @relation("RouteFallbackProvider", fields: [fallbackProviderId], references: [id], onDelete: SetNull)
+
+  @@unique([guildId, capability])
+  @@index([guildId, enabled])
+  @@map("capability_routes")
 }
 
 // ── Vie de serveur (birthdays, sticky, AFK, sanctions temporaires, activité) ──

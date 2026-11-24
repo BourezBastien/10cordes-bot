@@ -5,6 +5,8 @@ import { GameDig } from 'gamedig';
 import type { BotTool } from '@10cordes/shared';
 import { IntegrationService } from '../integrations/integration.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
+import { CapabilityRouterService } from '../providers/capability-router.service';
+import type { CapabilityCredentials } from '../providers/provider.types';
 import { AppEnv } from '../../app.env';
 import { buildCapabilityTools, type CapabilityToolsDeps } from './webtools-capabilities.tools';
 import { buildDisdexTools } from './webtools-disdex.tools';
@@ -54,6 +56,9 @@ const REGISTRATION_ORDER: readonly string[] = [
   'http.fetch',
 ];
 
+/** URL de base de kie.ai quand la capacité image n'est pas routée sur le serveur (intégration d'instance). */
+const KIE_INSTANCE_BASE_URL = 'https://api.kie.ai';
+
 /** Rang d'enregistrement d'un tool ; un tool absent de la table passe en dernier. */
 function registrationRank(name: string): number {
   const rank = REGISTRATION_ORDER.indexOf(name);
@@ -83,9 +88,18 @@ export class WebToolsService implements SpraxiumOnBoot {
     private readonly registry: ToolRegistryService,
     private readonly env: AppEnv,
     private readonly integrations: IntegrationService,
+    private readonly router: CapabilityRouterService,
     private readonly client: Client,
   ) {
-    this.kieImage = new KieImageGenerator(client);
+    this.kieImage = new KieImageGenerator(client, (guildId) => this.kieCredentials(guildId));
+  }
+
+  /** Clé, URL de base et modèle de la capacité image kie.ai du serveur, sinon ceux de l'instance. */
+  private kieCredentials(guildId: string | null): Promise<CapabilityCredentials | null> {
+    return this.router.credentialsFor(guildId, 'custom.kie-image', async () => {
+      const resolved = await this.integrations.get('kie').catch(() => null);
+      return resolved?.config.apiKey ? { apiKey: resolved.config.apiKey, baseUrl: KIE_INSTANCE_BASE_URL, modelId: 'z-image' } : null;
+    });
   }
 
   onBoot(): void {

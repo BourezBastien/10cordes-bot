@@ -13,6 +13,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { AutomationsModule } from './modules/automations/automations.module';
 import { DatabaseModule } from './modules/database/database.module';
 import { GuildConfigModule } from './modules/guild-config/guild-config.module';
+import { ProvidersModule } from './modules/providers/providers.module';
 import { ImagelabModule } from './modules/imagelab/imagelab.module';
 import { LoggingModule } from './modules/logging/logging.module';
 import { MemoryModule } from './modules/memory/memory.module';
@@ -34,10 +35,10 @@ import { JobsModule } from './modules/jobs/jobs.module';
 import { RecordsModule } from './modules/records/records.module';
 import { UtilityModule } from './modules/utility/utility.module';
 
-// Règle framework : @HttpClientModule et @Module sur LA MÊME classe (AppModule) —
+// Règle framework : @HttpClientModule et @Module sur LA MÊME classe (AppModule) :
 // un second module HTTP serait ignoré silencieusement.
 // Guards scoping : SessionGuard + GuildAccessGuard sont posés PAR CONTRÔLEUR
-// (@HttpGuards) — /legal et /api/auth doivent rester publics.
+// (@HttpGuards) : /legal et /api/auth doivent rester publics.
 @HttpClientModule({
   controllers: [AuthController, MetaController, GuildsController, LegalController, HealthController],
   middleware: [new LoggerMiddleware()],
@@ -49,6 +50,7 @@ import { UtilityModule } from './modules/utility/utility.module';
     AuditModule,
     HttpModule,
     GuildConfigModule,
+    ProvidersModule,
     ImagelabModule,
     LoggingModule,
     MemoryModule,

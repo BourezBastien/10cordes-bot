@@ -44,8 +44,11 @@ function fakeLlm(script: Step[], plannedEffort: string | null = 'low') {
     if (!step) throw new Error('appel LLM non prévu par le scénario');
     return step(turn);
   });
-  const planReasoningEffort = vi.fn(async () => plannedEffort);
-  return { llm: { chatStream, planReasoningEffort }, calls, chatStream, planReasoningEffort };
+  const planRequest = vi.fn(async (_options: Pick<ChatOptions, 'userId' | 'guildId' | 'cause'>, actionIntent: boolean) => ({
+    reasoningEffort: plannedEffort,
+    preferReasoning: actionIntent,
+  }));
+  return { llm: { chatStream, planRequest }, calls, chatStream, planRequest };
 }
 
 const toolTurn = (id: string): Step => async () => completion('', [{ id, tool: TOOL }]);
@@ -95,20 +98,22 @@ describe('AgentLoopService · une recette ouverte rend ses tools appelables', ()
 });
 
 describe('AgentLoopService · effort de raisonnement stable', () => {
-  it('se décide UNE fois avant le premier tour et reste identique sur tous les tours', async () => {
-    const { llm, calls, planReasoningEffort } = fakeLlm([toolTurn('c1'), toolTurn('c2'), textTurn('Fait.')]);
+  it('effort et capacité de conversation se décident UNE fois avant le premier tour et restent identiques sur tous les tours', async () => {
+    const { llm, calls, planRequest } = fakeLlm([toolTurn('c1'), toolTurn('c2'), textTurn('Fait.')]);
     const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1550000000000000001', guildId: '1550835980116824136' }, hooks());
     expect(outcome.finalText).toBe('Fait.');
-    expect(planReasoningEffort).toHaveBeenCalledTimes(1);
-    expect(planReasoningEffort).toHaveBeenCalledWith({ userId: '1550000000000000001', guildId: '1550835980116824136', cause: 'reply' }, true);
+    expect(planRequest).toHaveBeenCalledTimes(1);
+    expect(planRequest).toHaveBeenCalledWith({ userId: '1550000000000000001', guildId: '1550835980116824136', cause: 'reply' }, true);
     expect(calls.map((call) => call.options.reasoningEffort)).toEqual(['low', 'low', 'low']);
+    expect(calls.map((call) => call.options.preferReasoning)).toEqual([true, true, true]);
   });
 
-  it('respecte l\u0027effort décidé par l\u0027appelant, même désactivé (null)', async () => {
-    const { llm, calls, planReasoningEffort } = fakeLlm([textTurn('Bonjour')]);
-    await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null, reasoningEffort: null }, hooks());
-    expect(planReasoningEffort).not.toHaveBeenCalled();
+  it('respecte le plan décidé par l\u0027appelant, même désactivé (null)', async () => {
+    const { llm, calls, planRequest } = fakeLlm([textTurn('Bonjour')]);
+    await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null, reasoningEffort: null, preferReasoning: false }, hooks());
+    expect(planRequest).not.toHaveBeenCalled();
     expect(calls[0]?.options.reasoningEffort).toBeNull();
+    expect(calls[0]?.options.preferReasoning).toBe(false);
   });
 });
 

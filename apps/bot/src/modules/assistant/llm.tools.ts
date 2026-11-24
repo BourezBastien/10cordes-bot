@@ -6,7 +6,8 @@ import type { ChatCompletionResult, ChatMessage, ChatOptions, LlmStatus, OpenAiT
 
 /** Ce que les tools peuvent demander au client LLM configuré (jamais la clé). */
 export interface LlmClientFacade {
-  readonly configured: boolean;
+  /** Ce serveur peut-il converser : ses fournisseurs routés, sinon la configuration d'instance. */
+  isConfiguredFor(guildId: string | null): Promise<boolean>;
   status(): LlmStatus;
   chat(messages: ChatMessage[], tools: OpenAiTool[], options: ChatOptions): Promise<ChatCompletionResult>;
 }
@@ -32,8 +33,8 @@ function translateTool(llm: LlmClientFacade): BotTool {
     destructive: false,
     systemPrompt:
       'Renvoie UNIQUEMENT la traduction, sans commentaire ni guillemets ajoutés. Préserve le ton, les noms propres et le markdown.',
-    handler: async (input) => {
-      if (!llm.configured) return { ok: false, summary: 'Le module IA n\u0027est pas configuré.' };
+    handler: async (input, ctx) => {
+      if (!(await llm.isConfiguredFor(ctx.guildId))) return { ok: false, summary: 'Le module IA n\u0027est pas configuré.' };
       const { text, target } = input as { text: string; target?: string };
       const completion = await llm
         .chat(
@@ -42,7 +43,7 @@ function translateTool(llm: LlmClientFacade): BotTool {
             { role: 'user', content: text },
           ],
           [],
-          { userId: 'translate', guildId: null, cause: 'consolidation' },
+          { userId: ctx.userId, guildId: ctx.guildId, cause: 'consolidation' },
         )
         .catch(() => null);
       if (!completion?.content) return { ok: false, summary: 'Traduction impossible (fournisseur IA injoignable).' };

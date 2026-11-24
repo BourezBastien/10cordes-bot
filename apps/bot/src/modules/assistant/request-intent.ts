@@ -9,9 +9,13 @@ import { TOOL_CORE_NAMES } from './tool-selection';
  * pour une action (coût : un peu de latence, jamais de régression de qualité).
  */
 
-/** Nom de tool qui n'annonce qu'une lecture : il ne signale pas une action. */
+/**
+ * Nom de tool qui n'annonce qu'une lecture : il ne signale pas une action.
+ * Fournisseurs : lister, contrôler une connexion, feuilleter un catalogue et
+ * ouvrir le panneau ne modifient rien (lier une route ou écrire un fournisseur, si).
+ */
 const READ_ONLY_NAME_RE =
-  /^(?:get|search|read|list|find|analyze|describe|lookup|fetch|calc|translate|wiki|dictionary|weather|server|blueprint|skills|activity|rules\b|web\.|openSkill$|tool-registry|records\.(?:collections|get|list|search)$|members\.(?:get|list|pick))/u;
+  /^(?:get|search|read|list|find|analyze|describe|lookup|fetch|calc|translate|wiki|dictionary|weather|server|blueprint|skills|activity|rules\.list$|web\.|openSkill$|tool-registry|provider\.(?:list|test|models)$|capability\.list$|providers\.panel$|records\.(?:collections|get|list|search)$|members\.(?:get|list|pick))/u;
 
 export interface RequestIntent {
   /** La demande appelle une action (recette ou modification). */

@@ -7,9 +7,13 @@ import { IntegrationService } from '../integrations/integration.service';
 import { safeFetch } from '../../shared/utils/safe-fetch';
 import { AppEnv } from '../../app.env';
 import { getToolRegistry } from '../tool-registry/tool-registry.service';
+import { CapabilityRouterService } from '../providers/capability-router.service';
+import type { CapabilityCredentials } from '../providers/provider.types';
 
 /**
- * Génération musicale via kie.ai (Suno, V6). Clé via intégration (modal Discord).
+ * Génération musicale via kie.ai (Suno, V6). Clé : le fournisseur que le
+ * serveur a associé à `music.generate` (moteur multi-fournisseurs), sinon
+ * l'intégration d'instance.
  * Asynchrone : createTask renvoie un taskId, le tool sonde recordInfo puis
  * livre l'audio. Pattern UX demandé : UN message de progression mis à jour
  * à chaque étape (vérif → requête envoyée → génération → prêt), le fichier
@@ -17,7 +21,8 @@ import { getToolRegistry } from '../tool-registry/tool-registry.service';
  * jointe à un message existant par edit).
  */
 
-const API_BASE = 'https://api.kie.ai/api/v1';
+const INSTANCE_BASE_URL = 'https://api.kie.ai';
+const DEFAULT_MODEL = 'V6_MINI';
 const POLL_INTERVAL_MS = 6_000;
 const POLL_MAX_MS = 150_000;
 
@@ -34,6 +39,7 @@ export class MusicService implements SpraxiumOnBoot {
   constructor(
     private readonly env: AppEnv,
     private readonly integrations: IntegrationService,
+    private readonly router: CapabilityRouterService,
     private readonly client: Client,
   ) {}
 
@@ -43,9 +49,12 @@ export class MusicService implements SpraxiumOnBoot {
     for (const tool of this.buildTools()) registry.register(tool);
   }
 
-  private async apiKey(): Promise<string | null> {
-    const resolved = await this.integrations.get('kie').catch(() => null);
-    return resolved?.config.apiKey ?? null;
+  /** Clé, URL de base et modèle de la capacité musique de ce serveur, sinon ceux de l'instance. */
+  private credentials(guildId: string): Promise<CapabilityCredentials | null> {
+    return this.router.credentialsFor(guildId, 'music.generate', async () => {
+      const resolved = await this.integrations.get('kie').catch(() => null);
+      return resolved?.config.apiKey ? { apiKey: resolved.config.apiKey, baseUrl: INSTANCE_BASE_URL, modelId: resolved.config.model || DEFAULT_MODEL } : null;
+    });
   }
 
   private buildTools(): BotTool[] {
@@ -79,8 +88,11 @@ export class MusicService implements SpraxiumOnBoot {
           'data.audioUrl alimente voice.play si l\u0027utilisateur veut écouter en vocal.',
         handler: async (input, ctx) => {
           if (!guildOnly(ctx)) return { ok: false, summary: 'Contexte de serveur requis.' };
-          const key = this.apiKey();
-          if (!key) return { ok: false, summary: 'Génération musicale désactivée : connectez l\u0027intégration kie.ai via le bot.' };
+          const credentials = await this.credentials(ctx.guildId);
+          if (!credentials) return { ok: false, summary: 'Génération musicale désactivée : connectez l\u0027intégration kie.ai via le bot.' };
+          const key = credentials.apiKey;
+          const model = credentials.modelId || DEFAULT_MODEL;
+          const apiBase = `${credentials.baseUrl.replace(/\/+$/u, '')}/api/v1`;
           const { title, style, prompt, instrumental, duration } = input as {
             title: string;
             style: string;
@@ -107,7 +119,7 @@ export class MusicService implements SpraxiumOnBoot {
           let artistRefused: string | null = null;
           let createdData: { code?: number; data?: { taskId?: string }; msg?: string } = {};
           for (let attempt = 1; attempt <= 2; attempt += 1) {
-            const created = await safeFetch(`${API_BASE}/jobs/createTask`, {
+            const created = await safeFetch(`${apiBase}/jobs/createTask`, {
               timeoutMs: 30_000,
               method: 'POST',
               headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
@@ -115,7 +127,7 @@ export class MusicService implements SpraxiumOnBoot {
                 model: 'ai-music-api/generate',
                 input: {
                   custom_mode: true,
-                  model: 'V6_MINI',
+                  model,
                   title,
                   style: effectiveStyle,
                   prompt: instrumental ? undefined : effectivePrompt,
@@ -148,7 +160,7 @@ export class MusicService implements SpraxiumOnBoot {
             return { ok: false, summary: `Génération refusée par kie.ai : ${createdData.msg ?? 'erreur inconnue'}` };
           }
 
-          await update(`musique : génération lancée (Suno ${'V6_MINI'}, cible ${duration ?? 90}s)`);
+          await update(`musique : génération lancée (Suno ${model}, cible ${duration ?? 90}s)`);
 
           // Poll jusqu'à complétion.
           const deadline = Date.now() + POLL_MAX_MS;
@@ -157,7 +169,7 @@ export class MusicService implements SpraxiumOnBoot {
             await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
             elapsed += POLL_INTERVAL_MS / 1000;
             await update(`musique : génération en cours... ${elapsed}s`);
-            const record = await safeFetch(`${API_BASE}/jobs/recordInfo?taskId=${taskId}`, {
+            const record = await safeFetch(`${apiBase}/jobs/recordInfo?taskId=${taskId}`, {
               timeoutMs: 15_000,
               headers: { Authorization: `Bearer ${key}` },
             });

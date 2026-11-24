@@ -13,8 +13,9 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "check:modules": "node scripts/check-modules.mjs",
+    "check:tools": "node apps/bot/scripts/sync-tool-names.mjs --check",
     "arch:audit": "node apps/bot/scripts/arch-audit.mjs",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm check:modules && pnpm arch:audit"
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm check:modules && pnpm check:tools && pnpm arch:audit"
   },
   "devDependencies": {
     "@bluzzi/eslint-config": "^2.4.2",

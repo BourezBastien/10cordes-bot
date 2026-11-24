@@ -67,7 +67,7 @@ export class GuildHistoryIngestionService implements SpraxiumOnBoot {
    */
   async trigger(guildId: string, options: { force?: boolean; actorId?: string } = {}): Promise<IngestionTriggerResult> {
     if (this.running.has(guildId)) return { status: 'already-running' };
-    if (!getLlm().configured) return { status: 'llm-missing' };
+    if (!(await getLlm().isConfiguredFor(guildId))) return { status: 'llm-missing' };
     if (!options.force) {
       const [profile, cursors] = await Promise.all([
         this.prisma.guildMemoryProfile.findUnique({ where: { guildId }, select: { text: true } }),

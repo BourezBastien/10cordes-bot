@@ -25,8 +25,10 @@ const input = (overrides: Partial<Parameters<typeof buildChatRequestBody>[0]> = 
 });
 
 describe('buildChatRequestBody · champs optionnels OMIS (jamais envoyés à vide)', () => {
-  it('sans tools ni effort : model, messages et user_id seulement', () => {
-    expect(Object.keys(buildChatRequestBody(input()))).toEqual(['model', 'messages', 'user_id']);
+  it('sans tools ni effort : model et messages seuls (le champ user_id reste réservé à DeepSeek)', () => {
+    expect(Object.keys(buildChatRequestBody(input()))).toEqual(['model', 'messages']);
+    expect(Object.keys(buildChatRequestBody(input({ host: 'api.openai.com' })))).toEqual(['model', 'messages']);
+    expect(Object.keys(buildChatRequestBody(input({ host: 'api.deepseek.com' })))).toEqual(['model', 'messages', 'user_id']);
   });
 
   it('reasoning_effort n\u0027apparaît que quand la décision le dit', () => {
@@ -48,9 +50,15 @@ describe('buildChatRequestBody · champs optionnels OMIS (jamais envoyés à vid
     expect(buildChatRequestBody(input())).not.toHaveProperty('stream');
   });
 
-  it('user_id désigne le serveur quand il existe, sinon l\u0027utilisateur', () => {
-    expect(buildChatRequestBody(input({ options: options({ guildId: GUILD }) }))).toMatchObject({ user_id: GUILD });
-    expect(buildChatRequestBody(input())).toMatchObject({ user_id: USER });
+  it('chez DeepSeek, user_id désigne le serveur quand il existe, sinon l\u0027utilisateur', () => {
+    expect(buildChatRequestBody(input({ host: 'api.deepseek.com', options: options({ guildId: GUILD }) }))).toMatchObject({ user_id: GUILD });
+    expect(buildChatRequestBody(input({ host: 'https://api.deepseek.com' }))).toMatchObject({ user_id: USER });
+  });
+
+  it('un hôte qui n\u0027est pas DeepSeek ne reçoit jamais user_id (refusé en 400 par les endpoints stricts)', () => {
+    for (const host of ['api.openai.com', 'openrouter.ai', 'api.groq.com', 'notdeepseek.com', 'deepseek.com.evil.example']) {
+      expect(buildChatRequestBody(input({ host, options: options({ guildId: GUILD }) }))).not.toHaveProperty('user_id');
+    }
   });
 
   it('nettoie les surrogate pairs isolés et garde les emoji valides', () => {

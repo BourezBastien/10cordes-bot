@@ -8,6 +8,7 @@ import { PrismaService } from '../database/prisma.service';
 import { CacheStoreService } from '../../shared/cache/cache-store.service';
 import { fileLog } from '../logging/file-log.service';
 import { permissionNamesPolicy } from '../../core/security/permission-names.policy';
+import { redactToolInput } from './tool-input.redaction';
 import { getSurfaceRuntime } from '../surface/surface.runtime';
 import { buildBuiltinTools } from './tool-registry.builtin';
 import { DestructiveConfirmationGate } from './tool-registry.confirm';
@@ -106,7 +107,8 @@ export class ToolRegistryService implements SpraxiumOnBoot {
 
     // Traçabilité TOTALE (demande owner) : chaque appel de tool est audité,
     // succès comme refus, c'est ce qui permet de vérifier le comportement
-    // de l'agent (rigs, diagnostics) et de reconstituer une action.
+    // de l'agent (rigs, diagnostics) et de reconstituer une action. Les
+    // paramètres déclarés sensibles (clé API) y sont masqués.
     const finish = (result: ToolResult, deniedPermission?: string[]): ToolResult => {
       this.audit.record({
         guildId: ctx.guildId,
@@ -115,7 +117,7 @@ export class ToolRegistryService implements SpraxiumOnBoot {
         actorId: ctx.userId,
         metadata: deniedPermission
           ? { missing: deniedPermission }
-          : { ok: result.ok, input: (input as Record<string, unknown>) ?? {} },
+          : { ok: result.ok, input: redactToolInput(input, tool.sensitiveInputs) },
       });
       return result;
     };

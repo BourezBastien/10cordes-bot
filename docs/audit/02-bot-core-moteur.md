@@ -54,9 +54,26 @@ Flux UI : `IntegrationStatusPresenter` (panneau V2 pur) → bouton `integration:
 
 Couverture : `integration.handlers.spec.ts` (9 tests : métadonnées de routage, garde Policy, appel à `applyConfig`, jamais la clé dans la réponse). Le clic réel reste à confirmer à la main : un rig REST ne peut pas produire d'interaction de composant.
 
+## 6b. Moteur multi-fournisseurs (`modules/providers/`, nuit du 23 au 24/11)
+
+L'intégration d'instance (section 6) devient l'amorce. Chaque serveur connecte ses propres fournisseurs et associe chaque capacité à l'un de leurs modèles.
+
+- **Tables** : `GuildProvider` (slug unique par serveur, protocole, URL de base, type d'authentification, clé chiffrée AES-256-GCM, en-têtes et options, catalogue en cache) et `CapabilityRoute` (une par capacité et par serveur : modèle, fournisseur et modèle de repli, paramètres). Migration `20261123231500_guild_providers`, appliquée à la main.
+- **Contrat** (`shared/llm/chat-contract.ts`) : partagé par le client LLM et les adaptateurs. Le résultat porte `served` (capacité, fournisseur, modèle, repli) : c'est ce que journalise `llm.jsonl`.
+- **Adaptateurs** (sans état, un par protocole, inscrits au registre par `ProvidersBoot`) : `OpenAiCompatibleAdapter` (chat, images, voix), `AnthropicMessagesAdapter` (Messages, avec traduction des tools), `KieUnifiedAdapter` (chat, tâches asynchrones image et musique), `GenericHttpAdapter` (opérations REST décrites en gabarits `{{param}}`). Un adaptateur ne laisse jamais ressortir la clé.
+- **Routeur** (`CapabilityRouterService`) : route active, tentatives ordonnées, exécution avec bascule, clé d'une capacité hors conversation. `attemptsOf` expose la même liste au client LLM, qui doit reprendre la main avant tout texte publié.
+- **Client LLM** : `LlmService` orchestre. `planRequest` décide une fois par requête si elle raisonne (`preferReasoning`) et son effort ; `ChatEndpointPlanner` choisit l'endpoint (route du serveur, sinon instance) ; `ChatTransport` sert les protocoles à SSE et passe les autres à leur adaptateur. Le modèle d'une requête ne change pas en cours de boucle.
+- **Migration additive** (`ProviderLegacyMigration`) : au premier appel résolu d'un serveur, l'instance est copiée dans ses fournisseurs et routes (une fois, trace `provider.legacy_migrated`). Les copies portent `_source` et suivent l'instance (`reconcileInstance`, au démarrage de `LlmService` et à chaque `applyConfig`).
+- **Routes de conversation liées** (`provider-route.links.ts`) : `chat.reasoning` et `chat.ingestion` suivent `chat.default` tant qu'elles partagent sa cible exacte.
+- **Panneau** « Fournisseurs et modèles » : `ProviderHubPresenter` (pur), 10 handlers décorés (3 menus, 6 boutons, 1 modale), garde `GuildAdminPolicy`, état porté par les customIds, catalogue paginé par 25.
+- **Tools** : `provider.list/upsert/delete/test/models`, `capability.bind/list`, `providers.panel`. Les tools de lecture sont inscrits dans `READ_ONLY_NAME_RE`.
+- **Consommateurs** : la musique, l'image kie.ai et PixelLab lisent clé, URL et modèle de la route du serveur (`credentialsFor`) ; une image routée vers un autre fournisseur passe par l'adaptateur (`runCapability`).
+
+Couverture : 26 fichiers de spec sous `modules/providers` et les specs du client LLM (`llm.service`, `llm-transport`, `llm-endpoint`, `llm-thinking.planner`, `llm.errors`, `request-intent`). Preuve live : `06_E2E_LIVE_REPORT.md` §11.
+
 ## 7. Configuration par serveur (`modules/guild-config/`)
 
-`AgentSettingsService` (thinking, fil de config) et `ConfigThreadService` (fil privé `config-bot`, tools `config.panel`, `server.overview`, `config.thinking`). Le panneau montre uniquement ce qui est appliqué : règles, skills, intégrations avec leurs modèles, mode thinking. Jamais les clés, jamais la liste des blueprints ni la configuration legacy.
+`AgentSettingsService` (thinking, fil de config) et `ConfigThreadService` (fil privé `config-bot`, tools `config.panel`, `server.overview`, `config.thinking`). Le panneau montre uniquement ce qui est appliqué : règles, skills, intégrations, fournisseurs du serveur et modèle de chaque capacité, mode thinking. Jamais les clés, jamais la liste des blueprints ni la configuration legacy. Le fil sert aussi de support au panneau « Fournisseurs et modèles » (`postToThread`).
 
 ## 8. Mémoire, curator et ingestion (`modules/memory/`)
 

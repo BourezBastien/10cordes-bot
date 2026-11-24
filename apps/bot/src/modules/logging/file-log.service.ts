@@ -54,8 +54,20 @@ export class FileLogService implements SpraxiumOnBoot {
     this.append(this.botFile(), JSON.stringify(entry));
   }
 
-  /** Ligne dédiée LLM (coûts/latence par cause). */
-  llm(entry: { cause: string; model: string; promptTokens: number; completionTokens: number; ms: number; ok: boolean; error?: string }): void {
+  /** Ligne dédiée LLM (coûts/latence par cause). `provider` : qui a exécuté le tour (moteur multi-fournisseurs). */
+  llm(entry: {
+    cause: string;
+    model: string;
+    provider?: string;
+    fallback?: boolean;
+    /** Capacité routée qui a servi le tour (chat.default, chat.reasoning, chat.ingestion). */
+    capability?: string;
+    promptTokens: number;
+    completionTokens: number;
+    ms: number;
+    ok: boolean;
+    error?: string;
+  }): void {
     this.append(join(LOGS_DIR, 'llm.jsonl'), JSON.stringify({ ts: new Date().toISOString(), ...entry, ...(entry.error ? { error: entry.error.slice(0, 180) } : {}) }));
   }
 

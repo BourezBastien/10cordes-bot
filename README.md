@@ -21,10 +21,12 @@ Built on [Spraxium](https://github.com/spraxium/spraxium) (discord.js v14) · Ty
 - **100% conversation-driven.** No slash commands, no buttons to navigate. Mention the bot, type its name, or talk in the dedicated AI channel: it checks your permissions, chains its tools and answers directly. Every action re-verifies permissions in code, archives before deleting, and everything is audited.
 - **Generic interaction engine.** Tickets, polls, giveaways, verification gates, temp voice channels, all built on demand by the agent using `InteractiveSurface` (persistent layout + state), `InteractionBinding` (per-button access policies + action pipelines), `ScheduledTrigger` (BullMQ-backed, survives restarts), and `EventTrigger` (reactions, voice, member updates). Zero hard-coded business handlers.
 - **Encrypted integrations.** Connect any OpenAI-compatible LLM (DeepSeek, OpenAI, OpenRouter...) directly from Discord via a modal; the API key is stored AES-256-GCM encrypted and takes effect immediately. PixelLab and kie.ai work the same way. Server owners AND administrators can configure.
+- **Multi-provider engine.** Each server connects its own AI providers (OpenAI-compatible, Anthropic Messages, kie.ai, or any REST API described by templated operations) and binds each capability to one of their models: conversation, reasoning, ingestion, image, music, speech, video, web search, or any custom one. A capability can have a fallback provider: a rate limit, a server error, a network failure or a timeout switches to it automatically, before any text was published. Four protocols ship as adapters, none is hard-coded in the agent.
+- **A "Fournisseurs et modèles" panel.** In the private config thread, three select menus (provider, capability, model, catalog paginated by 25) and guarded buttons let an administrator add a provider (the key is typed in a modal, never in a channel), test a connection and change a model. The same operations exist in natural language (`provider.*`, `capability.*`).
 - **Server rules enforced in code.** `GuildRule` per guild: free zones (bot responds without mention), strict mention elsewhere, destructive action confirmation (a ✅/❌ surface is posted and the action stays blocked until ✅ is clicked, approval bound to that exact action), muted channels (total silence even if mentioned). Rules are consulted before every action.
 - **Skill blueprints.** 135 pre-built recipes across 10 domains (tickets with escalation, temp voice, anti-raid, giveaways, verification, counting games, casino...) with parameters overridable by natural language. `search_skills` finds the right recipe; the agent follows its workflow.
-- **A configuration view that tells the truth.** Asking for the configuration shows only what is really applied on that server: active rules, applied skills, connected integrations with their models (never the keys), and the thinking mode, in a private `config-bot` thread.
-- **Adaptive thinking.** Reasoning effort is sent only on turns that run tools or skills (never on plain conversation or the final synthesis), per server setting.
+- **A configuration view that tells the truth.** Asking for the configuration shows only what is really applied on that server: active rules, applied skills, connected integrations, the providers of the server and the model bound to each capability (never the keys), and the thinking mode, in a private `config-bot` thread.
+- **Stable thinking.** Whether a request reasons is decided once, before its first turn, from the server setting (`adaptive` by default: on for action requests, off for plain conversation), and stays the same for the whole request. A request that reasons runs on the `chat.reasoning` route when the server has one.
 - **Persistent memory with opt-out.** Consolidated profiles per member and per server (LLM curator with anti-wipe guards). "Oublie-moi" purges everything and blocks future collection.
 - **Learning loop.** The bot detects repeated action patterns (3+ similar requests) and proposes creating a reusable skill.
 
@@ -71,9 +73,10 @@ pnpm start        # production run (from apps/bot)
 | `DISCORD_CLIENT_SECRET` | no | (none) | OAuth client secret |
 | `E2E_ENABLED` | no | `false` | Dev test rigs only |
 
-**Connect your AI provider** two ways (the second takes priority):
+**Connect your AI provider** (each level serves the servers that have nothing more specific):
 1. **Bootstrap via env**: set `LLM_API_URL`, `LLM_API_KEY`, `LLM_MODEL` in `.env`
-2. **From Discord**: mention the bot without a key configured → a Components V2 panel appears with a "Connecter un fournisseur IA" button (visible to owners AND administrators) → fill the modal → key is encrypted and takes effect immediately
+2. **Instance, from Discord**: mention the bot without a key configured → a Components V2 panel appears with a "Connecter un fournisseur IA" button (visible to owners AND administrators) → fill the modal → key is encrypted and takes effect immediately
+3. **Per server**: ask for the "fournisseurs et modèles" panel in Discord, or say "ajoute OpenRouter, et utilise tel modèle pour la musique". The first request of a server copies the instance configuration into that server's providers and routes; it then follows the instance when the instance changes.
 
 ## Architecture
 
@@ -97,7 +100,10 @@ apps/bot/src/
     surface/                 Generic engine: renderer, surface:act/select/modal
                              handlers, triggers (BullMQ), event-router (10 events)
     rules/                   GuildRule store + tools (zones, confirmation, mute)
-    integrations/            IntegrationService (AES-GCM) + Presenter + handlers
+    integrations/            Instance configuration (AES-GCM) + Presenter + handlers
+    providers/               Multi-provider engine: adapters (4 protocols), registry,
+                             store, CapabilityRouterService (fallback), hub panel,
+                             tools provider.* / capability.* / providers.panel
     agent/                   Discord tools, 47 SkillBlueprint, skill service
     records/                 Typed store (Zod collections)
     memory/                  Profiles + curator + opt-out + ingestion
@@ -134,6 +140,8 @@ node scripts/e2e-features4.mjs    # Primitives: surfaces, random pick, composed 
 node scripts/tool-evals.mjs       # 8 canonical prompts
 node scripts/e2e-surface.mjs      # Pivot: surface + trigger + reboot
 node scripts/e2e-full-suite.mjs   # 11 conversation scenarios (E2E_ONLY=name to filter)
+node scripts/e2e-providers.mjs    # Multi-provider engine: instance migration, inventory,
+                                 # connection test, model change, automatic fallback, hub panel
 ```
 
 Test webhooks are auto-created by the bot (named `agent-e2e-guardian`) and auto-recognized when `E2E_ENABLED=true`.

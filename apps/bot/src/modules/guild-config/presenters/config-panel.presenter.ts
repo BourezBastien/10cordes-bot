@@ -25,6 +25,10 @@ export interface ConfigPanelView {
     libraryApplied: number;
   };
   integrations: Array<{ label: string; connected: boolean; model?: string | null }>;
+  /** Fournisseurs IA connectés sur ce serveur (moteur multi-fournisseurs). Absent : aucun. */
+  providers?: Array<{ slug: string; protocol: string; hasKey: boolean; enabled: boolean; models: number }>;
+  /** Capacités routées vers un modèle sur ce serveur. Absent : aucune. */
+  routes?: Array<{ label: string; slug: string; model: string; fallback: string | null }>;
   llm: { connected: boolean; model: string | null; source: 'env' | 'modal' | 'none' };
   thinkingMode: 'adaptive' | 'always' | 'off';
   threadCreated: boolean;
@@ -80,6 +84,24 @@ export class ConfigPanelPresenter {
         }\n- Thinking : \`${view.thinkingMode}\` (adaptive = activé seulement pendant l\u0027exécution de tools ou de compétences)`,
       ).components[0],
     );
+
+    // Fournisseurs du serveur et modèle de chaque capacité : présent seulement
+    // quand le serveur en a (sinon les intégrations d'instance suffisent).
+    if (view.providers && view.providers.length > 0) {
+      const providerLines = view.providers.map(
+        (provider) => `- **${provider.slug}** (\`${provider.protocol}\`) : ${provider.models} modèle(s), ${provider.hasKey ? 'clé enregistrée' : 'sans clé'}${provider.enabled ? '' : ', désactivé'}`,
+      );
+      const routeLines = (view.routes ?? []).map(
+        (route) => `- ${route.label} : \`${route.slug}\` / \`${route.model}\`${route.fallback ? ` (repli : ${route.fallback})` : ''}`,
+      );
+      blocks.push(
+        notice(
+          `**Fournisseurs et modèles de ce serveur**${providerLines.map((line) => `\n${line}`).join('')}\n${
+            routeLines.length > 0 ? routeLines.join('\n') : '- aucune capacité routée'
+          }\nPanneau cliquable : demande « fournisseurs et modèles ».`,
+        ).components[0],
+      );
+    }
 
     return { flags: MessageFlags.IsComponentsV2, components: blocks };
   }

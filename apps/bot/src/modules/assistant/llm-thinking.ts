@@ -12,11 +12,13 @@
  *   (recette détectée, tool modifiant routé), désactivé sinon.
  */
 
+import { isAnthropicHost, isDeepSeekHost as isDeepSeekEndpoint } from '../../shared/llm/chat-utils';
+
 export type ThinkingMode = 'adaptive' | 'always' | 'off';
 
 /** Le fournisseur accepte-t-il le champ reasoning_effort ? (DeepSeek, Anthropic ; OpenRouter/Groq/Gemini l'excluent.) */
 export function endpointAcceptsThinking(baseUrl: string): boolean {
-  return /(?:^|\.)deepseek\.com|anthropic/iu.test(baseUrl);
+  return isDeepSeekEndpoint(baseUrl) || isAnthropicHost(baseUrl);
 }
 
 /**
@@ -25,7 +27,7 @@ export function endpointAcceptsThinking(baseUrl: string): boolean {
  * vraiment exige `none`. Ailleurs le champ est omis (jamais de valeur risquée).
  */
 export function endpointDisablesThinkingWithNone(baseUrl: string): boolean {
-  return /(?:^|\.)deepseek\.com/iu.test(baseUrl);
+  return isDeepSeekEndpoint(baseUrl);
 }
 
 /** La requête doit-elle penser, selon le mode du serveur ? (intent null : appel isolé, sans tools.) */

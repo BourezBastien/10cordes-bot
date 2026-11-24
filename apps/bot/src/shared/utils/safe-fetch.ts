@@ -40,6 +40,8 @@ export async function safeFetch(
   init?: RequestInit & { timeoutMs?: number },
 ): Promise<Response> {
   const parsed = assertSafeUrl(url);
-  const { timeoutMs = 30_000, ...rest } = init ?? {};
-  return fetch(parsed, { ...rest, signal: AbortSignal.timeout(timeoutMs) });
+  const { timeoutMs = 30_000, signal, ...rest } = init ?? {};
+  // Le délai s'ajoute au signal de l'appelant (il ne le remplace pas) : une capacité annulée l'est vraiment.
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return fetch(parsed, { ...rest, signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
 }

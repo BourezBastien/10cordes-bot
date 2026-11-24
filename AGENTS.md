@@ -35,18 +35,20 @@ pnpm build          # build all workspaces (shared → dist, then spraxium build
 pnpm typecheck      # tsc --noEmit in every workspace (bot typecheck builds shared first)
 pnpm test           # vitest (unit specs in apps/bot/src/**/*.spec.ts and packages/shared)
 pnpm lint           # eslint (@bluzzi/eslint-config, flat config in eslint.config.mjs)
-pnpm verify         # lint + typecheck + test + build + check:modules + arch:audit (all strict)
+pnpm verify         # lint + typecheck + test + build + check:modules + check:tools + arch:audit (all strict)
 pnpm arch:audit     # strict POO report on apps/bot/src and packages/shared/src: exits 1 on ANY violation
-pnpm --filter 10cordes-bot exec prisma migrate dev   # DB migrations (Prisma 6 pinned)
+pnpm check:tools    # registry-names.ts must match the name literals of tracked sources (run sync-tool-names.mjs after adding a tool)
 node apps/bot/scripts/diagnose.mjs [days]            # JSONL log forensics
 ```
+
+DB migrations: Prisma 6 is pinned; on the dev DB they are applied by hand, never with a reset (see "Data and LLM").
 
 `pnpm arch:audit` has no baseline and no ratchet: zero violation, enforced locally by `pnpm verify` and on every push by CI. Never weaken a rule or add an exception to pass it: fix the code.
 
 ## Architecture
 
 - `apps/bot/src/main.ts` - only file touching `SpraxiumFactory`: validate env → create → `useModule(AppModule)` → `provide(AppEnv)` → `listen()` → purge Discord slash-command registry at boot.
-- `apps/bot/src/app.module.ts` - root module; every feature module must be in `imports`. Infra modules (memory, records, rules, integrations, guild-config, assistant) are `@Global`.
+- `apps/bot/src/app.module.ts` - root module; every feature module must be in `imports`. Infra modules (memory, records, rules, integrations, guild-config, providers, assistant) are `@Global`.
 - `apps/bot/src/app.env.ts` - `@EnvSchema()` extending `SpraxiumBaseEnv`. Generic `LLM_API_URL/KEY/MODEL/EFFORT` (no vendor prefixes); `DISCORD_TOKEN` is the only required var.
 
 ### Conversation pipeline (the product)
@@ -75,12 +77,28 @@ All business UIs (tickets, polls, giveaways, verification, temp voice...) are bu
 - `EventTrigger` - reactions, voice joins, member updates (10 event types)
 - Error messages from surface tools are actionable: offending Zod path, valid binding keys, the identifier that was looked up (`surface.errors.ts`)
 
+### Multi-provider engine (`modules/providers/`)
+
+Each guild connects providers and binds each capability to one of their models. No vendor is hard-coded:
+
+- Tables `GuildProvider` (slug, protocol, baseUrl, auth type, key encrypted with AES-256-GCM, options, cached catalog) and `CapabilityRoute` (one per guild capability: `chat.default`, `chat.reasoning`, `chat.ingestion`, `image.generate`, `image.edit`, `music.generate`, `tts.speak`, `video.generate`, `web.search`, any `custom.*`; model, optional fallback provider and model, params).
+- **Adapters** (one stateless class per protocol, registered in `ProviderAdapterRegistry` by `ProvidersBoot`): `OpenAiCompatibleAdapter`, `AnthropicMessagesAdapter`, `KieUnifiedAdapter`, `GenericHttpAdapter` (templated REST operations described in the provider options). Contract in `AbstractProviderAdapter`: `testConnection`, `discoverModels`, `execute`, `chat`. A key never leaves an adapter (results, errors and logs are redacted).
+- **`CapabilityRouterService`**: resolves the active route of a capability, lists the attempts (`attemptsOf`), runs a capability with an automatic fallback (`runCapability`), hands out the credentials of a capability outside conversation (`credentialsFor`).
+- **`LlmService` is an orchestrator** (assistant module): `planRequest` decides ONCE per request whether it reasons (`preferReasoning`) and its effort; each turn goes to the route's provider and model (`ChatEndpointPlanner`), with the same route on every turn of the loop. `ChatTransport` serves the SSE-capable protocols itself and bridges the others to their adapter.
+- **Fallback rule** (`isFallbackWorthy`): rate limit (429), server error (5xx), network failure, timeout, and only before any text was published. A refused key or an exhausted quota never falls back: the administrator must fix it.
+- **Instance config is the bootstrap**: env `LLM_*` or the owner modal. On the first resolved request of a guild, `ProviderLegacyMigration` copies it into that guild's providers and routes (once per guild, audit `provider.legacy_migrated`). Copies carry a `_source` marker and follow the instance when it changes (`reconcileInstance`, at boot and on save). The old integration code is not removed.
+- **Linked conversation routes** (`provider-route.links.ts`): `chat.reasoning` and `chat.ingestion` follow a change of `chat.default` as long as they shared its exact target (provider, model, no fallback, same params). Reason: the intent heuristic sends most real sentences to `chat.reasoning`, so rebinding the default alone would look ineffective. Once an administrator binds one of them separately, it is independent. `bindRoute` returns `{ followedBy }`.
+- Binding a route with only `{ providerId, modelId }` keeps its existing fallback and params; an explicit `fallbackProviderId: null` removes the fallback.
+- **Hub panel** (`ProviderHubPresenter` + `handlers/provider-hub.*.handlers.ts`, in the `config-bot` thread): three `StringSelectMenu` (provider, capability, model, catalog paginated by 25) and guarded buttons/modal. Owner or Administrator only (`GuildAdminPolicy`).
+- **Tools**: `provider.list/upsert/delete/test/models`, `capability.bind/list`, `providers.panel`. Keys typed in natural language stay visible in the Discord message: the system prompt steers key entry to the hub modal.
+- Music, kie images and PixelLab read their key, base URL and model from the guild's route (`credentialsFor`), so a guild can rebind them.
+
 ### Other pillars
 
-- **Encrypted integrations** (`modules/integrations/`): `IntegrationService` + AES-256-GCM (`shared/crypto/secret-box.ts`). LLM/PixelLab/kie keys connectable from Discord by owner OR admin; DB config overrides env bootstrap. Saving the LLM key goes through `LlmService.applyConfig` (connection check + in-memory reload + encrypted persistence). `IntegrationService.upsert` alone only writes the DB.
+- **Encrypted integrations** (`modules/integrations/`): `IntegrationService` + AES-256-GCM (`shared/crypto/secret-box.ts`). The instance configuration (LLM/PixelLab/kie), connectable from Discord by owner OR admin; DB config overrides env bootstrap. Saving the LLM key goes through `LlmService.applyConfig` (connection check + in-memory reload + encrypted persistence + realignment of the guild copies). `IntegrationService.upsert` alone only writes the DB.
 - **Guild rules** (`modules/rules/`): free zones, strictMentionElsewhere, confirmDestructiveActions, blockedChannelIds, custom instructions. Read in code by the gate and the registry, injected into the system prompt.
 - **Per-guild agent settings** (`modules/guild-config/`): `AgentSettingsService` (thinking mode, config thread) and `ConfigThreadService` (private `config-bot` thread; tools `config.panel`, `server.overview`, `config.thinking`). A request for "the configuration" shows only what is applied on that guild (rules, skills, integrations with their models, thinking mode): never keys, never the blueprint catalog, never the legacy config sections.
-- **Adaptive thinking** (`modules/assistant/llm-thinking.ts`, applied by `LlmService`): `reasoning_effort` is sent only on tool-bearing turns that are not the final synthesis, and only to compatible endpoints (DeepSeek, Anthropic). Per-guild setting, default `adaptive`.
+- **Thinking** (`modules/assistant/llm-thinking.ts`, decided by `LlmService.planRequest`): STABLE per request. `preferReasoning` is decided once from the guild setting (`adaptive` by default: on for action requests, i.e. a matched recipe or a routed mutating tool) and never changes during the loop; it selects the `chat.reasoning` route when the guild has one, `chat.default` otherwise. The `reasoning_effort` value is decided against the provider that will run the request, and sent only to endpoints that accept it (DeepSeek, Anthropic). Read-only tools are listed in `READ_ONLY_NAME_RE` (`request-intent.ts`): a new read tool must be added there, or a simple question will be routed and reasoned as an action.
 - **Skills** (`modules/agent/`): 135 `SkillBlueprint` recipes in 10 domain files (tool references verified at compile time through `RegisteredToolName`), `search_skills`, learning loop (`SkillPatternDetector`).
 - **Memory** (`modules/memory/`): consolidated member/guild profiles (LLM curator with budget and anti-wipe guards), full opt-out, guild history ingestion at GuildCreate.
 - **Records** (`modules/records/`): typed store over Prisma. 7 native collections (reminders, suggestions, quotes, faq, counters, notes, component_votes) plus any well-formed dynamic collection a recipe needs (`CollectionQuotaPolicy`: 50 collections and 10 000 records per guild, bounded JSON document).
@@ -104,6 +122,10 @@ All business UIs (tickets, polls, giveaways, verification, temp voice...) are bu
 - **Prisma + SQLite stores DateTime as integer epoch milliseconds.** `strftime('%Y-%m-%d', "createdAt")` returns NULL; use `"createdAt" / 1000, 'unixepoch'`. `MIN`, `COUNT` and `SUM` come back as **BigInt**: convert with `Number()` before any arithmetic, and never let a BigInt reach a tool result's `data` (serialize with `stringifySafe` from `shared/utils/object.ts`).
 - `reasoning_effort` and other optional provider fields are rejected with a 400 by several OpenAI-compatible endpoints: omit them unless configured and compatible.
 - `packages/shared` must be built (`pnpm --filter @10cordes/shared build`) before bot typecheck/dev - the bot imports its `dist/`.
+- **`user_id` in the chat body goes to DeepSeek only** (`buildChatRequestBody`, keyed on the host). It is not an OpenAI field: a strict endpoint rejects the whole request with a 400.
+- Host rules are exact: `deepseek.com` and its subdomains (`isDeepSeekHost` in `shared/llm/chat-utils.ts`), never a look-alike domain.
+- Every provider failure is typed. `ProviderError.kind` (`provider.types.ts`) comes from adapters, `ProviderHttpError`/`ProviderUnavailableError`/`ProviderTimeoutError`/`ProviderAuthError`/`QuotaExhaustedError` (`llm.errors.ts`) from the protocols the client serves itself. The fallback decision reads both through `isFallbackWorthy`; a new error class must be classified there.
+- The LLM usage log (`logs/llm.jsonl`) carries `provider`, `model` and `fallback`: the model that actually answered, read from `ChatCompletionResult.served`.
 - **French apostrophes in strings: `\u0027`, never `\u0029`.** `\u0029` is a closing parenthesis and compiles without any error, so the text reads « d)un » (153 occurrences swept on 2026-11-23). After writing French text, `grep -rlF '\u0029' --include='*.ts' apps/bot/src packages/shared/src` must return nothing.
 - Editing the wording of a blueprint `trigger` makes the seed create a new row and purge the old one. The seed (`skill-blueprint.library.ts`) reactivates a purged library row whose trigger is back in the catalog, unless the staff deleted it (audit trail of the `deleteSkills` tool).
 - Zod: nested defaults need **`.prefault({})`**, not `.default({})`. Zod 4 recursive types: declare manual union types.
@@ -116,7 +138,9 @@ All business UIs (tickets, polls, giveaways, verification, temp voice...) are bu
 - A rig must assert something created DURING the scenario, not a row left over from an earlier run.
 - **Never rebuild or restart the bot while a rig is running**, and boot the bot after any change to a DI constructor before trusting a rig.
 - Component clicks and modal submits cannot be simulated from a rig (a real Discord interaction is required). Cover them with unit tests on the handler (metadata, policy guard, effect) and say plainly that the real click is unverified.
-- `sync-tool-names.mjs` scans `name: '...'` literals in tracked sources: a fake tool in a spec file would enter `REGISTERED_TOOL_NAMES`. Use a constant for the name.
+- `sync-tool-names.mjs` scans `name: '...'` literals in tracked sources: a fake tool in a spec file would enter `REGISTERED_TOOL_NAMES`. Use a constant for the name. `pnpm check:tools` (in `verify` and CI) fails when `registry-names.ts` is stale; a new source file must be known to git (`git add -N`) to be scanned.
+- Rigs: `e2e-gate.mjs`, `e2e-full-suite.mjs`, `e2e-surface.mjs`, `e2e-providers.mjs` (multi-provider engine: migration, inventory, connection test, model change, automatic fallback, hub panel). `E2E_ONLY=name` runs one scenario.
+- A provider that must fail on purpose in a rig: base URL `https://192.0.2.1/v1` (documentation address, never reachable). Local mock servers are refused by design by the outbound request guard.
 - Every scenario in a rig must restore what it changed (rule toggles, probe channels, test surfaces).
 
 ### Environment and tooling

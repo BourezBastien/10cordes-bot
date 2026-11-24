@@ -34,6 +34,9 @@ jobs:
       - name: Module consistency
         run: node scripts/check-modules.mjs
 
+      - name: Tool names registry (committed file matches the declared tools)
+        run: pnpm check:tools
+
       - name: Architecture audit (strict, 0 violation)
         run: pnpm arch:audit
 

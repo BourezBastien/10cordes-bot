@@ -7,18 +7,35 @@ import { PrismaService } from '../database/prisma.service';
 import type { BotTool, ToolResult } from '@10cordes/shared';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { IntegrationService } from '../integrations/integration.service';
+import { CapabilityRouterService } from '../providers/capability-router.service';
+import type { CapabilityCredentials } from '../providers/provider.types';
 
-const API_BASE = "https://api.pixellab.ai/v2";
+/** URL de base de PixelLab quand la capacité image n'est pas routée sur le serveur (clé d'instance). */
+const INSTANCE_BASE_URL = "https://api.pixellab.ai";
 
 interface PixfluxResponse {
   image: { type: string; base64: string };
   usage?: { type: string; usd?: number };
 }
 
+/** Première image d'un résultat d'adaptateur (`{ images: [{ b64_json?, url? }] }`), en base64. */
+async function imageBase64(images: unknown): Promise<string> {
+  const list = Array.isArray(images) ? (images as Array<Record<string, unknown>>) : [];
+  const first = list[0];
+  if (typeof first?.b64_json === "string") return first.b64_json;
+  if (typeof first?.url === "string") {
+    const bytes = await safeFetch(first.url, { timeoutMs: 60_000 }).then((response) => response.arrayBuffer());
+    return Buffer.from(bytes).toString("base64");
+  }
+  throw new Error("Le fournisseur n'a pas renvoyé d'image.");
+}
+
 /**
- * PixelLab API v2 - génération pixel art (icônes, émojis, sprites).
- * Clé : modale owner (table IntegrationConfig, effet immédiat) sinon env
- * intégration (modal Discord). Sans clé, les tools répondent fail-closed.
+ * Génération d'images. Par défaut PixelLab (API v2, pixel art : icônes,
+ * émojis, sprites) ; un serveur peut router `image.generate` vers un autre
+ * fournisseur (moteur multi-fournisseurs). Clé : la route du serveur, sinon
+ * la modale owner (table IntegrationConfig, effet immédiat). Sans clé, les
+ * tools répondent fail-closed.
  */
 @Injectable()
 export class ImagelabService implements SpraxiumOnBoot {
@@ -29,6 +46,7 @@ export class ImagelabService implements SpraxiumOnBoot {
     private readonly prisma: PrismaService,
     private readonly registry: ToolRegistryService,
     private readonly integrations: IntegrationService,
+    private readonly router: CapabilityRouterService,
   ) {}
 
   async onBoot(): Promise<void> {
@@ -43,8 +61,21 @@ export class ImagelabService implements SpraxiumOnBoot {
 
   /** Branche la clé PixelLab saisie via la modale (effet immédiat). */
   async setPixellabKey(apiKey: string): Promise<void> {
-    await this.integrations.upsert('pixellab', { apiKey }, 'modal');
+    await this.integrations.upsert("pixellab", { apiKey }, "modal");
     this.runtimeKey = apiKey;
+  }
+
+  /** Ce serveur peut-il générer des images : une route `image.generate`, sinon la clé PixelLab de l'instance. */
+  private async canGenerateFor(guildId: string | null): Promise<boolean> {
+    if (this.configured) return true;
+    return guildId !== null && (await this.router.resolve(guildId, "image.generate").catch(() => null)) !== null;
+  }
+
+  /** Clé et URL de la capacité image de ce serveur quand elle est servie par PixelLab (API dédiée). */
+  private async pixelLabCredentials(guildId: string | null): Promise<CapabilityCredentials | null> {
+    return this.router.credentialsFor(guildId, "image.generate", async () =>
+      this.runtimeKey ? { apiKey: this.runtimeKey, baseUrl: INSTANCE_BASE_URL, modelId: "" } : null,
+    );
   }
 
   private notConfigured(): ToolResult {
@@ -57,18 +88,32 @@ export class ImagelabService implements SpraxiumOnBoot {
     };
   }
 
-  /** Crée une image pixel art via create-image-pixflux (synchrone, base64 PNG). */
+  /**
+   * L'image demandée sur ce serveur : par sa route `image.generate` (le
+   * fournisseur et le modèle que l'administrateur a choisis), à défaut par
+   * la clé PixelLab de l'instance. Synchrone, base64 PNG.
+   */
   async generateImage(
     description: string,
     size: number,
     opts: { transparent: boolean; palette?: string[] },
+    guildId: string | null,
   ): Promise<{ base64: string; costUsd?: number }> {
-    const apiKey = this.runtimeKey ?? '';
-    const response = await safeFetch(`${API_BASE}/create-image-pixflux`, {
+    const route = guildId ? await this.router.resolve(guildId, "image.generate").catch(() => null) : null;
+    if (route && route.provider.protocol !== "generic-http") {
+      // Fournisseur quelconque (OpenAI, Google AI Studio...) : l'adaptateur de son protocole sert la capacité.
+      const result = await this.router.runCapability(route.provider.guildId, "image.generate", { params: { prompt: description, size: `${size}x${size}` } });
+      if (!result.ok) throw new Error(result.summary);
+      return { base64: await imageBase64(result.data.images) };
+    }
+    const credentials = await this.pixelLabCredentials(guildId);
+    if (!credentials) throw new Error("Aucun fournisseur d'image configuré.");
+    const apiBase = `${credentials.baseUrl.replace(/\/+$/u, "")}/v2`;
+    const response = await safeFetch(`${apiBase}/create-image-pixflux`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${credentials.apiKey}`,
       },
       body: JSON.stringify({
         description,
@@ -109,7 +154,7 @@ export class ImagelabService implements SpraxiumOnBoot {
           "Décris le visuel pixel art de façon précise (sujet, palette, fond) ; size 128 pour un avatar, 64 pour un petit émoji. " +
           "Ne régénère pas sans validation explicite de l'utilisateur.",
         handler: async (input, ctx) => {
-          if (!this.configured) return this.notConfigured();
+          if (!(await this.canGenerateFor(ctx.guildId))) return this.notConfigured();
           const { description, size, transparent, palette } = input as {
             description: string;
             size: number;
@@ -119,7 +164,7 @@ export class ImagelabService implements SpraxiumOnBoot {
           const image = await this.generateImage(`pixel art icon, ${description}`, size, {
             transparent,
             palette,
-          });
+          }, ctx.guildId);
           // LIVRAISON : l'image part en pièce jointe dans le salon de la
           // demande (sans ça, le base64 restait coincé dans le résultat du
           // tool et le modèle annonçait faussement « image postée »).
@@ -152,12 +197,12 @@ export class ImagelabService implements SpraxiumOnBoot {
           "Émoji 64x64 transparent : décris UN seul sujet simple et lisible en petit (visage, objet, animal). " +
           "Propose un nom d'émoji court à l'utilisateur après génération.",
         handler: async (input, ctx) => {
-          if (!this.configured) return this.notConfigured();
+          if (!(await this.canGenerateFor(ctx.guildId))) return this.notConfigured();
           const { description, palette } = input as { description: string; palette?: string[] };
           const image = await this.generateImage(`pixel art emoji, single centered subject, ${description}`, 64, {
             transparent: true,
             palette,
-          });
+          }, ctx.guildId);
           const delivered = ctx.sendFile
             ? await ctx.sendFile({ name: `pixel-emoji-${Date.now()}.png`, attachment: Buffer.from(image.base64, 'base64') })
                 .then(() => true)
