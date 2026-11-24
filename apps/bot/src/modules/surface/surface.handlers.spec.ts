@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ButtonInteraction } from 'discord.js';
 import { SurfaceActHandler, SurfaceModalHandler, SurfaceSelectHandler } from './surface.handlers';
 import { MessageFlags } from 'discord.js';
+import { MODAL_MAX_COMPONENTS } from '../../shared/ui/modal-limits';
 
 /**
  * Clics et soumissions de surfaces. Un vrai clic exige une interaction Discord
@@ -169,6 +170,15 @@ describe('SurfaceActHandler · modale', () => {
     expect(interaction.showModal).toHaveBeenCalledTimes(1);
     expect(interaction.deferReply).not.toHaveBeenCalled();
     expect(interaction.editReply).not.toHaveBeenCalled();
+  });
+
+  it('cinq entrées, le maximum du schéma : la modale reste dans la limite de Discord', async () => {
+    const inputs = Array.from({ length: 5 }, (_, index) => ({ id: `champ${index}`, label: `Champ ${index + 1}`, style: 'short' as const, required: false }));
+    const { surfaces, prisma } = harness({ binding: { key: 'formulaire', pipeline: [{ type: 'openModal', modal: { title: 'Formulaire', inputs } }] } });
+    const interaction = fakeInteraction();
+    await new SurfaceActHandler(surfaces as never, prisma as never).handle(interaction as unknown as ButtonInteraction, { b: 'formulaire' });
+    const shown = interaction.showModal.mock.calls[0]?.[0] as unknown as { toJSON: () => { components: unknown[] } };
+    expect(shown.toJSON().components.length).toBeLessThanOrEqual(MODAL_MAX_COMPONENTS);
   });
 });
 

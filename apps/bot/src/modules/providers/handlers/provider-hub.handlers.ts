@@ -1,13 +1,15 @@
 import { Ctx } from '@spraxium/common';
 import { ModalComponent, ModalHandler, ModalInput, ModalService, StringSelect, StringSelectHandler } from '@spraxium/components';
 import type { APIModalInteractionResponseCallbackData, ModalSubmitInteraction, StringSelectMenuInteraction } from 'discord.js';
+import { assertModalFits } from '../../../shared/ui/modal-limits';
 import { ProviderAdapterRegistry } from '../provider-adapter.registry';
 import { GuildProviderService } from '../provider-store.service';
-import { visibleOptions } from '../provider-store.json';
-import { PROVIDER_PROTOCOLS, ProviderError, type ProviderConfig, type ProviderProtocol } from '../provider.types';
 import { HUB_ADD, HUB_EMPTY, PROVIDER_HUB_IDS } from '../presenters/provider-hub.presenter';
 import { nativeCapability } from '../presenters/provider-hub.parts';
+import { PROVIDER_PROTOCOLS, ProviderError, type ProviderProtocol } from '../provider.types';
+import { DEFAULT_PROTOCOL, parseAdvancedConfig } from './provider-hub.form';
 import { parseHubParams } from './provider-hub.params';
+import { slugForProvider, uniqueSlug } from './provider-hub.slug';
 import { prefillModal, probeProvider, requireProvider, runHub } from './provider-hub.support';
 
 /**
@@ -28,32 +30,34 @@ export class ProviderCapabilityComponent {}
 @StringSelect({ customId: PROVIDER_HUB_IDS.model })
 export class ProviderModelComponent {}
 
-/** Modale d'ajout et de modification ; les identifiants de champs sont lus par le handler. */
+/**
+ * Modale d'ajout et de modification : CINQ champs, la limite de Discord.
+ * Le slug n'y figure pas : il est déduit du nom à la création. Les champs
+ * facultatifs sont déclarés ainsi, Discord les exige sinon.
+ */
 @ModalComponent({ id: PROVIDER_HUB_IDS.modal, title: 'Fournisseur IA' })
 export class ProviderEditModal {
-  @ModalInput({ id: 'slug', label: 'Slug (identifiant, minuscules et tirets)', style: 'short', required: true, minLength: 2, maxLength: 48, placeholder: 'openai, deepseek, kie...' })
-  slug!: string;
-
-  @ModalInput({ id: 'displayName', label: 'Nom affiché (facultatif)', style: 'short', required: false, maxLength: 80, placeholder: 'OpenAI, DeepSeek...' })
-  displayName!: string;
+  @ModalInput({ id: 'name', label: 'Nom du fournisseur', style: 'short', required: true, minLength: 2, maxLength: 80, placeholder: 'OpenRouter, Kie.ai, Google AI Studio...' })
+  name!: string;
 
   @ModalInput({ id: 'protocol', label: 'Protocole', style: 'short', required: true, maxLength: 24, placeholder: 'openai-chat, anthropic-messages, kie-unified, generic-http' })
   protocol!: string;
 
-  @ModalInput({ id: 'baseUrl', label: 'URL de base (https)', style: 'short', required: true, maxLength: 500, placeholder: 'https://api.openai.com/v1' })
+  @ModalInput({ id: 'baseUrl', label: 'URL de base (https)', style: 'short', required: true, maxLength: 500, placeholder: 'https://openrouter.ai/api/v1' })
   baseUrl!: string;
 
   @ModalInput({ id: 'apiKey', label: 'Clé API (facultatif)', style: 'paragraph', required: false, maxLength: 400, placeholder: 'Laisser vide conserve la clé actuelle' })
   apiKey!: string;
 
-  @ModalInput({ id: 'extraConfig', label: 'Options JSON (facultatif)', style: 'paragraph', required: false, maxLength: 1000, placeholder: '{"temperature": 0.7}' })
-  extraConfig!: string;
+  @ModalInput({ id: 'advanced', label: 'Config avancée JSON (facultatif)', style: 'paragraph', required: false, maxLength: 1000, placeholder: '{"authType": "header", "authHeaderName": "X-API-Key"} ou {"temperature": 0.7}' })
+  advanced!: string;
 }
 
 /**
  * Modale à montrer. `p=` désigne le fournisseur modifié (absent à la création),
  * `m=` le panneau à rafraîchir au retour : une soumission de modale ne porte
- * pas le message d'origine. `values` préremplit les champs, jamais la clé.
+ * pas le message d'origine. `values` préremplit les champs, jamais la clé ; à
+ * la création le protocole le plus courant est proposé.
  */
 export function providerModal(
   modals: ModalService,
@@ -64,22 +68,14 @@ export function providerModal(
   for (const [key, value] of Object.entries(ref)) {
     if (value) params[key] = value;
   }
-  return prefillModal(modals.buildWithParams(ProviderEditModal, params), values);
+  const defaults: Record<string, string> = ref.p ? {} : { protocol: DEFAULT_PROTOCOL };
+  const modal = prefillModal(modals.buildWithParams(ProviderEditModal, params), { ...defaults, ...values });
+  // Discord refuserait la modale entière : l'échec est clair ici, pas silencieux là-bas.
+  assertModalFits(modal, 'Modale « Fournisseur IA »');
+  return modal;
 }
 
-/** Champs d'une modification, préremplis depuis le fournisseur ; la clé n'en fait jamais partie, ni les options réservées. */
-export function providerFormValues(config: ProviderConfig): Record<string, string> {
-  const options = visibleOptions(config.extraConfig);
-  return {
-    slug: config.slug,
-    displayName: config.displayName,
-    protocol: config.protocol,
-    baseUrl: config.baseUrl,
-    extraConfig: Object.keys(options).length > 0 ? JSON.stringify(options) : '',
-  };
-}
-
-/** Choisit un fournisseur (ou ouvre la modale pour en ajouter un). */
+/** Choisit un fournisseur (ou ouvre la modale pour en ajouter). */
 @StringSelectHandler(ProviderSelectComponent)
 export class ProviderSelectHandler {
   constructor(
@@ -158,22 +154,12 @@ function protocolOf(raw: string): ProviderProtocol {
   return raw as ProviderProtocol;
 }
 
-/** Options JSON libres ; vides, elles sont absentes de l'entrée (le store conserve alors les actuelles). */
-function extraConfigOf(raw: string): Record<string, unknown> | undefined {
-  if (!raw) return undefined;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
-  } catch {
-    // Message unique ci-dessous.
-  }
-  throw new ProviderError('Les options JSON doivent être un objet JSON valide (par exemple {"temperature": 0.7}).', 'invalid');
-}
-
-/** Le slug est l'identifiant du fournisseur : le changer crée un autre fournisseur, qu'il faut signaler. */
-const RENAMED_NOTE = 'Le slug a changé : c\u0027est un nouveau fournisseur, l\u0027ancien est conservé avec ses routes.';
-
-/** Enregistre le fournisseur (création ou modification), puis contrôle la connexion quand il y a une clé. */
+/**
+ * Enregistre le fournisseur (création ou modification), puis contrôle la
+ * connexion quand il y a une clé. À la création le nom devient le nom
+ * affiché, et le slug en est déduit, libre sur ce serveur. En modification le
+ * slug ne change pas : c'est l'identifiant, ses routes en dépendent.
+ */
 @ModalHandler(ProviderEditModal)
 export class ProviderEditModalHandler {
   constructor(
@@ -187,26 +173,30 @@ export class ProviderEditModalHandler {
       const { p } = parseHubParams(interaction.customId);
       const field = (id: string): string => interaction.fields.getTextInputValue(id).trim();
       const previous = p ? await this.store.get(access.guildId, p) : null;
-      const slug = field('slug').toLowerCase();
-      const key = field('apiKey');
-      const renamed = previous !== null && previous.slug !== slug;
+      if (p && !previous) return access.reply.show(access.presenter.missingProvider());
+      const name = field('name');
+      const advanced = parseAdvancedConfig(field('advanced'));
+      let slug = previous?.slug ?? '';
+      if (!previous) {
+        const taken = new Set((await this.store.list(access.guildId)).map((provider) => provider.slug));
+        slug = uniqueSlug(slugForProvider(name), taken);
+      }
       const saved = await this.store.upsert(
         access.guildId,
         {
           slug,
-          displayName: field('displayName') || undefined,
+          displayName: name,
           protocol: protocolOf(field('protocol')),
           baseUrl: field('baseUrl'),
-          // Champ vide : la clé actuelle est conservée. Sur un changement de slug, le nouveau fournisseur
-          // l'emporte : c'est la promesse du formulaire.
-          apiKey: key || (renamed ? previous.apiKey : null) || undefined,
-          extraConfig: extraConfigOf(field('extraConfig')),
+          // Champ vide : la clé actuelle est conservée par le store.
+          apiKey: field('apiKey') || undefined,
+          ...advanced,
         },
         access.userId,
       );
       const tested = saved.apiKey ? await probeProvider({ store: this.store, registry: this.registry }, access.guildId, saved) : null;
       await access.repaint({ p: saved.id });
-      await access.reply.show(access.presenter.providerSaved(saved.slug, tested, renamed ? RENAMED_NOTE : null));
+      await access.reply.show(access.presenter.providerSaved(saved.slug, tested));
     });
   }
 }

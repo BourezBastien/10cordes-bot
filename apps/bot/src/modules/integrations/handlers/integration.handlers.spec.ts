@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ModalService } from '@spraxium/components';
 import type { ButtonInteraction, ModalSubmitInteraction } from 'discord.js';
+import { MODAL_MAX_COMPONENTS } from '../../../shared/ui/modal-limits';
 
 const mocks = vi.hoisted(() => ({ applyConfig: vi.fn() }));
 
@@ -77,6 +78,7 @@ describe('routage des handlers d\u0027intégration (métadonnées du dispatcher)
     };
     expect(json.custom_id).toBe('integration-config');
     expect(json.title).toBe('Connecter un fournisseur IA');
+    expect(json.components.length).toBeLessThanOrEqual(MODAL_MAX_COMPONENTS);
     expect(json.components.map((entry) => entry.component.custom_id)).toEqual(['baseUrl', 'apiKey', 'model']);
     expect(json.components[0].component.required).toBe(true);
     expect(json.components[2].component.required).toBe(false);

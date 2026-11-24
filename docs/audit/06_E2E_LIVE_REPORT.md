@@ -276,3 +276,11 @@ Les trois passages sont partis sur `chat.reasoning` : c'est attendu, « Crée ic
 - Chaque passage compte un outil en échec, affiché dans la note : `surface.get` sur la surface du passage précédent. Le rig la supprime, mais sa trace reste dans les actions récentes du bot et dans l'historique du salon ; le modèle applique « lire avant d'écrire », ne la trouve pas, et continue. C'est un artefact du rig joué en série.
 - Le clic sur le bouton « Support » n'est pas vérifié : le pipeline (`createChannel`, deux `setChannelOverwrite`, `sendMessage`) n'a jamais été exécuté.
 - Les autres scénarios n'ont pas été rejoués, conformément à la demande.
+
+## 14. Test manuel du 24/11 : la modale « Ajouter un fournisseur » était rejetée
+
+**13:58, trouvé par l'owner.** Le clic sur « Ajouter » rendait `Invalid Form Body data.components[BASE_TYPE_MAX_LENGTH]: Must be 5 or fewer in length` : la modale portait six champs (slug, nom affiché, protocole, URL de base, clé, options JSON) pour une limite de cinq. C'est le risque annoncé en §11 pour les menus du panneau : un clic réel ne se simule pas, et la spec des handlers ne comptait pas les composants de la modale construite.
+
+**Correctif (commit suivant).** Cinq champs, slug déduit du nom, champs facultatifs explicites, garde `assertModalFits` avant tout envoi, assertion sur la modale construite dans chaque spec (détail `05`, anomalie 22).
+
+**Reste à faire de ta main** : le clic réel sur « Ajouter », une soumission de création (par exemple OpenRouter), puis une modification avec la clé laissée vide.

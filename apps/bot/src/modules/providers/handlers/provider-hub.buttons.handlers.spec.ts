@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ModalService } from '@spraxium/components';
 import { ComponentType, MessageFlags } from 'discord.js';
+import { MODAL_MAX_COMPONENTS } from '../../../shared/ui/modal-limits';
 import { ProviderError, type ProviderConfig } from '../provider.types';
 import { ProviderAddButtonHandler, ProviderDeleteButtonHandler, ProviderEditButtonHandler, ProviderPageButtonHandler, ProviderRefreshButtonHandler, ProviderTestButtonHandler } from './provider-hub.buttons.handlers';
 
@@ -17,7 +18,17 @@ const OWNER = '1550000000000000002';
 const ADMIN = '1550000000000000003';
 const PROVIDER = 'cmProviderId0000000000000';
 const SECRET = 'sk-test-secret';
-const FIELDS = ['slug', 'displayName', 'protocol', 'baseUrl', 'apiKey', 'extraConfig'];
+// Clé calculée : sync-tool-names.mjs repère la clé name suivie d'une chaîne.
+const NAME = 'name';
+/** Champs de la modale, dans l'ordre ; à l'ajout, seul le protocole est prérempli. */
+const FIELDS = ['name', 'protocol', 'baseUrl', 'apiKey', 'advanced'];
+const ADD_VALUES = [undefined, 'openai-chat', undefined, undefined, undefined];
+
+/** Modale montrée : identifiants, valeurs, caractère exigé de chaque champ. */
+function shownFields(interaction: FakeInteraction): Array<{ custom_id: string; value?: string; required?: boolean }> {
+  const modal = shownModal(interaction);
+  return modal.components.map((entry) => ({ custom_id: entry.component.custom_id, value: entry.component.value, required: entry.component.required }));
+}
 
 interface FakeInteraction {
   id: string;
@@ -96,14 +107,14 @@ function shownPanel(interaction: FakeInteraction): { selects: string[]; defaults
   };
 }
 
-const shownModal = (interaction: FakeInteraction): { custom_id: string; components: Array<{ component: { custom_id: string; value?: string } }> } =>
+const shownModal = (interaction: FakeInteraction): { custom_id: string; components: Array<{ component: { custom_id: string; value?: string; required?: boolean } }> } =>
   interaction.showModal.mock.calls[0]?.[0];
 const asInteraction = (interaction: FakeInteraction): never => interaction as never;
 const modals = (): ModalService => new ModalService({} as never);
 const editHandler = (h: Harness): ProviderEditButtonHandler => new ProviderEditButtonHandler(h.store as never, h.registry as never, modals());
 
 describe('provider:add et provider:edit', () => {
-  it('« Ajouter » : la modale est la PREMIÈRE réponse, vide, et désigne le panneau à rafraîchir au retour', async () => {
+  it('« Ajouter » : la modale est la PREMIÈRE réponse, dans la limite de Discord, et désigne le panneau à rafraîchir au retour', async () => {
     const h = harness();
     const interaction = fakeInteraction({ customId: 'provider:add' });
     await new ProviderAddButtonHandler(h.store as never, h.registry as never, modals()).handle(asInteraction(interaction));
@@ -113,7 +124,18 @@ describe('provider:add et provider:edit', () => {
     expect(interaction.message.edit).not.toHaveBeenCalled();
     const modal = shownModal(interaction);
     expect(modal.custom_id).toBe('provider-edit~m=1550000000000000005');
-    expect(modal.components.map((entry) => entry.component.value)).toEqual(FIELDS.map(() => undefined));
+    // Incident du 24/11 : six champs, Discord rejetait la modale entière.
+    expect(modal.components.length).toBeLessThanOrEqual(MODAL_MAX_COMPONENTS);
+    const fields = shownFields(interaction);
+    expect(fields.map((field) => field.custom_id)).toEqual(FIELDS);
+    expect(fields.map((field) => field.value)).toEqual(ADD_VALUES);
+  });
+
+  it('la clé et la config avancée sont explicitement facultatives : Discord les exige sinon', async () => {
+    const interaction = fakeInteraction({ customId: 'provider:add' });
+    await new ProviderAddButtonHandler(harness().store as never, harness().registry as never, modals()).handle(asInteraction(interaction));
+    const required = Object.fromEntries(shownFields(interaction).map((field) => [field.custom_id, field.required]));
+    expect(required).toEqual({ name: true, protocol: true, baseUrl: true, apiKey: false, advanced: false });
   });
 
   it('propriétaire du serveur : autorisé comme un administrateur', async () => {
@@ -130,8 +152,8 @@ describe('provider:add et provider:edit', () => {
     expect(interaction.reply).not.toHaveBeenCalled();
     const modal = shownModal(interaction);
     expect(modal.custom_id).toBe(`provider-edit~p=${PROVIDER}&m=1550000000000000005`);
-    const values = Object.fromEntries(modal.components.map((entry) => [entry.component.custom_id, entry.component.value]));
-    expect(values).toEqual({ slug: 'openai', displayName: 'OpenAI', protocol: 'openai-chat', baseUrl: 'https://api.openai.com/v1', apiKey: undefined, extraConfig: '{"temperature":0.7}' });
+    const values = Object.fromEntries(shownFields(interaction).map((field) => [field.custom_id, field.value]));
+    expect(values).toEqual({ [NAME]: 'OpenAI', protocol: 'openai-chat', baseUrl: 'https://api.openai.com/v1', apiKey: undefined, advanced: '{"temperature":0.7}' });
     expect(JSON.stringify(modal)).not.toContain(SECRET);
   });
 

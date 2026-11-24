@@ -5,7 +5,8 @@ import { ProviderAdapterRegistry } from '../provider-adapter.registry';
 import { GuildProviderService } from '../provider-store.service';
 import { PROVIDER_HUB_IDS, PROVIDER_HUB_LABELS } from '../presenters/provider-hub.presenter';
 import { modelPage, selectedProvider } from '../presenters/provider-hub.parts';
-import { providerFormValues, providerModal } from './provider-hub.handlers';
+import { providerFormValues } from './provider-hub.form';
+import { providerModal } from './provider-hub.handlers';
 import { parseHubParams } from './provider-hub.params';
 import { probeProvider, refreshCatalog, requireProvider, runHub } from './provider-hub.support';
 

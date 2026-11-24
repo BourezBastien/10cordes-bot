@@ -8,7 +8,7 @@
 |---|---|
 | `pnpm typecheck` | 0 erreur |
 | `pnpm lint` | 0 erreur sur les deux passes ; la passe TypeScript (quatre règles) linte 412 fichiers (voir `04` §3) |
-| `pnpm test` | 787 tests : 759 dans le bot (56 fichiers) et 28 dans `packages/shared` (4 fichiers) |
+| `pnpm test` | 900 tests : 872 dans le bot (60 fichiers) et 28 dans `packages/shared` (4 fichiers) |
 | `pnpm build` | bundle complet (shared, bot, dashboard) |
 | `pnpm check:modules` | dossiers de modules cohérents |
 | `pnpm arch:audit` (strict) | **0 violation** (60 au soir : toutes remboursées) |
@@ -146,6 +146,8 @@ Le moteur a été construit en relevant chaque défaut croisé sur son passage, 
 20. **`pnpm lint` ne lintait aucun fichier TypeScript.** Voir `04` §3. Corrigé le 24/11 : une passe dédiée à quatre règles de bugs réels, 45 violations corrigées, aucune règle désactivée.
 21. **Les références de résultat des pipelines n'étaient pas documentées.** Un `runTool` range son résultat à plat (`ok`, `summary`, puis les champs renvoyés par l'outil : `createChannel` donne `{{steps.N.channelId}}`). La consigne de `surface.create` ne le disait pas, ni que tout outil passe par `runTool`. Vu en live le 24/11 : le modèle a écrit `{{steps.0.data.id}}` dans quatre étapes d'un panneau de tickets, qui a été accepté et aurait cassé au clic (détail `06` §13). Consigne complétée ; le rig refuse désormais ces références. Reste ouvert : la validation accepte une référence qui résout à vide, un montage écrit sans la consigne peut toujours produire un bouton silencieusement cassé.
 
+22. **La modale « Fournisseur IA » portait six champs.** Discord n'en accepte que cinq : le clic « Ajouter un fournisseur » était rejeté (`data.components[BASE_TYPE_MAX_LENGTH]`), trouvé par l'owner en test manuel le 24/11 à 13:58. Les tests unitaires des handlers vérifiaient l'effet des boutons, jamais la taille de la modale construite. Correctif : cinq champs (nom, protocole, URL de base, clé API, config avancée JSON), le slug déduit du nom à la création et immuable en modification, `required: false` explicite sur la clé et la config avancée (Discord exige les champs sinon), garde `assertModalFits` (`shared/ui/modal-limits.ts`) sur les trois modales du bot avant tout `showModal`, et une assertion `toJSON().components.length <= 5` dans chaque spec. La modale de surface était à l'abri : son schéma borne déjà les entrées à cinq.
+
 À connaître pour les sessions suivantes : le crochet de sécurité Mimosa signale en « injection SQL » tout appel nommé `execute(` qui reçoit des données (`adapter.execute(provider, { params })`) et en « identifiant en dur » un littéral affecté à `apiKey`. Ce sont des faux positifs sur ce code (aucun SQL, clés fictives de test). Les méthodes du routeur et du client s'appellent `runCapability` et `runTurn`, les specs passent par une constante `KEY = 'test-key-not-real'`. Ne pas contourner le crochet par du code obscur : renommer ou découper l'édition. Le 24/11, deux autres faux positifs du même crochet : `RegExp.prototype.exec` sur un texte, pris pour un lancement de commande (utiliser `String.prototype.match`), et une commande shell qui citait un fichier source à côté d'une redirection, prise pour une écriture de source.
 
 Analyse Mimosa du 24/11 (scan `scan-2026-11-24T10-13-04.019Z-52c876df1ed1`, profondeur `deep`, 107 fichiers source des commits `1a61511` et `bd4c905`) : 0 alerte sur le code. À lire avec sa limite : le rapport scellé annonce un statut d'exécution « inconclusif » et une couverture partielle (graphe d'appels incomplet), et son modèle de menaces n'a observé aucun point d'entrée ni aucune surface d'autorisation, alors que le bot en a (contrôleurs HTTP sous gardes, registry de tools, handlers Discord). La phase de validation n'a enquêté sur aucun candidat : ce zéro n'est pas une preuve de sécurité.
@@ -187,4 +189,5 @@ L'étude de `discord-agent` (`07_BENCHMARK_DISCORD_AGENT.md`) a servi de miroir.
 
 - 25 modules, dont 23 non activables par serveur (catalogue minimal) : assumé, l'agent est le produit.
 - `search_tools` expose le registre à la demande, et depuis le 24/11 n'annonce que les tools que l'appelant peut exécuter (modules actifs et permissions) ; les permissions restent vérifiées tool par tool à l'exécution.
+- Requêtes sortantes : depuis le 24/11, `safeFetch` refuse aussi un hôte public d'apparence qui résout vers une adresse locale, privée ou réservée (`shared/utils/private-address.ts`), et pas seulement sa forme. Limite connue : la résolution est revérifiée par le système au moment de la requête (rebond DNS possible entre les deux).
 - Ingestion de l'historique : coût LLM plafonné (20 appels par serveur), reprise après crash, filtres de vie privée en code.

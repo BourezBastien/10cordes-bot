@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ModalService } from '@spraxium/components';
 import { ComponentType, MessageFlags } from 'discord.js';
+import { MODAL_MAX_COMPONENTS } from '../../../shared/ui/modal-limits';
 import { ProviderError, type ProviderConfig } from '../provider.types';
 import { HUB_ADD, HUB_EMPTY } from '../presenters/provider-hub.presenter';
 import { ProviderCapabilityComponent, ProviderCapabilityHandler, ProviderEditModal, ProviderEditModalHandler, ProviderModelComponent, ProviderModelHandler, ProviderSelectComponent, ProviderSelectHandler } from './provider-hub.handlers';
@@ -23,7 +24,9 @@ const ADMIN = '1550000000000000003';
 const MEMBER = '1550000000000000004';
 const PROVIDER = 'cmProviderId0000000000000';
 const SECRET = 'sk-test-secret';
-const FIELDS = ['slug', 'displayName', 'protocol', 'baseUrl', 'apiKey', 'extraConfig'];
+const FIELDS = ['name', 'protocol', 'baseUrl', 'apiKey', 'advanced'];
+/** À l'ajout, le protocole le plus courant est proposé, rien d'autre n'est prérempli. */
+const EMPTY_ADD_VALUES = [undefined, 'openai-chat', undefined, undefined, undefined];
 
 interface FakeInteraction {
   id: string;
@@ -147,14 +150,18 @@ describe('routage du panneau (métadonnées du dispatcher)', () => {
     }
   });
 
-  it('la modale porte l\u0027id, le titre et ses six champs dans l\u0027ordre, la clé en paragraphe facultative', () => {
+  it('la modale porte l\u0027id, le titre et ses cinq champs dans l\u0027ordre, dans la limite de Discord', () => {
     expect(Reflect.getOwnMetadata('spraxium:modal_handler', ProviderEditModalHandler)).toMatchObject({ builder: ProviderEditModal });
     expect(Reflect.getOwnMetadata('spraxium:modal_component', ProviderEditModal)).toMatchObject({ id: 'provider-edit', title: 'Fournisseur IA' });
     const json = modals().build(ProviderEditModal).toJSON();
+    // Incident du 24/11 : six champs, Discord rejette toute la modale au-delà de cinq.
+    expect(json.components.length).toBeLessThanOrEqual(MODAL_MAX_COMPONENTS);
     expect(json.components.map((entry) => ('component' in entry ? entry.component.custom_id : null))).toEqual(FIELDS);
     const inputs = json.components.flatMap((entry) => ('component' in entry && entry.component.type === ComponentType.TextInput ? [entry.component] : []));
-    expect(inputs.map((input) => input.required)).toEqual([true, false, true, true, false, false]);
-    expect(inputs[4]).toMatchObject({ style: 2, placeholder: 'Laisser vide conserve la clé actuelle' });
+    // Nom, protocole et URL exigés ; la clé (vide = conservée) et la config avancée explicitement facultatives.
+    expect(inputs.map((input) => input.required)).toEqual([true, true, true, false, false]);
+    expect(inputs[3]).toMatchObject({ style: 2, placeholder: 'Laisser vide conserve la clé actuelle' });
+    expect(inputs[4]).toMatchObject({ style: 2, required: false });
   });
 
   it('les paramètres d\u0027un customId se relisent, avec les deux séparateurs', () => {
@@ -200,7 +207,7 @@ describe('garde : seul un administrateur du serveur agit', () => {
 });
 
 describe('provider:select', () => {
-  it('« Ajouter un fournisseur » : la modale est la PREMIÈRE réponse, rien avant, champs vides', async () => {
+  it('« Ajouter un fournisseur » : la modale est la PREMIÈRE réponse, rien avant, seuls les défauts sont préremplis', async () => {
     const interaction = fakeInteraction({ values: [HUB_ADD], customId: 'provider:select~c=video.generate' });
     await selectHandler(harness()).handle(asInteraction(interaction));
     expect(interaction.showModal).toHaveBeenCalledTimes(1);
@@ -209,7 +216,8 @@ describe('provider:select', () => {
     expect(interaction.message.edit).not.toHaveBeenCalled();
     const modal = interaction.showModal.mock.calls[0]?.[0] as { custom_id: string; components: Array<{ component: { custom_id: string; value?: string } }> };
     expect(modal.custom_id).toBe('provider-edit~m=1550000000000000005');
-    expect(modal.components.map((entry) => entry.component.value)).toEqual(FIELDS.map(() => undefined));
+    expect(modal.components.length).toBeLessThanOrEqual(MODAL_MAX_COMPONENTS);
+    expect(modal.components.map((entry) => entry.component.value)).toEqual(EMPTY_ADD_VALUES);
   });
 
   it('sélection : le panneau est réaffiché avec ce fournisseur et la capacité courante, puis confirmé', async () => {

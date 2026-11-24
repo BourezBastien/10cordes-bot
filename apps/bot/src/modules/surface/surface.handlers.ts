@@ -29,6 +29,7 @@ import { PrismaService } from '../database/prisma.service';
 import { permissionsOf } from '../../core/security/permission-name';
 import { runToolAsActor } from '../../shared/actions/run-tool';
 import { fileLog } from '../logging/file-log.service';
+import { assertModalFits } from '../../shared/ui/modal-limits';
 
 const log = new Logger('SurfaceHandlers');
 
@@ -122,6 +123,8 @@ function buildSurfaceModal(surfaceId: string, bindingKey: string, spec: ModalSpe
     if (field.maxLength !== undefined) input.setMaxLength(field.maxLength);
     builder.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
   }
+  // Le schéma borne déjà les entrées à cinq : la garde en fixe la preuve.
+  assertModalFits(builder.toJSON(), 'Modale de surface');
   return builder;
 }
 

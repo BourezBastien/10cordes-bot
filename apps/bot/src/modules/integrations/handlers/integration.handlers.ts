@@ -6,6 +6,7 @@ import { guildAdminPolicy, interactionAccessContext } from '../../../core/securi
 import { getLlm } from '../../assistant/llm.accessor';
 import { normalizeBaseUrl } from '../../assistant/llm.service';
 import { fileLog } from '../../logging/file-log.service';
+import { assertModalFits } from '../../../shared/ui/modal-limits';
 import {
   INTEGRATION_LLM_BUTTON_ID,
   INTEGRATION_LLM_BUTTON_LABEL,
@@ -75,7 +76,9 @@ export class IntegrationOpenModalButtonHandler {
       return;
     }
     // showModal doit être la PREMIÈRE réponse de l'interaction (règle des 3 s).
-    await interaction.showModal(this.modals.build(IntegrationConfigModal)).catch(report('modale', interaction.id));
+    const modal = this.modals.build(IntegrationConfigModal);
+    assertModalFits(modal.toJSON(), 'Modale « Connecter un fournisseur IA »');
+    await interaction.showModal(modal).catch(report('modale', interaction.id));
   }
 }
 
