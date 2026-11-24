@@ -7,9 +7,13 @@
 
 export * from '../../shared/llm/chat-contract';
 
-/** Statut de connexion, clé masquée (jamais la clé). */
+/**
+ * Statut de connexion, clé masquée (jamais la clé). La source est celle que
+ * IntegrationService résout : la base (ligne chiffrée), ou l'environnement,
+ * qui ne sert qu'à une base encore vide.
+ */
 export interface LlmStatus {
-  source: 'modal' | 'env' | 'none';
+  source: 'db' | 'env' | 'none';
   provider: string | null;
   baseUrl: string | null;
   model: string | null;

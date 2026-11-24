@@ -93,7 +93,7 @@ function statusTool(llm: LlmClientFacade, imagelab: ImagelabService): BotTool {
         status.source === 'none'
           ? ['IA non connectée : aucun fournisseur. L\'owner peut la connecter via la modale (bouton du panneau).']
           : [
-              `IA connectée via ${status.source === 'modal' ? 'la modale' : "l'environnement"} : ${status.provider} / \`${status.model}\` (clé ${status.maskedKey}).`,
+              `IA connectée (${status.source === 'env' ? "environnement, base encore vide" : 'configuration en base, chiffrée'}) : ${status.provider} / \`${status.model}\` (clé ${status.maskedKey}).`,
             ];
       lines.push(imagelab.configured ? 'PixelLab connecté.' : 'PixelLab non configuré.');
       return { ok: true, summary: lines.join(' '), data: { ...status, pixellab: imagelab.configured } };

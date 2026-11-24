@@ -124,7 +124,7 @@ export class ConfigThreadService implements SpraxiumOnBoot {
         connected: llmStatus.source !== 'none' || chatRoute !== null,
         // Le modèle qui répond sur CE serveur : celui de sa route de conversation.
         model: chatRoute?.modelId ?? llmStatus.model,
-        source: llmStatus.source === 'modal' ? 'modal' : llmStatus.source === 'env' ? 'env' : 'none',
+        source: llmStatus.source === 'db' ? 'db' : llmStatus.source === 'env' ? 'env' : 'none',
       },
       thinkingMode: settings.thinkingMode,
       threadCreated: settings.configThreadId !== null,

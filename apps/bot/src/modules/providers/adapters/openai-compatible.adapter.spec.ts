@@ -167,6 +167,19 @@ describe('discoverModels', () => {
     serve({ data: [{ object: 'model' }, null, 'texte'] });
     expect(await adapter.discoverModels(config())).toEqual([]);
   });
+
+  it('des sorties déclarées par les métadonnées font foi, et un modèle multimodal garde toutes ses familles', async () => {
+    serve({
+      data: [
+        { id: 'vendor/painter', architecture: { output_modalities: ['text', 'image'] } },
+        { id: 'deepseek-flash', architecture: { output_modalities: ['text'] } },
+      ],
+    });
+    expect(await adapter.discoverModels(config())).toEqual([
+      { id: 'vendor/painter', [NAME]: 'vendor/painter', kind: 'chat', kinds: ['chat', 'image'] },
+      { id: 'deepseek-flash', [NAME]: 'deepseek-flash', kind: 'chat' },
+    ]);
+  });
 });
 
 describe('chat', () => {

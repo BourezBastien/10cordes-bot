@@ -1,4 +1,4 @@
-// AUTO-GÉNÉRÉ par apps/bot/scripts/sync-tool-names.mjs — NE PAS ÉDITER À LA MAIN.
+// AUTO-GÉNÉRÉ par apps/bot/scripts/sync-tool-names.mjs : NE PAS ÉDITER À LA MAIN.
 // Lance `node scripts/sync-tool-names.mjs` après avoir ajouté/renommé un tool.
 // Typage des SkillBlueprint.requiredTools : un skill référençant un tool
 // inexistant casse `pnpm typecheck`.
@@ -86,6 +86,8 @@ export const REGISTERED_TOOL_NAMES = [
   'guild.ingestStatus',
   'http.fetch',
   'image.compose',
+  'image.emoji',
+  'image.icon',
   'integrations.status',
   'jobs.cancel',
   'jobs.list',

@@ -2,11 +2,13 @@ import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
 import { AppEnv } from '../../app.env';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
-import { decryptSecret, encryptSecret } from '../../shared/crypto/secret-box';
+import { encryptSecret } from '../../shared/crypto/secret-box';
 import { bindProvidersRuntime } from './providers.runtime';
 import { PROVIDER_AUTH_TYPES, PROVIDER_PROTOCOLS, ProviderError, isCapability, type Capability, type ProviderAuthType, type ProviderConfig, type ProviderModel, type ProviderProtocol } from './provider.types';
 import { assertProviderUrl } from './provider-http';
 import { CONVERSATION_FOLLOWERS, CONVERSATION_LINK_HEAD, sameTarget, type RouteTarget } from './provider-route.links';
+import { assertModelServes } from './provider-model.kinds';
+import { MODEL_ID_MAX, boundedModels, providerFromRow, providerSecrets } from './provider-store.codec';
 import { hasKeys, parseModels, parseRecord, reservedKeys } from './provider-store.json';
 
 /**
@@ -17,7 +19,6 @@ import { hasKeys, parseModels, parseRecord, reservedKeys } from './provider-stor
  */
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,47}$/u;
-const MODEL_ID_MAX = 120;
 const ROUTES_CACHE_TTL_MS = 30_000;
 
 export interface ProviderInput {
@@ -69,18 +70,18 @@ export class GuildProviderService implements SpraxiumOnBoot {
 
   async list(guildId: string): Promise<ProviderConfig[]> {
     const rows = await this.prisma.guildProvider.findMany({ where: { guildId }, orderBy: { createdAt: 'asc' } });
-    return rows.map((row) => this.toConfig(row));
+    return rows.map((row) => providerFromRow(row, providerSecrets(this.env)));
   }
 
   /** Fournisseurs dont les options contiennent `mark` (fragment JSON exact d'une origine de création), tous serveurs confondus. */
   async listMarked(mark: string): Promise<ProviderConfig[]> {
     const rows = await this.prisma.guildProvider.findMany({ where: { extraConfigJson: { contains: mark } } });
-    return rows.map((row) => this.toConfig(row));
+    return rows.map((row) => providerFromRow(row, providerSecrets(this.env)));
   }
 
   async get(guildId: string, idOrSlug: string): Promise<ProviderConfig | null> {
     const row = await this.prisma.guildProvider.findFirst({ where: { guildId, OR: [{ id: idOrSlug }, { slug: idOrSlug }] } });
-    return row ? this.toConfig(row) : null;
+    return row ? providerFromRow(row, providerSecrets(this.env)) : null;
   }
 
   async upsert(guildId: string, input: ProviderInput, actorId: string): Promise<ProviderConfig> {
@@ -92,7 +93,7 @@ export class GuildProviderService implements SpraxiumOnBoot {
     const baseUrl = assertProviderUrl(input.baseUrl);
     const existing = await this.prisma.guildProvider.findUnique({ where: { guildId_slug: { guildId, slug } } });
     // Pas de nouvelle clé : l'actuelle est conservée (une chaîne vide l'efface).
-    const apiKey = input.apiKey === undefined ? (existing?.encryptedApiKey ?? null) : input.apiKey ? encryptSecret(input.apiKey, this.secrets()) : null;
+    const apiKey = input.apiKey === undefined ? (existing?.encryptedApiKey ?? null) : input.apiKey ? encryptSecret(input.apiKey, providerSecrets(this.env)) : null;
     // Options et en-têtes absents ou vides : les actuels sont conservés. Les clés
     // réservées (`_source`, `_model`) marquent l'origine du fournisseur et ne se perdent pas.
     const headersJson = hasKeys(input.customHeaders) ? JSON.stringify(input.customHeaders) : undefined;
@@ -134,7 +135,7 @@ export class GuildProviderService implements SpraxiumOnBoot {
       metadata: { providerId: row.id, slug: row.slug, protocol: row.protocol, host: new URL(baseUrl).host, keyChanged: input.apiKey !== undefined, enabled: row.enabled },
     });
     this.invalidate(guildId);
-    return this.toConfig(row);
+    return providerFromRow(row, providerSecrets(this.env));
   }
 
   async remove(guildId: string, idOrSlug: string, actorId: string): Promise<boolean> {
@@ -146,10 +147,22 @@ export class GuildProviderService implements SpraxiumOnBoot {
     return true;
   }
 
+  /** Renomme un fournisseur : même ligne, même identifiant, ses routes sont conservées. */
+  async rename(guildId: string, providerId: string, slug: string, actorId = 'system'): Promise<boolean> {
+    const row = await this.prisma.guildProvider.findFirst({ where: { guildId, id: providerId } });
+    if (!row) return false;
+    if (row.slug === slug) return true;
+    const taken = await this.prisma.guildProvider.findUnique({ where: { guildId_slug: { guildId, slug } } });
+    if (taken) throw new ProviderError(`Slug « ${slug} » déjà pris sur ce serveur.`, 'invalid');
+    await this.prisma.guildProvider.update({ where: { id: row.id }, data: { slug: slug.trim().toLowerCase() } });
+    this.audit.record({ guildId, source: 'agent', action: 'provider.renamed', actorId, metadata: { providerId: row.id, from: row.slug, to: slug } });
+    this.invalidate(guildId);
+    return true;
+  }
+
   /** Retient le catalogue découvert (ou saisi) d'un fournisseur. */
   async saveModels(guildId: string, providerId: string, models: ProviderModel[]): Promise<void> {
-    const bounded = models.slice(0, 500).map((model) => ({ id: String(model.id).slice(0, MODEL_ID_MAX), name: model.name?.slice(0, 120), kind: model.kind, contextWindow: model.contextWindow, maxOutput: model.maxOutput }));
-    await this.prisma.guildProvider.update({ where: { id: providerId }, data: { cachedModelsJson: JSON.stringify(bounded) } });
+    await this.prisma.guildProvider.update({ where: { id: providerId }, data: { cachedModelsJson: JSON.stringify(boundedModels(models)) } });
     this.invalidate(guildId);
   }
 
@@ -164,6 +177,8 @@ export class GuildProviderService implements SpraxiumOnBoot {
     if (!provider) throw new ProviderError('Fournisseur introuvable sur ce serveur.', 'invalid');
     const modelId = input.modelId.trim().slice(0, MODEL_ID_MAX);
     if (!modelId) throw new ProviderError('Identifiant de modèle requis.', 'invalid');
+    // Un modèle du catalogue qui déclare ne pas servir cette capacité : refus, et les modèles qui la servent sont nommés.
+    assertModelServes(parseModels(provider.cachedModelsJson), modelId, capability, provider.slug);
     // Non précisés (absents), le repli et les paramètres actuels de la route sont conservés ; un repli à `null` est retiré.
     const existing = await this.prisma.capabilityRoute.findUnique({ where: { guildId_capability: { guildId, capability } } });
     const fallbackProviderId = await this.fallbackId(guildId, input, existing);
@@ -249,31 +264,5 @@ export class GuildProviderService implements SpraxiumOnBoot {
       });
     }
     return resolved;
-  }
-
-  private secrets() {
-    return { encryption: this.env.ENCRYPTION_SECRET, betterAuth: this.env.BETTER_AUTH_SECRET, token: this.env.token };
-  }
-
-  private toConfig(row: {
-    id: string; guildId: string; slug: string; displayName: string; protocol: string; baseUrl: string; authType: string; authHeaderName: string | null;
-    encryptedApiKey: string | null; customHeadersJson: string | null; extraConfigJson: string | null; cachedModelsJson: string | null; enabled: boolean;
-  }): ProviderConfig {
-    const decrypted = row.encryptedApiKey ? decryptSecret(row.encryptedApiKey, this.secrets()) : null;
-    return {
-      id: row.id,
-      guildId: row.guildId,
-      slug: row.slug,
-      displayName: row.displayName,
-      protocol: row.protocol as ProviderProtocol,
-      baseUrl: row.baseUrl,
-      authType: row.authType as ProviderAuthType,
-      authHeaderName: row.authHeaderName,
-      apiKey: decrypted,
-      customHeaders: parseRecord(row.customHeadersJson) as Record<string, string>,
-      extraConfig: parseRecord(row.extraConfigJson),
-      models: parseModels(row.cachedModelsJson),
-      enabled: row.enabled,
-    };
   }
 }

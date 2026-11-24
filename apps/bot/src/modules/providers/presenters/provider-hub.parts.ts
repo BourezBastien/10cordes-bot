@@ -1,6 +1,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } from 'discord.js';
 import { CAPABILITY_LABELS, NATIVE_CAPABILITIES, capabilityKind, type NativeCapability, type ProviderModel } from '../provider.types';
 import type { ProviderView, RouteView } from '../provider-views';
+import { kindsOf } from '../provider-model.kinds';
 import { HUB_ADD, HUB_EMPTY, PROVIDER_HUB_IDS, PROVIDER_HUB_LABELS, PROVIDER_HUB_PAGE_SIZE, hubId } from './provider-hub.contracts';
 import type { ProviderHubView } from './provider-hub.presenter';
 
@@ -75,7 +76,8 @@ function windowLabel(size: number): string {
  * demandée est ramenée dans les pages existantes.
  */
 export function modelPage(provider: ProviderView | null, capability: string, requested: number): ModelPage {
-  const kind = capabilityKind(capability);
+  const wanted = capabilityKind(capability);
+  const kind = wanted === 'custom' ? null : wanted;
   const seen = new Set<string>();
   const listable: ProviderModel[] = [];
   for (const model of provider?.catalog ?? []) {
@@ -83,7 +85,8 @@ export function modelPage(provider: ProviderView | null, capability: string, req
     seen.add(model.id);
     listable.push(model);
   }
-  const matching = listable.filter((model) => model.kind === kind);
+  // Toutes les familles que le modèle sert comptent (détectées ou posées à la main), pas seulement la principale.
+  const matching = kind ? listable.filter((model) => kindsOf(model).includes(kind)) : [];
   const models = matching.length > 0 ? matching : listable;
   const pages = Math.max(1, Math.ceil(models.length / PROVIDER_HUB_PAGE_SIZE));
   const page = Math.min(Math.max(Math.trunc(requested) || 1, 1), pages);

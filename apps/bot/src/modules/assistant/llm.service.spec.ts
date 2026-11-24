@@ -96,7 +96,15 @@ function attemptsOf(target: ResolvedRoute | null, adapters: AbstractProviderAdap
     : [];
 }
 
-function harness(options: { route?: ResolvedRoute | null; reasoning?: ResolvedRoute; adapters?: AbstractProviderAdapter[]; env?: Record<string, string>; mode?: 'adaptive' | 'always' | 'off' } = {}) {
+/** Configuration d'instance telle qu'IntegrationService la résout (le harnais n'a pas de base). */
+interface Instance {
+  config: Record<string, string>;
+  source?: 'db' | 'env' | 'none';
+}
+
+const INSTANCE: Instance = { config: { baseUrl: 'https://instance.example.test', apiKey: `${KEY}-instance`, model: 'instance-model' }, source: 'db' };
+
+function harness(options: { route?: ResolvedRoute | null; reasoning?: ResolvedRoute; adapters?: AbstractProviderAdapter[]; env?: Record<string, string>; mode?: 'adaptive' | 'always' | 'off'; instance?: Instance } = {}) {
   const active = options.route ?? null;
   const adapters = options.adapters ?? [];
   // Comme CapabilityRouterService : la requête qui raisonne prend la route chat.reasoning du serveur, sinon chat.default.
@@ -107,7 +115,10 @@ function harness(options: { route?: ResolvedRoute | null; reasoning?: ResolvedRo
     reconcileInstance: vi.fn(async () => ({ checked: 0, updated: 0 })),
   };
   const env = { LLM_API_KEY: undefined, LLM_API_URL: undefined, LLM_MODEL: undefined, LLM_EFFORT: 'high', ...options.env } as unknown as AppEnv;
-  const integrations = { get: vi.fn(async () => ({ id: 'llm', config: {}, source: 'none' })), upsert: vi.fn() };
+  const integrations = {
+    get: vi.fn(async () => ({ id: 'llm', config: {}, source: 'none', ...options.instance })),
+    upsert: vi.fn(async (_id: string, _fields: Record<string, string>, _actorId: string): Promise<void> => undefined),
+  };
   const registry = { register: vi.fn() };
   const settings = { get: vi.fn(async () => ({ thinkingMode: options.mode ?? 'adaptive' })) };
   const service = new LlmService(env, registry as never, {} as never, {} as never, integrations as unknown as IntegrationService, router as never, settings as never);
@@ -137,14 +148,17 @@ describe('LlmService · modèle et fournisseur du tour', () => {
   });
 
   it('sans route : configuration d\u0027instance, ou refus explicite si elle n\u0027existe pas', async () => {
-    const fetchMock = serveByHost({});
-    const instance = harness({ env: { LLM_API_URL: 'https://instance.example.test', LLM_API_KEY: `${KEY}-instance`, LLM_MODEL: 'instance-model' } });
+    serveByHost({});
+    const instance = harness({ instance: INSTANCE });
+    await instance.service.onBoot();
+    const fetchMock = vi.mocked(fetch);
     await instance.service.chat(messages(), [], chatOptions());
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe('https://instance.example.test/chat/completions');
-    expect(bodyOf(fetchMock.mock.calls[0]?.[1]).model).toBe('instance-model');
+    expect(bodyOf(fetchMock.mock.calls[0]?.[1])).toMatchObject({ model: 'instance-model' });
 
     fetchMock.mockClear();
     const bare = harness();
+    await bare.service.onBoot();
     await expect(bare.service.chat(messages(), [], chatOptions())).rejects.toThrow(NOT_CONFIGURED_MESSAGE);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -269,10 +283,10 @@ describe('LlmService · effort et capacité de conversation, décidés une fois'
 describe('LlmService · configuration d\u0027instance et disponibilité', () => {
   it('au boot, la ligne d\u0027instance est lue déchiffrée auprès d\u0027IntegrationService, puis les copies sont alignées', async () => {
     const { service, integrations, router, registry } = harness();
-    integrations.get.mockResolvedValue({ id: 'llm', config: { apiKey: `${KEY}-db`, baseUrl: 'https://instance.example.test', model: 'db-model' }, source: 'db' } as never);
+    integrations.get.mockResolvedValue({ ...INSTANCE, config: { apiKey: `${KEY}-db`, baseUrl: 'https://instance.example.test', model: 'db-model' }, source: 'db' } as never);
     await service.onBoot();
     expect(service.configured).toBe(true);
-    expect(service.status()).toMatchObject({ source: 'modal', model: 'db-model' });
+    expect(service.status()).toMatchObject({ source: 'db', model: 'db-model' });
     expect(service.status().maskedKey).toContain('…');
     expect(service.status().maskedKey).not.toContain(KEY);
     expect(router.reconcileInstance).toHaveBeenCalledTimes(1);
@@ -284,13 +298,42 @@ describe('LlmService · configuration d\u0027instance et disponibilité', () => 
     const { service } = harness();
     await service.onBoot();
     expect(service.configured).toBe(false);
+    expect(service.status().source).toBe('none');
+  });
+
+  it('la base a la priorité absolue : des variables LLM_* présentes ne ressuscitent pas une instance sans ligne lisible', async () => {
+    serveByHost({});
+    const { service } = harness({ env: { LLM_API_URL: 'https://env.example.test', LLM_API_KEY: `${KEY}-env`, LLM_MODEL: 'env-model' } });
+    await service.onBoot();
+    expect(service.configured).toBe(false);
+    await expect(service.chat(messages(), [], chatOptions())).rejects.toThrow(NOT_CONFIGURED_MESSAGE);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('une base encore vide : l\u0027environnement sert, et le statut le dit', async () => {
+    const { service } = harness({ instance: { ...INSTANCE, source: 'env' } });
+    await service.onBoot();
+    expect(service.configured).toBe(true);
+    expect(service.status()).toMatchObject({ source: 'env', model: 'instance-model' });
+  });
+
+  it('la modale enregistre la ligne d\u0027instance : la source devient la base, et les copies suivent', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response('{"data":[{"id":"deepseek-flash"}]}', { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { service, integrations, router } = harness();
+    await service.applyConfig('custom', 'https://api.deepseek.com', `${KEY}-modal`, 'deepseek-flash');
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe('https://api.deepseek.com/models');
+    expect(integrations.upsert).toHaveBeenCalledWith('llm', { baseUrl: 'https://api.deepseek.com', apiKey: `${KEY}-modal`, model: 'deepseek-flash' }, 'modal');
+    expect(service.status()).toMatchObject({ source: 'db', baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash' });
+    expect(router.reconcileInstance).toHaveBeenCalledTimes(1);
   });
 
   it('un serveur sans instance est servable dès qu\u0027il a une route de conversation', async () => {
     expect(await harness().service.isConfiguredFor(GUILD)).toBe(false);
     expect(await harness().service.isConfiguredFor(null)).toBe(false);
     expect(await harness({ route: route(provider('routed')) }).service.isConfiguredFor(GUILD)).toBe(true);
-    const withInstance = harness({ env: { LLM_API_URL: 'https://instance.example.test', LLM_API_KEY: `${KEY}-instance` } });
+    const withInstance = harness({ instance: INSTANCE });
+    await withInstance.service.onBoot();
     expect(await withInstance.service.isConfiguredFor(null)).toBe(true);
   });
 });

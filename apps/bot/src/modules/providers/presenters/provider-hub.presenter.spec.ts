@@ -170,6 +170,19 @@ describe('ProviderHubPresenter · menu des modèles', () => {
     expect(voices.options?.map((option) => option.value)).toEqual(['gpt-4o', 'gpt-image-1']);
   });
 
+  it('un modèle qui sert plusieurs familles est proposé pour chacune ; une capacité libre propose tout le catalogue', () => {
+    const multimodal: ProviderModel[] = [
+      { id: 'vendor/painter', kind: 'chat', kinds: ['chat', 'image'] },
+      { id: 'gpt-4o', kind: 'chat' },
+    ];
+    const models = (selectedCapability: ProviderHubView['selectedCapability']) =>
+      menu(render(view({ providers: [provider({ catalog: multimodal, models: 2 })], selectedCapability })), PROVIDER_HUB_IDS.model).options?.map((option) => option.value);
+    // Dans l'ordre du catalogue.
+    expect(models('image.generate')).toEqual(['vendor/painter']);
+    expect(models('chat.default')).toEqual(['vendor/painter', 'gpt-4o']);
+    expect(models('custom.kie-image')).toEqual(['vendor/painter', 'gpt-4o']);
+  });
+
   it('le modèle de la route courante est présélectionné, avec sa famille et sa fenêtre de contexte', () => {
     const select = menu(render(view({ routes: [route()] })), PROVIDER_HUB_IDS.model);
     expect(select.options?.find((option) => option.value === 'gpt-4o')?.default).toBe(true);

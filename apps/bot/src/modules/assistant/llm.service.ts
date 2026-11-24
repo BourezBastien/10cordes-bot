@@ -26,7 +26,7 @@ export { fromApiToolName, normalizeBaseUrl, toApiToolName } from './llm.utils';
 
 const log = new Logger('Llm');
 
-/** Configuration runtime du LLM (modale owner), prioritaire sur l'env. */
+/** Configuration d'instance en mémoire : la ligne chargée au démarrage, ou celle que la modale vient d'enregistrer. */
 interface LlmRuntimeConfig {
   provider: string;
   baseUrl: string;
@@ -52,14 +52,16 @@ export interface LlmRequestPlan {
  * Client LLM (chat + tool calling), orchestrateur du moteur multi-fournisseurs.
  * Chaque tour est envoyé au modèle que son serveur a associé à la capacité
  * (route `chat.reasoning` ou `chat.default`), avec repli automatique sur le
- * fournisseur de secours ; sans route, à la configuration d'instance (modale
- * owner ou env). Où envoyer : ChatEndpointPlanner ; comment : ChatTransport.
+ * fournisseur de secours ; sans route, à la configuration d'instance (ligne
+ * en base, lue auprès d'IntegrationService). Où envoyer : ChatEndpointPlanner ; comment : ChatTransport.
  * Détient les secrets d'instance : la décision d'effort et les tools vivent
  * dans des modules sans secret.
  */
 @Injectable()
 export class LlmService implements SpraxiumOnBoot {
   private runtime: LlmRuntimeConfig | null = null;
+  /** D'où IntegrationService a tiré la configuration d'instance chargée. */
+  private instanceSource: LlmStatus['source'] = 'none';
   private readonly effortPlanner: ReasoningEffortPlanner;
   private readonly endpoints: ChatEndpointPlanner;
   private readonly transport: ChatTransport;
@@ -80,10 +82,13 @@ export class LlmService implements SpraxiumOnBoot {
 
   async onBoot(): Promise<void> {
     setLlmAccessor(this);
-    // La ligne d'instance est chiffrée en base : IntegrationService est le seul à déchiffrer.
+    // La base a la priorité absolue : IntegrationService est le SEUL à lire les
+    // variables LLM_* (base vide uniquement) et à déchiffrer la ligne d'instance.
+    // Aucun autre repli sur l'environnement ici.
     const instance = await this.integrations.get('llm').catch(() => null);
-    if (instance?.source === 'db') {
-      this.runtime = { provider: 'custom', baseUrl: instance.config.baseUrl ?? '', apiKey: instance.config.apiKey ?? '', model: instance.config.model ?? '' };
+    if (instance?.config.apiKey) {
+      this.runtime = { provider: 'custom', baseUrl: instance.config.baseUrl ?? '', apiKey: instance.config.apiKey, model: instance.config.model ?? '' };
+      this.instanceSource = instance.source;
     }
     // Les serveurs qui utilisent une copie de la configuration d'instance
     // (clé d'env tournée, modèle changé) sont alignés ici, une fois au boot.
@@ -95,7 +100,7 @@ export class LlmService implements SpraxiumOnBoot {
   }
 
   get configured(): boolean {
-    return Boolean(this.runtime?.apiKey || this.env.LLM_API_KEY);
+    return Boolean(this.runtime?.apiKey);
   }
 
   /** Ce serveur peut-il converser : une route de conversation, sinon la configuration d'instance. */
@@ -105,40 +110,28 @@ export class LlmService implements SpraxiumOnBoot {
   }
 
   get model(): string {
-    return this.runtime?.model || this.env.LLM_MODEL || '';
+    return this.runtime?.model || '';
   }
 
-  /** Runtime (modal) PRIME ; sinon bootstrap env. La clé ET l'URL retombent
-   * ensemble sur l'env (le bug « Invalid URL: null » venait du fallback oublié). */
+  /** Configuration d'instance chargée au démarrage. La clé ET l'URL viennent ensemble (le bug « Invalid URL: null » venait d'un repli partiel). */
   private get baseUrl(): string | null {
-    return this.runtime?.baseUrl ?? this.env.LLM_API_URL ?? null;
+    return this.runtime?.baseUrl ?? null;
   }
 
   private get apiKey(): string | undefined {
-    return this.runtime?.apiKey ?? this.env.LLM_API_KEY;
+    return this.runtime?.apiKey;
   }
 
   /** Statut masqué (clé tronquée) de l'instance, pour les tools et le panneau de configuration. */
   status(): LlmStatus {
-    if (this.runtime) {
-      return {
-        source: 'modal',
-        provider: this.runtime.provider,
-        baseUrl: this.runtime.baseUrl,
-        model: this.runtime.model,
-        maskedKey: maskKey(this.runtime.apiKey),
-      };
-    }
-    if (this.env.LLM_API_KEY && this.env.LLM_API_URL) {
-      return {
-        source: 'env',
-        provider: 'env',
-        baseUrl: this.env.LLM_API_URL ?? null,
-        model: this.env.LLM_MODEL ?? null,
-        maskedKey: maskKey(this.env.LLM_API_KEY),
-      };
-    }
-    return { source: 'none', provider: null, baseUrl: null, model: null, maskedKey: null };
+    if (!this.runtime) return { source: 'none', provider: null, baseUrl: null, model: null, maskedKey: null };
+    return {
+      source: this.instanceSource,
+      provider: this.runtime.provider,
+      baseUrl: this.runtime.baseUrl,
+      model: this.runtime.model,
+      maskedKey: maskKey(this.runtime.apiKey),
+    };
   }
 
   /** Teste la connexion (GET /models) puis persiste : effet immédiat, sans restart. */
@@ -152,7 +145,13 @@ export class LlmService implements SpraxiumOnBoot {
       throw new Error(`Connexion échouée (${response.status}) : ${detail.slice(0, 160) || 'vérifie la clé et la base URL'}`);
     }
     this.runtime = { provider, baseUrl: cleanBase, apiKey, model: model.trim() };
-    await this.integrations.upsert('llm', { baseUrl: cleanBase, apiKey, model: model.trim() }, 'modal').catch(() => {});
+    // Ligne d'instance écrite : la source devient la base. En échec d'écriture, la
+    // configuration reste en mémoire pour ce processus (source inchangée).
+    const persisted = await this.integrations.upsert('llm', { baseUrl: cleanBase, apiKey, model: model.trim() }, 'modal').then(
+      () => true,
+      () => false,
+    );
+    if (persisted) this.instanceSource = 'db';
     // Les serveurs qui utilisent une copie de cette configuration suivent le changement.
     await this.router.reconcileInstance().catch(() => null);
   }

@@ -2,6 +2,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { providerFetch, providerHttpError, readJson } from '../provider-http';
 import { ProviderError, type ProviderConfig, type ProviderErrorKind } from '../provider.types';
 import { asNumber, asRecord, asText, redactSecret } from './kie-unified.json';
+import { collectResultUrls } from './kie-unified.results';
 import { KIE_CREATE_TASK_PATH, KIE_RECORD_INFO_PATH, type KiePollTiming, type KieTaskBody } from './kie-unified.tasks';
 
 /**
@@ -102,8 +103,30 @@ export async function createKieTask(config: ProviderConfig, body: KieTaskBody, s
 }
 
 function failedTaskError(data: Record<string, unknown>, config: ProviderConfig, taskId: string): ProviderError {
-  const reason = excerpt(asText(data.errorMsg) ?? 'raison non précisée', config);
+  const reason = excerpt(asText(data.failMsg) ?? asText(data.errorMsg) ?? asText(data.failCode) ?? 'raison non précisée', config);
   return new ProviderError(`La tâche kie.ai ${taskId} a échoué : ${reason}`, 'http');
+}
+
+/** États que kie.ai donne à une tâche terminée, en succès ou en échec. */
+const FAILED_STATES: ReadonlySet<string> = new Set(['failed', 'fail', 'error', 'cancelled', 'canceled']);
+const DONE_STATES: ReadonlySet<string> = new Set(['success', 'succeed', 'succeeded', 'completed', 'complete', 'finished', 'done']);
+
+/**
+ * Issue d'une sonde. kie.ai rend l'état d'une tâche dans `state` (waiting,
+ * puis success), pas dans `status` : forme observée le 24/11 sur une tâche
+ * z-image, prête en 8 s, qu'une lecture de `status` laissait attendre le
+ * délai entier. `status` reste lu comme alias, et une tâche à l'état inconnu
+ * qui porte déjà des fichiers produits compte comme réussie.
+ */
+function isDone(record: Record<string, unknown>, config: ProviderConfig, taskId: string): boolean {
+  const state = (asText(record.state) ?? asText(record.status) ?? '').toLowerCase();
+  if (FAILED_STATES.has(state)) throw failedTaskError(record, config, taskId);
+  if (DONE_STATES.has(state) || asNumber(record.successFlag) === 1) return true;
+  const files = collectResultUrls(record);
+  // Un défaut que kie.ai n'a pas formulé en état : un code ou un message d'échec, sans fichier produit.
+  const failed = (record.failCode !== null && record.failCode !== undefined && record.failCode !== '') || Boolean(asText(record.failMsg));
+  if (failed && files.length === 0) throw failedTaskError(record, config, taskId);
+  return files.length > 0;
 }
 
 /** `GET /api/v1/jobs/recordInfo?taskId=...` : contenu de `data` de la tâche. */
@@ -130,9 +153,7 @@ export async function pollKieTask(config: ProviderConfig, taskId: string, timing
     // La dernière attente est écrêtée au temps restant : on ne dépasse jamais le délai d'une intervalle entière.
     await waitBeforePoll(Math.min(timing.pollIntervalMs, timing.maxWaitMs - elapsedMs), taskId, signal);
     const record = await fetchRecord(config, taskId, signal);
-    const status = (asText(record.status) ?? '').toLowerCase();
-    if (status === 'failed') throw failedTaskError(record, config, taskId);
-    if (status === 'success') return { record, elapsedMs: Date.now() - startedAt };
+    if (isDone(record, config, taskId)) return { record, elapsedMs: Date.now() - startedAt };
   }
   return { record: null, elapsedMs: Date.now() - startedAt };
 }

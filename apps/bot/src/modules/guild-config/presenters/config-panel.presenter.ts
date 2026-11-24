@@ -29,7 +29,8 @@ export interface ConfigPanelView {
   providers?: Array<{ slug: string; protocol: string; hasKey: boolean; enabled: boolean; models: number }>;
   /** Capacités routées vers un modèle sur ce serveur. Absent : aucune. */
   routes?: Array<{ label: string; slug: string; model: string; fallback: string | null }>;
-  llm: { connected: boolean; model: string | null; source: 'env' | 'modal' | 'none' };
+  /** `env` : base encore vide, l'environnement sert le temps de l'import. */
+  llm: { connected: boolean; model: string | null; source: 'env' | 'db' | 'none' };
   thinkingMode: 'adaptive' | 'always' | 'off';
   threadCreated: boolean;
 }
@@ -76,7 +77,7 @@ export class ConfigPanelPresenter {
         }`;
       })
       .join('\n');
-    const llmSource = view.llm.source === 'env' ? 'bootstrap env' : view.llm.source === 'modal' ? 'configuré depuis Discord' : '';
+    const llmSource = view.llm.source === 'env' ? 'environnement, en attente d\u0027import en base' : view.llm.source === 'db' ? 'en base, chiffrée' : '';
     blocks.push(
       notice(
         `**Intégrations**\n${integrationLines}\n- Agent IA : ${

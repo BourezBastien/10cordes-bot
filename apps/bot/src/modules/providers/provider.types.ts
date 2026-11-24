@@ -64,7 +64,10 @@ export type ModelKind = 'chat' | 'image' | 'music' | 'tts' | 'video' | 'search' 
 export interface ProviderModel {
   id: string;
   name?: string;
+  /** Famille principale (la première de `kinds`). */
   kind?: ModelKind;
+  /** Toutes les familles que le modèle sert, détectées (métadonnées de `/models`, sinon identifiant) ou posées à la main. Absent : `kind` seule. */
+  kinds?: ModelKind[];
   contextWindow?: number;
   maxOutput?: number;
 }

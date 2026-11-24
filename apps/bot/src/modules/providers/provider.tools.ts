@@ -94,9 +94,9 @@ export function buildProviderTools(deps: ProviderToolsDeps): BotTool[] {
       ...admin,
       name: 'provider.upsert',
       description:
-        'Ajoute ou modifie un fournisseur IA du serveur (OpenRouter, DeepSeek, Google AI Studio, Groq, Z.ai, PixelLab, ElevenLabs, kie.ai, ou toute API OpenAI-compatible), vérifie la connexion et charge le catalogue des modèles. Protocoles : openai-chat (compatible OpenAI), anthropic-messages, kie-unified, generic-http.',
+        'Ajoute ou modifie un fournisseur de modèles IA du serveur (OpenRouter, DeepSeek, Google AI Studio, Groq, Z.ai, Anthropic, ElevenLabs, kie.ai, ou toute API OpenAI-compatible), vérifie la connexion et charge le catalogue des modèles. PixelLab n\u0027est pas un fournisseur de modèles : c\u0027est une intégration. Protocoles : openai-chat (compatible OpenAI), anthropic-messages, kie-unified, generic-http.',
       paramsSchema: z.object({
-        slug: SLUG.describe('Nom court unique du fournisseur (ex : openrouter, deepseek-official, kie-main)'),
+        slug: SLUG.describe('Nom court unique du fournisseur (ex : openrouter, deepseek-official, kie-ai)'),
         displayName: z.string().max(80).optional(),
         protocol: z.enum(PROVIDER_PROTOCOLS),
         baseUrl: z.string().min(8).max(300).describe('URL de base https de l\u0027API (ex : https://openrouter.ai/api/v1)'),

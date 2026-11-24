@@ -14,6 +14,8 @@ import { GuildConfigService } from '../guild-config/guild-config.service';
 import { GuildRulesService } from '../rules/guild-rules.service';
 import { SkillPatternDetector } from '../agent/skill-pattern.detector';
 import { IntegrationStatusPresenter } from '../integrations/presenters/integration-status.presenter';
+import { GuildIntegrationService } from '../integrations/guild-integration.service';
+import { CapabilityRouterService } from '../providers/capability-router.service';
 import { guildAccessContext, guildAdminPolicy, guildManagerPolicy } from '../../core/security/access-policy';
 import { AgentLoopService } from './agent-loop.service';
 import { buildLastSnapshotTool } from './agent-history';
@@ -71,6 +73,8 @@ export class AssistantService {
     private readonly guildRules: GuildRulesService,
     private readonly patterns: SkillPatternDetector,
     private readonly cacheStore: CacheStoreService,
+    private readonly router: CapabilityRouterService,
+    private readonly integrations: GuildIntegrationService,
   ) {
     this.contextBuilder = new ConversationContextBuilder({
       client: this.client,
@@ -79,6 +83,8 @@ export class AssistantService {
       memory: this.memory,
       prisma: this.prisma,
       guildRules: this.guildRules,
+      router: this.router,
+      integrations: this.integrations,
     });
     this.runner = new AgentReplyRunner({
       loop: this.loop,

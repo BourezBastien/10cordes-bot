@@ -2,8 +2,8 @@
  * Génère packages/shared/src/tools/registry-names.ts : l'union des noms de
  * tools réellement déclarés dans apps/bot/src (source : les `name: '...'`
  * des définitions BotTool). Lancé par `pnpm verify` : un tool ajouté/renommé
- * sans re-générer ce fichier fait échouer la vérification (git diff non vide)
- * — et un SkillBlueprint référençant un tool inexistant casse typecheck.
+ * sans re-générer ce fichier fait échouer la vérification (git diff non vide),
+ * et un SkillBlueprint référençant un tool inexistant casse typecheck.
  *
  * Usage : node scripts/sync-tool-names.mjs [--check]
  *   --check : génère en mémoire et sort 1 si le fichier commité diverge.
@@ -39,7 +39,7 @@ for (const rel of files) {
 }
 
 const sorted = [...names].sort();
-const banner = `// AUTO-GÉNÉRÉ par apps/bot/scripts/sync-tool-names.mjs — NE PAS ÉDITER À LA MAIN.
+const banner = `// AUTO-GÉNÉRÉ par apps/bot/scripts/sync-tool-names.mjs : NE PAS ÉDITER À LA MAIN.
 // Lance \`node scripts/sync-tool-names.mjs\` après avoir ajouté/renommé un tool.
 // Typage des SkillBlueprint.requiredTools : un skill référençant un tool
 // inexistant casse \`pnpm typecheck\`.

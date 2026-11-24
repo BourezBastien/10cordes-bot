@@ -68,7 +68,7 @@ async function failure(promise: Promise<unknown>): Promise<ProviderError> {
 
 const CREATED = { code: 200, msg: 'success', data: { taskId: 't1' } };
 
-/** createTask puis recordInfo : `processing` N fois, puis le succès avec `final`. */
+/** createTask puis recordInfo, dans la forme réelle de kie.ai : `waiting` N fois (`state`, sans fichier), puis le succès avec `final`. */
 function taskRoutes(final: Record<string, unknown>, processing = 1) {
   let polls = 0;
   return (call: FetchCall): Response | undefined => {
@@ -76,7 +76,11 @@ function taskRoutes(final: Record<string, unknown>, processing = 1) {
     if (call.url.pathname === '/api/v1/jobs/recordInfo') {
       const current = polls;
       polls += 1;
-      return json(current < processing ? { code: 200, data: { taskId: 't1', status: 'processing' } } : { code: 200, msg: 'success', data: { taskId: 't1', status: 'success', ...final } });
+      return json(
+        current < processing
+          ? { code: 200, msg: 'success', data: { taskId: 't1', state: 'waiting', successFlag: 0, failCode: null, failMsg: null, resultJson: '' } }
+          : { code: 200, msg: 'success', data: { taskId: 't1', state: 'success', successFlag: 1, failCode: null, failMsg: null, ...final } },
+      );
     }
     return undefined;
   };

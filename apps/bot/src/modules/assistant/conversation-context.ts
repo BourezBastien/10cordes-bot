@@ -18,6 +18,9 @@ import { detectRequestIntent, type RequestIntent } from './request-intent';
 import { sanitizeTranscriptLine } from './reply-text';
 import { pinnedToolGuidance, selectRelevantTools, toolToOpenAiTool } from './tool-selection';
 import { buildSystemPrompt } from './system-prompt.builder';
+import { GuildIntegrationService } from '../integrations/guild-integration.service';
+import { imageEnginesLine } from '../providers/image-engines';
+import { CapabilityRouterService } from '../providers/capability-router.service';
 
 const TRANSCRIPT_SIZE = 12;
 
@@ -31,6 +34,8 @@ export interface ConversationContextDeps {
   readonly memory: MemoryService;
   readonly prisma: PrismaService;
   readonly guildRules: GuildRulesService;
+  readonly router: CapabilityRouterService;
+  readonly integrations: GuildIntegrationService;
 }
 
 /** Tout ce que la boucle et la livraison doivent savoir d'une demande. */
@@ -86,10 +91,24 @@ export class ConversationContextBuilder {
 
     // Fiches consolidées (compactes) plutôt que les entrées brutes : le
     // journal complet reste visible dans le dashboard et via get*Memory.
+    // Consignes des tools épinglés, puis les moteurs d'image de CE serveur
+    // (PixelLab, modèle d'IA routé) : l'agent arbitre sur ce qu'il a vraiment.
+    const engines = await imageEnginesLine(this.deps.router, this.deps.integrations, guild.id).catch(() => null);
     const messages: ChatMessage[] = [
       {
         role: 'system',
-        content: buildSystemPrompt(locale, guild.name, channel.name, [...toolset.active.map((tool) => tool.function.name), 'search_tools'], permissions, memory, recentActions, skillTriggers, serverRules, pinnedToolGuidance(routed)),
+        content: buildSystemPrompt(
+          locale,
+          guild.name,
+          channel.name,
+          [...toolset.active.map((tool) => tool.function.name), 'search_tools'],
+          permissions,
+          memory,
+          recentActions,
+          skillTriggers,
+          serverRules,
+          [...pinnedToolGuidance(routed), ...(engines ? [engines] : [])],
+        ),
       },
       {
         role: 'user',

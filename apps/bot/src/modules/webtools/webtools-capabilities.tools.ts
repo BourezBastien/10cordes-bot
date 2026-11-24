@@ -1,15 +1,13 @@
 import { z } from 'zod';
 import PDFDocument from 'pdfkit';
 import type { GameDig } from 'gamedig';
-import type { BotTool, ToolResult, ToolRunContext } from '@10cordes/shared';
+import type { BotTool, ToolRunContext } from '@10cordes/shared';
 import { safeFetch } from '../../shared/utils/safe-fetch';
 
 /** Ce dont les tools de capacités ont besoin auprès du service (jamais de clé API). */
 export interface CapabilityToolsDeps {
   /** Client GameDig du service : ping natif UDP/TCP des serveurs de jeu. */
   readonly gamedig: GameDig;
-  /** Génère une image via kie.ai et la livre en pièce jointe dans le salon de la demande. */
-  readonly kieImage: (prompt: string, ctx: ToolRunContext, label: string, aspectRatio: string) => Promise<ToolResult>;
 }
 
 /** Canal d'envoi de fichiers de la surface courante (absent sur le dashboard web). */
@@ -36,9 +34,10 @@ function renderPdf(title: string, content: string): Promise<Buffer> {
 }
 
 /**
- * Tools de capacités techniques : PDF, image générée, ping de serveur de jeu,
- * récupération HTTP brute. Ordre d'origine dans le registry : generatePdf,
- * generateImage, server.status, http.fetch.
+ * Tools de capacités techniques : PDF, ping de serveur de jeu, récupération
+ * HTTP brute. L'image générée (generateImage) vit dans le module imagelab :
+ * elle passe par la route image.generate du serveur. Ordre d'origine dans le
+ * registry : generatePdf, server.status, http.fetch.
  */
 export function buildCapabilityTools(deps: CapabilityToolsDeps): BotTool[] {
   return [
@@ -67,26 +66,6 @@ export function buildCapabilityTools(deps: CapabilityToolsDeps): BotTool[] {
         const safeName = `${(filename || title).replace(/[^a-zA-Z0-9-_]/gu, '-').slice(0, 50)}.pdf`;
         await sendFile({ name: safeName, attachment: pdf }, targetChannelId);
         return { ok: true, summary: `PDF **${safeName}** généré (${Math.round(pdf.length / 1024)} Ko) et envoyé.` };
-      },
-    },
-    {
-      name: 'generateImage',
-      description:
-        'Génère une image libre (pas du pixel art) via kie.ai / z-image (Tongyi-MAI, ~6s, 0,8 crédit par image) : prompt descriptif, choix du ratio, image livrée en pièce jointe dans le salon.',
-      category: 'web',
-      paramsSchema: z.object({
-        prompt: z.string().min(10).max(2000).describe('Description visuelle détaillée (sujet, style, lumière, cadrage)'),
-        label: z.string().min(2).max(60).default('image'),
-        aspect_ratio: z.enum(['1:1', '16:9', '9:16', '4:3', '3:4']).default('1:1').describe('1:1 icône/avatar, 16:9 paysage/carte, 9:16 fond vertical'),
-      }),
-      requiredModules: [],
-      destructive: false,
-      systemPrompt:
-        'Pour les images NON pixel art (scènes, cartes, illustrations, logos libres), exemple : « imagine la carte de GTA 7 ». Le pixel art reste sur image.icon/image.emoji (PixelLab). ' +
-        'Choisis le ratio adapté (16:9 pour une carte ou un paysage, 1:1 pour un visuel carré, 9:16 pour un fond mobile). Pose les questions avant si le visuel est vague, puis UNE génération. Le fichier est envoyé automatiquement dans le salon.',
-      handler: async (input, ctx) => {
-        const { prompt, label, aspect_ratio } = input as { prompt: string; label?: string; aspect_ratio?: string };
-        return deps.kieImage(prompt, ctx, label ?? 'image', aspect_ratio ?? '1:1');
       },
     },
     {

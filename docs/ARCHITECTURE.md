@@ -265,14 +265,18 @@ throw (SpraxiumException | HttpError | ZodError→ValidationException)
 ## 8. Couche IA (moteur multi-fournisseurs)
 
 ```ts
-// app.env.ts (bootstrap optionnel de l'INSTANCE)
-LLM_API_URL / LLM_API_KEY / LLM_MODEL / LLM_EFFORT   // préfixes génériques, zéro vendor lock
+// app.env.ts : lu UNE fois, pour remplir une base vide (import au démarrage), puis ignoré.
+LLM_API_URL / LLM_API_KEY / LLM_MODEL / KIE_API_KEY / KIE_MODEL / PIXELLAB_API_KEY   // préfixes génériques, zéro vendor lock
+LLM_EFFORT   // effort de raisonnement par défaut
 ```
 
 - **Trois niveaux de configuration** ; un tour part du niveau le plus précis dont dispose le serveur.
-  1. Instance, bootstrap env (`LLM_*`).
-  2. Instance, depuis Discord (modale owner ou admin → `LlmService.applyConfig` : contrôle de connexion, rechargement, persistance chiffrée **AES-256-GCM**, alignement des copies des serveurs).
-  3. Serveur : fournisseurs et routes (tables `GuildProvider`, `CapabilityRoute`), par le panneau « Fournisseurs et modèles » ou en langage naturel (`provider.*`, `capability.*`). Au premier appel résolu d'un serveur, `ProviderLegacyMigration` copie l'instance dans ses fournisseurs et routes (une fois par serveur, audit `provider.legacy_migrated`) ; les copies portent la marque `_source` et suivent l'instance quand elle change.
+  1. Instance, en base (table `IntegrationConfig`, une ligne par entrée du catalogue `llm` / `pixellab` / `kie`, clé chiffrée **AES-256-GCM**). L'environnement ne sert qu'à remplir une ligne manquante, une fois par processus (`IntegrationService.importFromEnv`, audit `instance.imported`) ; une ligne existante n'est jamais réécrite, et dès que la base connaît une intégration il est ignoré pour tout le catalogue. `LlmService` lit l'instance par `IntegrationService` seul.
+  2. Instance, depuis Discord (modale owner ou admin → `LlmService.applyConfig` : contrôle de connexion, rechargement, persistance chiffrée, alignement des copies des serveurs).
+  3. Serveur : fournisseurs et routes (tables `GuildProvider`, `CapabilityRoute`), par le panneau « Fournisseurs et modèles » ou en langage naturel (`provider.*`, `capability.*`). Les réglages par défaut de l'instance (`instance-defaults.ts`, plan pur dans `instance-defaults.plan.ts`) donnent à chaque serveur ses fournisseurs IA (celui de l'hôte de l'instance, et `kie-ai`) et leurs routes ; les identifiants de modèles viennent du catalogue de l'adaptateur, jamais codés en dur. Trois chemins appliquent le même plan : premier appel résolu d'un serveur (audit `provider.legacy_migrated`), démarrage et changement de l'instance (`reconcileInstance`). Les copies portent la marque `_source` et suivent l'instance ; un fournisseur ou une route créés par un administrateur ne sont jamais touchés.
+- **Fournisseurs IA et intégrations** : un fournisseur est une API de modèles routée par capacité. Une intégration est une API spécialisée avec ses propres outils (PixelLab : `image.icon`, `image.emoji`), jamais une cible de route (clé du serveur sinon d'instance : `GuildIntegrationService`). La ligne « MOTEURS D'IMAGE de ce serveur » (`providers/image-engines.ts`) dit à l'agent ce qui est réellement disponible : pixel art vers PixelLab, tout autre rendu vers `generateImage`.
+- **Familles de modèles** (`provider-model.kinds.ts`) : ce qu'un modèle sait faire, lu dans les métadonnées de `/models`, sinon dans son identifiant. Lier une capacité à un modèle du catalogue qui déclare ne pas la servir est refusé, avec ceux qui la servent.
+- **Médias** : `generateImage` exécute la route `image.generate` du serveur (`runCapability`), quel que soit le protocole, télécharge par `safeFetch` et livre UNE pièce jointe ; la musique lit ses identifiants sur la route `music.generate`.
 - **Contrat** (`shared/llm/chat-contract.ts`) : messages, tools, options (`reasoningEffort` et `preferReasoning` décidés UNE fois par requête), résultat (`served` : capacité, fournisseur, modèle, repli).
 - **Adaptateurs** (`modules/providers/adapters/`, sans état, un par protocole) : `openai-chat`, `anthropic-messages`, `kie-unified`, `generic-http` (opérations REST décrites en gabarits `{{param}}`). Contrat `AbstractProviderAdapter` : `testConnection`, `discoverModels`, `execute`, `chat`. La clé ne ressort jamais (résultats, erreurs et journaux sont masqués).
 - **Routage** (`CapabilityRouterService`) : route active d'une capacité, tentatives ordonnées (principal, puis repli), exécution avec bascule automatique, clé d'une capacité hors conversation (musique, images). Capacités natives : `chat.default`, `chat.reasoning`, `chat.ingestion`, `image.generate`, `image.edit`, `music.generate`, `tts.speak`, `video.generate`, `web.search` ; toute capacité `custom.*` est acceptée.

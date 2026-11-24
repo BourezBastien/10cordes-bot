@@ -76,10 +76,10 @@ afterEach(() => vi.unstubAllGlobals());
 describe('kie-unified · sondage d\u0027une tâche', () => {
   it('délai dépassé : rend pending sans lever, la tâche continue côté fournisseur', async () => {
     let polls = 0;
-    // Le statut alterne entre deux états « en cours » : tous deux doivent être sondés sans fin.
+    // Le commentaire parle de statut : l'état alterne entre deux valeurs « en cours », toutes deux sondées sans fin.
     const { calls } = polling(() => {
       polls += 1;
-      return record({ status: polls % 2 === 0 ? 'processing' : 'waiting' });
+      return record({ state: polls % 2 === 0 ? 'processing' : 'waiting', successFlag: 0, failCode: null, failMsg: null });
     });
     const result = await new KieUnifiedAdapter().execute(config(), request('image.generate', { prompt: 'un chat', maxWaitMs: 400, pollIntervalMs: 50 }));
     expect(result).toMatchObject({ ok: true, data: { pending: true, taskId: 't1' } });
@@ -94,7 +94,7 @@ describe('kie-unified · sondage d\u0027une tâche', () => {
     let polls = 0;
     polling(() => {
       polls += 1;
-      return record({ status: 'processing' });
+      return record({ state: 'processing' });
     });
     // Sans écrêtage de la dernière attente, la sonde tomberait à 60 s et le test dépasserait son propre délai.
     const startedAt = Date.now();
@@ -105,10 +105,23 @@ describe('kie-unified · sondage d\u0027une tâche', () => {
   });
 
   it('tâche déclarée en échec : ProviderError avec la raison, non éligible à une bascule', async () => {
-    polling(() => record({ status: 'FAILED', errorMsg: 'Prompt rejected by safety policy' }));
+    polling(() => record({ state: 'failed', successFlag: 0, failCode: 'content_policy', failMsg: 'Prompt rejected by safety policy' }));
     const error = await failure(new KieUnifiedAdapter().execute(config(), request('image.generate', { prompt: 'un chat', ...FAST })));
     expect(error.message).toBe('La tâche kie.ai t1 a échoué : Prompt rejected by safety policy');
     expect(isFallbackEligible(error)).toBe(false);
+  });
+
+  it('un état d\u0027échec écrit autrement, ou un ancien `status`, sont entendus de la même façon', async () => {
+    for (const data of [
+      { state: 'FAILED', errorMsg: 'Prompt rejected' },
+      { status: 'failed', errorMsg: 'Prompt rejected' },
+      { successFlag: 0, failCode: 1201, failMsg: 'Prompt rejected' },
+      { state: 'waiting', failMsg: 'Prompt rejected' },
+    ]) {
+      polling(() => record(data));
+      const error = await failure(new KieUnifiedAdapter().execute(config(), request('image.generate', { prompt: 'un chat', ...FAST })));
+      expect(error.message).toBe('La tâche kie.ai t1 a échoué : Prompt rejected');
+    }
   });
 
   it('refus logique à la création (HTTP 200, code 402) : erreur quota à la clé masquée, jamais sondée', async () => {
@@ -161,7 +174,7 @@ describe('kie-unified · sondage d\u0027une tâche', () => {
     const { calls } = stubFetch((call) => {
       if (isCreate(call)) return created();
       controller.abort();
-      return record({ status: 'processing' });
+      return record({ state: 'processing' });
     });
     const error = await failure(new KieUnifiedAdapter().execute(config(), request('image.generate', { prompt: 'un chat', ...FAST }), controller.signal));
     expect(error.message).toBe('Demande annulée (tâche t1).');
@@ -197,18 +210,58 @@ describe('kie-unified · sondage d\u0027une tâche', () => {
   });
 
   it('succès sans fichier lisible : une erreur plutôt qu\u0027un résultat vide', async () => {
-    polling(() => record({ status: 'success', resultJson: '{"progress":100}' }));
+    polling(() => record({ state: 'success', successFlag: 1, resultJson: '{"progress":100}' }));
     const error = await failure(new KieUnifiedAdapter().execute(config(), request('image.generate', { prompt: 'un chat', ...FAST })));
     expect(error.kind).toBe('http');
     expect(error.message).toBe('La tâche kie.ai t1 a réussi mais son résultat est illisible (aucun fichier produit).');
   });
 
   it('une clé recopiée par le fournisseur dans une tâche réussie ne ressort jamais', async () => {
-    polling(() => record({ status: 'success', resultJson: JSON.stringify({ resultUrls: [`https://cdn.example.test/a.png?token=${KEY}`] }) }));
+    polling(() => record({ state: 'success', successFlag: 1, resultJson: JSON.stringify({ resultUrls: [`https://cdn.example.test/a.png?token=${KEY}`] }) }));
     const error = await failure(new KieUnifiedAdapter().execute(config(), request('image.generate', { prompt: 'un chat', ...FAST })));
     expect(error.kind).toBe('http');
     expect(isFallbackEligible(error)).toBe(false);
     expect(`${error.message}${String(error)}`).not.toContain(KEY);
+  });
+
+  it('forme réelle d\u0027une tâche z-image (observée le 24/11) : l\u0027état est dans `state`, jamais dans `status`', async () => {
+    const url = 'https://cdn.example.test/render.png';
+    let polls = 0;
+    const { calls } = polling(() => {
+      polls += 1;
+      return polls === 1
+        ? record({ model: 'z-image', state: 'waiting', successFlag: 0, failCode: null, failMsg: null, resultJson: '', creditsConsumed: 0.8 })
+        : record({
+            model: 'z-image',
+            state: 'success',
+            successFlag: 1,
+            failCode: null,
+            failMsg: null,
+            costTime: 7,
+            creditsConsumed: 0.8,
+            resultJson: JSON.stringify({ resultUrls: [url] }),
+            response: { resultUrls: [url] },
+          });
+    });
+    const result = await new KieUnifiedAdapter().execute(config(), request('image.generate', { prompt: 'un chat', ...FAST }));
+    // Deux sondes, pas dix-huit : une image prête est livrée à la sonde qui la voit.
+    expect(polls).toBe(2);
+    expect(calls).toHaveLength(3);
+    expect(result).toMatchObject({ ok: true, data: { urls: [url] } });
+  });
+
+  it('un état inconnu qui porte déjà des fichiers produits est livré ; sans fichier, on attend', async () => {
+    const url = 'https://cdn.example.test/render.png';
+    let polls = 0;
+    polling(() => {
+      polls += 1;
+      return polls === 1
+        ? record({ state: 'quelque-chose-de-nouveau', successFlag: 0, resultJson: '' })
+        : record({ state: 'quelque-chose-de-nouveau', response: { resultUrls: [url] } });
+    });
+    const result = await new KieUnifiedAdapter().execute(config(), request('image.generate', { prompt: 'un chat', ...FAST }));
+    expect(polls).toBe(2);
+    expect(result.data).toEqual({ urls: [url] });
   });
 });
 

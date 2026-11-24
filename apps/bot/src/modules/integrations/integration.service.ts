@@ -11,12 +11,17 @@ import { fileLog } from '../logging/file-log.service';
 import { bindIntegrations } from './integration.runtime';
 
 /**
- * IntegrationService (R2) — le cœur de la demande providers génériques :
- * chaque fournisseur (LLM, image, musique...) est une INTÉGRATION stockée
- * en DB avec sa clé API CHIFFRÉE (AES-256-GCM). L'utilisateur la configure
- * soit par modal Discord (bouton « Connecter »), soit l'env sert de
- * bootstrap (priorité DB > env). Le catalogue en code décrit les champs
- * attendus, la modale est GÉNÉRÉE dynamiquement.
+ * IntegrationService (R2) : la configuration d'INSTANCE, commune à tous les
+ * serveurs du bot (fournisseur IA, PixelLab, kie.ai), stockée en DB avec sa
+ * clé API CHIFFRÉE (AES-256-GCM).
+ *
+ * La base a la priorité absolue : dès qu'elle connaît une intégration, les
+ * variables d'environnement (LLM_*, KIE_API_KEY, PIXELLAB_API_KEY) sont
+ * ignorées pour tout le catalogue. Elles ne servent qu'une fois, à l'amorçage
+ * du bot, pour remplir une base vide (import unique, jamais une réécriture) :
+ * un `.env` sans ses clés suffit ensuite à démarrer, la clé maître de
+ * chiffrement (ENCRYPTION_SECRET ou BETTER_AUTH_SECRET) restant requise.
+ * Un serveur peut garder sa propre clé par intégration (GuildIntegrationService).
  */
 
 export interface IntegrationDef {
@@ -33,7 +38,7 @@ export interface IntegrationDef {
   }>;
 }
 
-/** Catalogue en code (extensible — un marketplace GitHub suivra le même format). */
+/** Catalogue en code (extensible : un marketplace GitHub suivra le même format). */
 export const INTEGRATION_CATALOG: readonly IntegrationDef[] = [
   {
     id: 'llm',
@@ -75,6 +80,8 @@ export interface ResolvedIntegration {
 export class IntegrationService implements SpraxiumOnBoot {
   private readonly log = new Logger('Integrations');
   private readonly cache = new Map<string, ResolvedIntegration>();
+  /** L'import de l'environnement ne court qu'une fois par processus : la première lecture l'attend, les autres le partagent. */
+  private importRun: Promise<string[]> | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -82,18 +89,76 @@ export class IntegrationService implements SpraxiumOnBoot {
     private readonly env: AppEnv,
   ) {}
 
-  onBoot(): void {
+  async onBoot(): Promise<void> {
     getToolRegistry().register(this.statusTool());
     // Accès runtime pour ConfigThreadService (GuildConfigModule se charge
-    // avant ce module dans l'ordre d'AppModule — pattern getLlm).
+    // avant ce module dans l'ordre d'AppModule, pattern getLlm).
     bindIntegrations(this);
-    void this.migrateLegacy();
+    await this.migrateLegacy();
+    await this.importFromEnv();
     this.log.info(`Integrations ready (${INTEGRATION_CATALOG.length} au catalogue, chiffrement AES-256-GCM).`);
   }
 
   private secrets() {
     // DISCORD_TOKEN vit sur SpraxiumBaseEnv.token.
     return { encryption: this.env.ENCRYPTION_SECRET, betterAuth: this.env.BETTER_AUTH_SECRET, token: this.env.token };
+  }
+
+  /** Ce que l'environnement propose pour une intégration : rien sans clé. */
+  private envFields(id: string): Record<string, string> {
+    const env = this.env;
+    const fields: Record<string, Record<string, string | undefined>> = {
+      llm: { baseUrl: env.LLM_API_URL, apiKey: env.LLM_API_KEY, model: env.LLM_MODEL },
+      pixellab: { apiKey: env.PIXELLAB_API_KEY },
+      kie: { apiKey: env.KIE_API_KEY, model: env.KIE_MODEL },
+    };
+    const source = fields[id] ?? {};
+    if (!source.apiKey) return {};
+    return Object.fromEntries(Object.entries(source).filter((pair): pair is [string, string] => Boolean(pair[1])));
+  }
+
+  /** La base ne connaît-elle encore aucune intégration ? Sur base illisible, oui : l'environnement reste le repli. */
+  private async databaseIsEmpty(): Promise<boolean> {
+    const count = await this.prisma.integrationConfig.count().catch(() => 0);
+    return count === 0;
+  }
+
+  /**
+   * Import unique : une intégration sans ligne en base est remplie depuis
+   * l'environnement, si celui-ci porte sa clé. Une ligne existante n'est
+   * jamais réécrite. La première lecture d'une intégration déclenche cet
+   * import et l'attend : aucun service ne voit un état d'avant import. Rend
+   * les intégrations importées, jamais une erreur (la base reste seule maître).
+   */
+  importFromEnv(): Promise<string[]> {
+    if (!this.importRun) {
+      this.importRun = this.runImport().catch((error: unknown) => {
+        this.log.warn(`Import de l\u0027environnement impossible (${error instanceof Error ? error.message.slice(0, 120) : 'erreur inconnue'}).`);
+        return [];
+      });
+    }
+    return this.importRun;
+  }
+
+  private async runImport(): Promise<string[]> {
+    const imported: string[] = [];
+    for (const def of INTEGRATION_CATALOG) {
+      const fields = this.envFields(def.id);
+      if (!fields.apiKey) continue;
+      const existing = await this.prisma.integrationConfig.findUnique({ where: { id: def.id } }).catch(() => null);
+      if (existing) continue;
+      try {
+        await this.upsert(def.id, fields, 'bootstrap');
+        imported.push(def.id);
+      } catch (error) {
+        this.log.warn(`Import d\u0027environnement impossible pour ${def.id} (${error instanceof Error ? error.message.slice(0, 120) : 'erreur inconnue'}).`);
+      }
+    }
+    if (imported.length > 0) {
+      this.audit.record({ guildId: null, source: 'agent', action: 'instance.imported', actorId: 'bootstrap', metadata: { ids: imported } });
+      this.log.info(`Intégrations lues dans l\u0027environnement et chiffrées en base : ${imported.join(', ')}.`);
+    }
+    return imported;
   }
 
   /** Migration : chiffre les lignes IntegrationConfig héritées (plaintext). */
@@ -114,7 +179,7 @@ export class IntegrationService implements SpraxiumOnBoot {
     }
   }
 
-  /** Résout une intégration : DB (chiffrée) > env bootstrap > none. */
+  /** Résout une intégration d'instance : sa ligne en base (chiffrée) ; à défaut l'environnement, et seulement tant que la base ne connaît aucune intégration. */
   async get(id: string): Promise<ResolvedIntegration> {
     const cached = this.cache.get(id);
     if (cached) return cached;
@@ -125,6 +190,9 @@ export class IntegrationService implements SpraxiumOnBoot {
     const config: Record<string, string> = {};
     let source: ResolvedIntegration['source'] = 'none';
 
+    // L'import (une fois par processus) est terminé avant la lecture : la ligne
+    // en base fait foi, chiffrée.
+    await this.importFromEnv();
     const row = await this.prisma.integrationConfig.findUnique({ where: { id } }).catch(() => null);
     if (row) {
       const decrypted = decryptSecret(row.apiKey, this.secrets());
@@ -136,14 +204,11 @@ export class IntegrationService implements SpraxiumOnBoot {
       }
     }
 
-    // Fallback env (bootstrap)
-    if (source === 'none' && id === 'llm') {
-      if (this.env.LLM_API_URL && this.env.LLM_API_KEY) {
-        config.baseUrl = this.env.LLM_API_URL;
-        config.apiKey = this.env.LLM_API_KEY;
-        if (this.env.LLM_MODEL) config.model = this.env.LLM_MODEL;
-        source = 'env';
-      }
+    // Repli d'urgence : l'environnement ne sert que tant que la base ne
+    // connaît AUCUNE intégration (l'import à l'amorçage le vide de son rôle).
+    if (source === 'none' && (await this.databaseIsEmpty())) {
+      Object.assign(config, this.envFields(id));
+      if (config.apiKey) source = 'env';
     }
 
     const resolved: ResolvedIntegration = { id, config, source };

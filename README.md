@@ -58,9 +58,12 @@ pnpm start        # production run (from apps/bot)
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `DISCORD_TOKEN` | **YES** | (none) | Bot token (Discord developer portal) |
-| `LLM_API_URL` | no | (none) | OpenAI-compatible base URL (bootstrap) |
-| `LLM_API_KEY` | no | (none) | API key for the LLM provider (bootstrap) |
-| `LLM_MODEL` | no | (none) | Model name (bootstrap) |
+| `LLM_API_URL` | no | (none) | OpenAI-compatible base URL. Read ONCE, to fill an empty database (import only) |
+| `LLM_API_KEY` | no | (none) | API key for the AI provider. Read ONCE, to fill an empty database (import only, then encrypted in DB) |
+| `LLM_MODEL` | no | (none) | Model name. Read ONCE, to fill an empty database (import only) |
+| `KIE_API_KEY` | no | (none) | kie.ai key. Read ONCE, to fill an empty database (import only) |
+| `KIE_MODEL` | no | (none) | kie.ai music model. Read ONCE, to fill an empty database (import only) |
+| `PIXELLAB_API_KEY` | no | (none) | PixelLab key (pixel art). Read ONCE, to fill an empty database (import only) |
 | `LLM_EFFORT` | no | empty | Reasoning effort: low/medium/high |
 | `ENCRYPTION_SECRET` | no | derived | AES-256-GCM key for DB secrets |
 | `DATABASE_URL` | no | `file:../data/bot.db` | SQLite or PostgreSQL |
@@ -74,10 +77,13 @@ pnpm start        # production run (from apps/bot)
 | `DISCORD_CLIENT_SECRET` | no | (none) | OAuth client secret |
 | `E2E_ENABLED` | no | `false` | Dev test rigs only |
 
-**Connect your AI provider** (each level serves the servers that have nothing more specific):
-1. **Bootstrap via env**: set `LLM_API_URL`, `LLM_API_KEY`, `LLM_MODEL` in `.env`
-2. **Instance, from Discord**: mention the bot without a key configured → a Components V2 panel appears with a "Connecter un fournisseur IA" button (visible to owners AND administrators) → fill the modal → key is encrypted and takes effect immediately
-3. **Per server**: ask for the "fournisseurs et modèles" panel in Discord, or say "ajoute OpenRouter, et utilise tel modèle pour la musique". The first request of a server copies the instance configuration into that server's providers and routes; it then follows the instance when the instance changes.
+**Where the keys live**: in the database, encrypted (AES-256-GCM). The database has the absolute priority.
+
+1. **First start (import only)**: put `LLM_API_URL`, `LLM_API_KEY`, `LLM_MODEL` (and optionally `KIE_API_KEY`, `KIE_MODEL`, `PIXELLAB_API_KEY`) in `.env`, then start the bot. The boot imports each key into the database once (audit `instance.imported`), and every server known to the bot receives its default providers and routes. The lines can then be commented out of `.env`: an existing row is never rewritten, and once the database knows an integration the environment is ignored. **Keep `ENCRYPTION_SECRET` or `BETTER_AUTH_SECRET`**: it derives the key that decrypts the database.
+2. **Instance, from Discord**: mention the bot without a configured AI provider → a Components V2 panel appears with a "Connecter un fournisseur IA" button (visible to owners AND administrators) → fill the modal → key is encrypted and takes effect immediately
+3. **Per server**: ask for the "fournisseurs et modèles" panel in Discord, or say "ajoute OpenRouter, et utilise tel modèle pour la musique". Each server starts with a copy of the instance (its AI provider and kie.ai: conversation, image and music routes) and follows the instance when it changes. A provider or a route you created yourself is never touched, and on a copy a model you changed is kept.
+
+**AI providers vs integrations**: a provider is a models API routed by capability (DeepSeek, OpenRouter, kie.ai...). An integration is a specialized API with its own tools: PixelLab (pixel art, `image.icon` / `image.emoji`). Images that are not pixel art go through the `image.generate` route with `generateImage`, whatever the provider bound to it. A family the provider catalog does not declare (voice, video on kie.ai today) stays "non routée" until an administrator binds it.
 
 ## Architecture
 

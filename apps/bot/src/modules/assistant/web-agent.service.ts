@@ -17,6 +17,9 @@ import { GuildRulesService } from '../rules/guild-rules.service';
 import { type ToolRunContext } from '@10cordes/shared';
 import { PrismaService } from '../database/prisma.service';
 import { permissionsOf } from '../../core/security/permission-name';
+import { GuildIntegrationService } from '../integrations/guild-integration.service';
+import { imageEnginesLine } from '../providers/image-engines';
+import { CapabilityRouterService } from '../providers/capability-router.service';
 
 const RATE_LIMIT_MS = 4_000;
 const MAX_MESSAGE_LENGTH = 2_000;
@@ -49,6 +52,8 @@ export class WebAgentService {
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
     private readonly client: Client,
+    private readonly router: CapabilityRouterService,
+    private readonly integrations: GuildIntegrationService,
   ) {}
 
   async chat(guildId: string, discordUserId: string, message: string): Promise<WebChatResult> {
@@ -119,13 +124,14 @@ export class WebAgentService {
       .filter(Boolean)
       .join('\n');
 
+    const engines = await imageEnginesLine(this.router, this.integrations, guildId).catch(() => null);
     const messages: ChatMessage[] = [
       {
         role: 'system',
         content: buildSystemPrompt(locale, guild.name, channel?.name ?? 'web', [...openAiTools.map((tool) => tool.function.name), 'search_tools'], permissions, {
           guildMemories,
           memberMemories,
-        }, recentActions, skillTriggers, serverRules, pinnedToolGuidance(relevant)),
+        }, recentActions, skillTriggers, serverRules, [...pinnedToolGuidance(relevant), ...(engines ? [engines] : [])]),
       },
       {
         role: 'user',

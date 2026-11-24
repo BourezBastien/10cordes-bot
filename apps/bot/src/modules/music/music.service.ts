@@ -43,8 +43,14 @@ export class MusicService implements SpraxiumOnBoot {
     private readonly client: Client,
   ) {}
 
-  onBoot(): void {
-    this.log.info('Music disabled: connectez l\u0027intégration kie.ai via le bot (R2).');
+  async onBoot(): Promise<void> {
+    // La musique suit la capacité music.generate d'un serveur ; sans route, l'intégration d'instance (en base) la sert.
+    const instance = await this.integrations.get('kie').catch(() => null);
+    this.log.info(
+      instance?.config.apiKey
+        ? 'Music ready (generateMusic : capacité music.generate du serveur, sinon intégration kie.ai d\u0027instance).'
+        : 'Music ready (generateMusic) : aucune clé kie.ai en base, la musique attend une route music.generate ou l\u0027intégration kie.ai.',
+    );
     const registry = getToolRegistry();
     for (const tool of this.buildTools()) registry.register(tool);
   }

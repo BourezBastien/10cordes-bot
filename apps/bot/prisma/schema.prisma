@@ -1,8 +1,8 @@
-// 10cordes-bot — schéma P0.
+// 10cordes-bot : schéma P0.
 // Les tables better-auth (User, Session, Account, Verification) ont été ajoutées
 // à l'étape API (P0-6) via `npx @better-auth/cli generate --output prisma/schema.prisma`.
 // Décision 18/11 : toutes les tables guild-scopées portent une VRAIE relation
-// vers Guild avec onDelete: Cascade — la suppression d'un serveur nettoie tout.
+// vers Guild avec onDelete: Cascade, la suppression d'un serveur nettoie tout.
 
 generator client {
   provider = "prisma-client-js"
@@ -46,6 +46,7 @@ model Guild {
   agentSettings        GuildAgentSettings?
   providers            GuildProvider[]
   capabilityRoutes     CapabilityRoute[]
+  integrations         GuildIntegration[]
 
   @@map("guilds")
 }
@@ -62,7 +63,7 @@ model GuildModuleState {
   @@map("guild_module_states")
 }
 
-// ── better-auth (générées conformément au schéma officiel — CLI `@better-auth/cli generate`) ──
+// ── better-auth (générées conformément au schéma officiel, CLI `@better-auth/cli generate`) ──
 
 model User {
   id            String    @id
@@ -322,7 +323,7 @@ model GuildAgentSettings {
 model GuildProvider {
   id                String   @id @default(cuid())
   guildId           String
-  slug              String // stable et lisible (deepseek-official, kie-main, openrouter...)
+  slug              String // stable et lisible (deepseek-official, kie-ai, openrouter...)
   displayName       String
   protocol          String // openai-chat | anthropic-messages | kie-unified | generic-http
   baseUrl           String
@@ -363,6 +364,25 @@ model CapabilityRoute {
   @@unique([guildId, capability])
   @@index([guildId, enabled])
   @@map("capability_routes")
+}
+
+/// Intégration d'un serveur : une API spécialisée (PixelLab...) avec sa clé à
+/// lui, chiffrée. Ce n'est pas un fournisseur de modèles IA : les routes de
+/// capacités (CapabilityRoute) ne pointent jamais ici. Sans ligne, l'intégration
+/// d'instance (IntegrationConfig) sert.
+model GuildIntegration {
+  id              String   @id @default(cuid())
+  guildId         String
+  slug            String // pixellab, kie... (catalogue en code)
+  enabled         Boolean  @default(true)
+  baseUrl         String? // vide : celui de l'instance
+  encryptedApiKey String? // CHIFFRÉE AES-256-GCM (v1:<iv>:<tag>:<data>)
+  configJson      String? // champs libres (modèle par défaut...)
+  updatedAt       DateTime @updatedAt
+  guild           Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, slug])
+  @@map("guild_integrations")
 }
 
 // ── Vie de serveur (birthdays, sticky, AFK, sanctions temporaires, activité) ──
@@ -541,7 +561,7 @@ model ScheduledTrigger {
   id          String    @id @default(cuid())
   guildId     String
   surfaceId   String?
-  cancelKey   String? // clé d'annulation (trigger.cancelByKey) — unique par serveur
+  cancelKey   String? // clé d'annulation (trigger.cancelByKey), unique par serveur
   kind        String // 'once' | 'cron' | 'interval'
   runAt       DateTime?
   cron        String?
