@@ -35,6 +35,15 @@ describe('buildSystemPrompt', () => {
     expect(rule).toContain('avant de consommer des crédits');
   });
 
+  it('règle du silence en coulisse : agir sans raconter, et plus aucune annonce d\u0027étape', () => {
+    const prompt = build();
+    const rule = prompt.split('\n').find((line) => line.startsWith('SILENCE EN COULISSE')) ?? '';
+    expect(rule).toContain('rien de ce que tu fais ne s\u0027affiche');
+    expect(rule).toContain('livre le résultat dans ta réponse finale');
+    expect(prompt).not.toContain('PROGRESSION VISIBLE');
+    expect(prompt).not.toContain('announceStep');
+  });
+
   it('la ligne des moteurs de CE serveur arrive dans les consignes, en dernier', () => {
     const engines = 'MOTEURS D\u0027IMAGE de ce serveur : PixelLab ACTIF ; image.generate → kie-ai / z-image.';
     const prompt = build(['Consigne d\u0027une primitive.', engines]);

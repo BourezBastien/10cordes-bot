@@ -6,7 +6,6 @@ import type { AgentLoopService } from './agent-loop.service';
 import { archiveServerSnapshot, requiresServerSnapshot } from './agent-history';
 import type { ConversationContext } from './conversation-context';
 import { QUOTA_EXHAUSTED_MESSAGE, QuotaExhaustedError } from './llm.errors';
-import { investigationPolicy } from './investigation.policy';
 import type { LlmService } from './llm.service';
 
 const log = new Logger('Assistant');
@@ -31,9 +30,9 @@ export interface ReplyRunnerDeps {
 
 /**
  * Exécute la boucle LLM + tools d'une demande et OBSERVE son déroulement :
- * ligne de statut, instantané avant le premier tool structurel, audit de
- * chaque tool (ok: true est le seul succès), apprentissage des patterns,
- * texte en streaming. Ne décide jamais de ce qui est livré au salon.
+ * instantané avant le premier tool structurel, audit de chaque tool (ok: true
+ * est le seul succès), apprentissage des patterns. Rien ne s'affiche pendant
+ * le traitement. Ne décide jamais de ce qui est livré au salon.
  */
 export class AgentReplyRunner {
   constructor(private readonly deps: ReplyRunnerDeps) {}
@@ -65,10 +64,6 @@ export class AgentReplyRunner {
             session.requestSilence();
             return { ok: true, summary: 'Compris : aucune réponse ne sera envoyée après les actions.' };
           }
-          // Investigation silencieuse : une lecture de recherche ne se raconte
-          // pas, la ligne de statut le dit une fois puis se tait.
-          if (investigationPolicy.narrates(name)) await session.status.step(name);
-          else await session.status.reading();
           // Premier tool structurel de la demande : instantané complet du
           // serveur en audit AVANT toute modification (rollback garanti).
           if (!snapshotTaken && requiresServerSnapshot(name)) {
@@ -103,14 +98,6 @@ export class AgentReplyRunner {
               })
               .catch(() => {});
           }
-        },
-        // Ce callback ne reçoit QUE le texte d'un tour SANS tool_calls (commit
-        // de fin d'itération par l'AgentLoop) : publication progressive.
-        onDelta: (text) => session.pushDelta(text),
-        // Tour rejeté (balises internes du modèle) : le texte déjà streamé est retiré.
-        onStreamRejected: () => session.rejectStream(),
-        onIntermediateText: (text) => {
-          void session.status.narrate(text);
         },
       })
       .catch((error: unknown) => {

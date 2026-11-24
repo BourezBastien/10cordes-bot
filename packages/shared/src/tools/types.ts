@@ -20,10 +20,10 @@ export interface ToolRunContext {
    */
   sendFile?: (file: { name: string; attachment: Uint8Array | string }, targetChannelId?: string) => Promise<void>;
   /**
-   * Progression longue opération : édite LA ligne de statut unique du
-   * traitement (« [TOOL] analyse : 24/48 salons... »). Optionnel : absent
-   * sur les surfaces sans salon (dashboard). Les tools ne postent JAMAIS
-   * leurs propres messages de progression.
+   * Progression d\u0027une opération longue (« analyse : 24/48 salons... »).
+   * Optionnel : absent sur les surfaces sans suivi (dashboard). Rien ne
+   * s\u0027affiche dans le salon : la progression part dans le journal. Les tools
+   * ne postent JAMAIS leurs propres messages de progression.
    */
   progress?: (text: string) => Promise<void>;
   /**

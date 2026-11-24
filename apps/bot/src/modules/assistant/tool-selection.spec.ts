@@ -40,6 +40,11 @@ describe('selectRelevantTools · noyau et pertinence', () => {
     expect(TOOL_CORE_NAMES.has('surface.get')).toBe(false);
   });
 
+  it('l\u0027outil d\u0027annonce d\u0027étape n\u0027est plus au noyau : rien ne s\u0027affiche pendant une demande', () => {
+    expect(TOOL_CORE_NAMES.has('announceStep')).toBe(false);
+    expect(TOOL_CORE_NAMES.size).toBe(19);
+  });
+
   it('retient les tools dont le nom, la description ou la catégorie partagent un mot de la demande', () => {
     const translate = tool('translate', 'Traduit un texte vers la langue cible');
     const weather = tool('test.meteo', 'weather forecast', { category: 'weather' });

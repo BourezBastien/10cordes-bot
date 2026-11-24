@@ -82,7 +82,7 @@ export class ConfigPanelPresenter {
       notice(
         `**Intégrations**\n${integrationLines}\n- Agent IA : ${
           view.llm.connected ? `**connecté** · modèle \`${view.llm.model ?? 'défaut du fournisseur'}\`${llmSource ? ` (${llmSource})` : ''}` : 'non connecté'
-        }\n- Thinking : \`${view.thinkingMode}\` (adaptive = activé seulement pendant l\u0027exécution de tools ou de compétences)`,
+        }`,
       ).components[0],
     );
 

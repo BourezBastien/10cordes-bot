@@ -22,7 +22,6 @@ export const TOOL_CORE_NAMES = new Set([
   'getMemberInfo',
   'sendMessage',
   'readMessages',
-  'announceStep',
   'search_tools',
   'getAvailableTools',
   'searchInternet',

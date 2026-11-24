@@ -13,7 +13,7 @@ import { botPermissionPolicy } from '../../core/security/bot-permission.policy';
 import { permissionsOf } from '../../core/security/permission-name';
 import { detectLocale } from '../../shared/utils/locale-detect';
 import type { AgentRequest } from './queue/types';
-import { ReplySession } from './reply-session';
+import type { ReplySession } from './reply-session';
 import { detectRequestIntent, type RequestIntent } from './request-intent';
 import { sanitizeTranscriptLine } from './reply-text';
 import { pinnedToolGuidance, selectRelevantTools, toolToOpenAiTool } from './tool-selection';
@@ -21,6 +21,7 @@ import { buildSystemPrompt } from './system-prompt.builder';
 import { GuildIntegrationService } from '../integrations/guild-integration.service';
 import { imageEnginesLine } from '../providers/image-engines';
 import { CapabilityRouterService } from '../providers/capability-router.service';
+import { fileLog } from '../logging/file-log.service';
 
 const TRANSCRIPT_SIZE = 12;
 
@@ -125,7 +126,7 @@ export class ConversationContextBuilder {
       permissions,
       session,
       toolset,
-      runContext: this.buildRunContext(channel, guild, request, member, locale, permissions, session),
+      runContext: this.buildRunContext(channel, guild, request, member, locale, permissions, session, requestId),
       messages,
       intent: detectRequestIntent(request.content, routed, skillTriggers),
     };
@@ -228,6 +229,7 @@ export class ConversationContextBuilder {
     locale: string,
     permissions: string[],
     session: ReplySession,
+    requestId: string,
   ): ToolRunContext {
     const { client } = this.deps;
     return {
@@ -237,9 +239,11 @@ export class ConversationContextBuilder {
       locale,
       permissions,
       roleIds: member ? [...member.roles.cache.keys()] : [],
-      // Ligne de statut unique : les tools y publient leur progression au lieu
-      // de poster leurs propres messages (fin du spam de lignes).
-      progress: async (text) => session.status.detail(text),
+      // Rien ne s'affiche pendant le traitement : la progression d'un tool long
+      // (analyse, ingestion, génération) part dans le journal, pas dans le salon.
+      progress: async (text) => {
+        fileLog()?.event('info', 'tool', 'progress', { requestId, guildId: guild.id, text: String(text).slice(0, 200) });
+      },
       reply: async (replyText) => {
         await channel.send({ content: replyText }).catch(() => {});
       },

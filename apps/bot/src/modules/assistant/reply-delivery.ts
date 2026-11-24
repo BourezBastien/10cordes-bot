@@ -20,8 +20,9 @@ export interface ReplyDeliveryDeps {
 
 /**
  * Livraison dans le salon, et rien d'autre : réponse en cache, notice
- * d'erreur (aucune erreur ne reste silencieuse), silence demandé, stream
- * finalisé ou morceaux adressés au message d'origine, cache des coûts.
+ * d'erreur (aucune erreur ne reste silencieuse), silence demandé, morceaux
+ * adressés au message d'origine, cache des coûts. C'est le SEUL endroit qui
+ * écrit la réponse d'une demande : rien n'est publié avant elle.
  */
 export class ReplyDelivery {
   constructor(private readonly deps: ReplyDeliveryDeps) {}
@@ -38,11 +39,7 @@ export class ReplyDelivery {
     if (!cachedReply) return false;
 
     log.info(`[FLOW] cache HIT pour ${request.authorName} [${requestId}]`);
-    await session.status.done();
-    // Réponse adressée comme les réponses fraîches (P1.11).
-    await channel
-      .send({ content: cachedReply, reply: { messageReference: request.messageId, failIfNotExists: false } })
-      .catch(() => channel.send({ content: cachedReply }).catch(() => {}));
+    await this.sendAddressed(channel, request.messageId, [cachedReply]);
     this.deps.audit.record({
       guildId: guild.id,
       source: 'agent',
@@ -99,7 +96,6 @@ export class ReplyDelivery {
         actorId: request.userId,
         metadata: { requestId: conversation.requestId, locale: conversation.locale, silent: true, tools: run.executed.join(',') },
       });
-      await session.status.done();
       return;
     }
 
@@ -108,42 +104,10 @@ export class ReplyDelivery {
     const isPrivileged = guildAdminPolicy.isAuthorized(
       accessContextFromNames(conversation.guild, request.userId, conversation.permissions),
     );
-    let finalDelivery = finalText;
-    if (!isPrivileged) {
-      finalDelivery = finalDelivery.replaceAll('@everyone', '`everyone`').replaceAll('@here', '`here`');
-    }
-
-    // LIVRAISON PROGRESSIVE : le stream a déjà publié le texte en salon, on
-    // finalise le message en cours, aucune re-poste.
-    const progressivePublished = session.streamingActive && session.responder.published && finalDelivery.trim().length > 0;
-    if (progressivePublished) {
-      await session.responder.finalize();
-      await session.status.done();
-      this.recordReply(conversation, run.executed.length, { streamed: true });
-      return;
-    }
-    // Stream coupé en route (tool_calls, [PANEL], everyone) : jette le draft.
-    await session.responder.abort();
+    const finalDelivery = isPrivileged ? finalText : finalText.replaceAll('@everyone', '`everyone`').replaceAll('@here', '`here`');
 
     const chunks = splitReplyChunks(finalDelivery);
-    await session.status.done();
-    // Réponse ADRESSÉE : chaque morceau répond au message d'origine (reply
-    // messageReference, failIfNotExists pour survivre à sa suppression) ;
-    // fallback channel.send nu si le reply échoue (message source partielle,
-    // permissions). Décision v3 : le bot ne « parle dans le vide » plus.
-    let replied = false;
-    for (const chunk of chunks) {
-      if (!chunk.trim()) continue;
-      if (!replied) {
-        const sent = await channel
-          .send({ content: chunk, reply: { messageReference: request.messageId, failIfNotExists: false } })
-          .then(() => true)
-          .catch(() => false);
-        replied = sent;
-        if (sent) continue;
-      }
-      await channel.send({ content: chunk }).catch(() => {});
-    }
+    await this.sendAddressed(channel, request.messageId, chunks);
     // Le cache coûts ne s'applique qu'aux réponses conversationnelles pures sans tools.
     if (run.executed.length === 0 && chunks.length === 1 && chunks[0].trim()) {
       this.deps.responseCache.put(conversation.guild.id, request.content, chunks[0]);
@@ -151,11 +115,31 @@ export class ReplyDelivery {
     this.recordReply(conversation, run.executed.length);
   }
 
+  /**
+   * Envoie les morceaux d'une réponse ADRESSÉE : le premier répond au message
+   * d'origine (reply messageReference, failIfNotExists pour survivre à sa
+   * suppression) ; fallback channel.send nu si le reply échoue (message
+   * source parti, permissions). Décision v3 : le bot ne « parle dans le vide » plus.
+   */
+  private async sendAddressed(channel: ConversationContext['channel'], messageId: string, chunks: readonly string[]): Promise<void> {
+    let replied = false;
+    for (const chunk of chunks) {
+      if (!chunk.trim()) continue;
+      if (!replied) {
+        const sent = await channel
+          .send({ content: chunk, reply: { messageReference: messageId, failIfNotExists: false } })
+          .then(() => true)
+          .catch(() => false);
+        replied = sent;
+        if (sent) continue;
+      }
+      await channel.send({ content: chunk }).catch(() => {});
+    }
+  }
+
   /** Notice en salon + audit typé pour une erreur de la boucle (référence visible). */
   private async reportFailure(conversation: ConversationContext, error: Error): Promise<void> {
-    const { channel, guild, request, requestId, session } = conversation;
-    // La réponse sera une notice : tout texte déjà streamé pour cette demande est retiré du salon.
-    session.rejectStream();
+    const { channel, guild, request, requestId } = conversation;
     const noticeFor = (message: string) => notice(`${message} [${requestId}]`, true);
     const recordError = (kind: string, extra: Record<string, unknown> = {}): void => {
       this.deps.audit.record({
@@ -169,13 +153,11 @@ export class ReplyDelivery {
 
     if (error instanceof QuotaExhaustedError) {
       recordError('quota');
-      await session.status.done();
       await channel.send(noticeFor(QUOTA_EXHAUSTED_MESSAGE)).catch(() => {});
       return;
     }
     if (error instanceof ProviderAuthError) {
       recordError('auth');
-      await session.status.done();
       await channel
         .send(noticeFor('Configuration IA invalide (clé rejetée). Contacte le staff : la clé API doit être corrigée.'))
         .catch(() => {});
@@ -183,7 +165,6 @@ export class ReplyDelivery {
     }
     if (error instanceof ProviderUnavailableError) {
       recordError('provider');
-      await session.status.done();
       await channel
         .send(noticeFor('Problème temporaire avec le fournisseur IA. Patiente quelques minutes et réessaie.'))
         .catch(() => {});
@@ -191,26 +172,24 @@ export class ReplyDelivery {
     }
     if (error instanceof LlmFormatLeakError) {
       recordError('format', { sample: error.sample.slice(0, 120) });
-      await session.status.done();
       await channel
         .send(noticeFor('Réponse IA malformée (le modèle a mêlé ses balises internes au texte). Réessaie, ou reformule ta demande.'))
         .catch(() => {});
       return;
     }
     recordError('generic', { error: error.message.slice(0, 300) });
-    await session.status.done();
     await channel.send(noticeFor(`Erreur IA : ${error.message.slice(0, 180)}`)).catch(() => {});
   }
 
   /** Audit de la réponse livrée : nombre de tools EXÉCUTÉS (pas la taille du catalogue). */
-  private recordReply(conversation: ConversationContext, toolCount: number, extra: Record<string, unknown> = {}): void {
+  private recordReply(conversation: ConversationContext, toolCount: number): void {
     const { guild, request, requestId, locale, permissions } = conversation;
     this.deps.audit.record({
       guildId: guild.id,
       source: 'agent',
       action: 'assistant.reply',
       actorId: request.userId,
-      metadata: { requestId, locale, permissions: permissions.length, tools: toolCount, public: true, ...extra },
+      metadata: { requestId, locale, permissions: permissions.length, tools: toolCount, public: true },
     });
   }
 }

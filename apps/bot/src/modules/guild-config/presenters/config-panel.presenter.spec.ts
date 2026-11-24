@@ -57,7 +57,8 @@ describe('ConfigPanelPresenter', () => {
     expect(rendered).toContain('- PixelLab : **connecté**');
     expect(rendered).toContain('`V6_MINI`');
     expect(rendered).toContain('- Agent IA : **connecté** · modèle `deepseek-flash` (en base, chiffrée)');
-    expect(rendered).toContain('- Thinking : `adaptive`');
+    // Le mode thinking reste un réglage (outils config.thinking) ; il n\u0027a plus de ligne dans le panneau.
+    expect(rendered).not.toContain('Thinking');
   });
 
   it('un bouton de connexion seulement quand le fournisseur IA n\u0027est pas connecté', () => {

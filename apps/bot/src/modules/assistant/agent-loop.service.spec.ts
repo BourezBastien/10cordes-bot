@@ -9,6 +9,7 @@ import type { ChatCompletionResult, ChatMessage, ChatOptions, OpenAiTool } from 
  * réel : l'effort de raisonnement ne bascule pas en cours de requête, un tour
  * qui fuit ses balises internes est rejoué proprement, et le plafond
  * d'itérations se termine par un message honnête, jamais par du texte brut.
+ * La boucle ne publie rien : seul le texte du dernier tour est rendu.
  */
 
 // Clé calculée : sync-tool-names.mjs repère la clé name suivie d'une chaîne.
@@ -64,7 +65,7 @@ const leakingTurn = (): Step => async ({ callbacks }) => {
 
 const ctx = (): ToolRunContext => ({ guildId: null, channelId: null, userId: '1550000000000000001', locale: 'fr', permissions: [], reply: async () => undefined });
 const toolset = () => ({ active: [tool(TOOL)], byName: new Map([[TOOL, tool(TOOL)]]) });
-const hooks = () => ({ cause: 'reply' as const, quotaExhaustedMessage: 'quota', onDelta: vi.fn(), onStreamRejected: vi.fn() });
+const hooks = () => ({ cause: 'reply' as const, quotaExhaustedMessage: 'quota' });
 const registry = () => ({
   run: vi.fn<() => Promise<{ ok: boolean; summary: string; data?: unknown }>>(async () => ({ ok: true, summary: 'ok' })),
 });
@@ -120,11 +121,8 @@ describe('AgentLoopService · effort de raisonnement stable', () => {
 describe('AgentLoopService · fuite de balises internes', () => {
   it('un tour qui fuit est rejoué une fois, sans garder le texte partiel du premier essai', async () => {
     const { llm } = fakeLlm([leakingTurn(), textTurn('Réponse propre')]);
-    const h = hooks();
-    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, h);
+    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
     expect(outcome.finalText).toBe('Réponse propre');
-    expect(h.onDelta).toHaveBeenCalledTimes(1);
-    expect(h.onDelta).toHaveBeenCalledWith('Réponse propre');
   });
 
   it('deux fuites de suite font échouer la requête avec l\u0027erreur typée', async () => {
@@ -136,8 +134,7 @@ describe('AgentLoopService · fuite de balises internes', () => {
 describe('AgentLoopService · plafond d\u0027itérations', () => {
   it('le dernier tour n\u0027est pas bridé par tool_choice none : il est relancé par un message', async () => {
     const { llm, calls } = fakeLlm(ceilingScript(textTurn('Résumé.')));
-    const h = hooks();
-    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, h);
+    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
     expect(outcome.forcedSummary).toBe(true);
     expect(outcome.finalText).toBe('Résumé.');
     expect(calls).toHaveLength(13);
@@ -146,25 +143,27 @@ describe('AgentLoopService · plafond d\u0027itérations', () => {
     const last = calls[12]?.messages[calls[12].messages.length - 1];
     expect(last?.role).toBe('user');
     expect(last?.content).toContain('N\u0027appelle plus aucun outil');
-    expect(h.onStreamRejected).not.toHaveBeenCalled();
   });
 
-  it('un dernier tour qui appelle encore un outil est ignoré : message honnête et texte streamé retiré', async () => {
+  it('un dernier tour qui appelle encore un outil est ignoré : message honnête, et rien du tour n\u0027est livré', async () => {
     const { llm } = fakeLlm(ceilingScript(toolTurn('trop-tard')));
-    const h = hooks();
-    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, h);
+    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
     expect(outcome.forcedSummary).toBe(true);
     expect(outcome.finalText).toBe(ceilingMessage(outcome.executed));
     expect(outcome.finalText).toContain('n\u0027est pas terminée');
-    expect(h.onStreamRejected).toHaveBeenCalledTimes(1);
   });
 
-  it('un dernier tour qui fuit ses balises ne publie rien et sert le message honnête', async () => {
+  it('un dernier tour qui fuit ses balises ne livre rien d\u0027autre que le message honnête', async () => {
     const { llm } = fakeLlm(ceilingScript(leakingTurn()));
-    const h = hooks();
-    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, h);
+    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
     expect(outcome.finalText).toBe(ceilingMessage(outcome.executed));
-    expect(h.onStreamRejected).toHaveBeenCalledTimes(1);
+  });
+
+  it('le texte d\u0027un tour à tool_calls n\u0027est jamais la réponse : seul le dernier tour, sans tool_calls, l\u0027est', async () => {
+    const { llm } = fakeLlm([async () => completion('Je vais créer le salon...', [{ id: 'c1', tool: TOOL }]), textTurn('Salon créé.')]);
+    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
+    expect(outcome.finalText).toBe('Salon créé.');
+    expect(outcome.executed).toEqual([TOOL]);
   });
 });
 

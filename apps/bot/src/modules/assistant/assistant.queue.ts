@@ -7,9 +7,13 @@ import type { QueueDriver } from './queue/queue-driver';
 import { snapshotFromMessage, type AgentJobData, type AgentRequest, type QueueCounts } from './queue/types';
 import { AppEnv } from '../../app.env';
 import { notice } from '../../shared/ui';
+import { TypingIndicator } from './typing-indicator';
 
 const MAX_PER_USER = 10;
 const MAX_QUEUE_TOTAL = 200;
+
+/** Une demande, pour l'indicateur « écrit… » qu'elle a ouvert à son acceptation. */
+const typingKeyOf = (request: AgentRequest): string => `${request.channelId}:${request.messageId}`;
 
 /**
  * Orchestrateur de la queue de l'agent. Persistance + retry délégués au driver
@@ -17,6 +21,9 @@ const MAX_QUEUE_TOTAL = 200;
  * n'efface plus les demandes en cours, les échecs sont retraités (3 tentatives,
  * backoff exponentiel). L'ordre FIFO par utilisateur est garanti par la
  * sérialisation du processeur.
+ *
+ * Une demande acceptée affiche « écrit… » dans son salon jusqu'à ce qu'elle
+ * soit soldée : l'attente en file est comprise.
  */
 @Injectable()
 export class AssistantQueue {
@@ -25,8 +32,13 @@ export class AssistantQueue {
   private processor: ((request: AgentRequest) => Promise<void>) | null = null;
   private currentHandler: ((job: AgentJobData) => Promise<void>) | null = null;
   private readonly perUserPending = new Map<string, number>();
+  /** Relâche de l'indicateur de chaque demande en file ou en cours. */
+  private readonly typingReleases = new Map<string, () => void>();
 
-  constructor(private readonly env: AppEnv) {
+  constructor(
+    private readonly env: AppEnv,
+    private readonly typing: TypingIndicator,
+  ) {
     // BullMQ si REDIS_URL fourni ; sinon fallback mémoire (dev sans Docker).
     this.driver = this.env.REDIS_URL ? new BullMqDriver(this.env.REDIS_URL, (job, error) => this.onFinalFailure(job, error)) : this.memoryDriver();
     // Sonde de connexion : Redis injoignable sous 5s -> bascule mémoire
@@ -53,10 +65,12 @@ export class AssistantQueue {
     this.log.warn(`Job échoué (définitif) pour ${job.request.userId} : ${error.slice(0, 120)}`);
   }
 
-  /** Enregistre le processeur d'une demande (AssistantService) — évite un cycle de DI. */
+  /** Enregistre le processeur d'une demande (AssistantService), sans cycle de DI. */
   setProcessor(processor: (request: AgentRequest) => Promise<void>): void {
     this.processor = processor;
     this.currentHandler = async (job: AgentJobData) => {
+      // Lu AVANT le traitement : le coalescing réécrit le message d'une demande en cours.
+      const typingKey = typingKeyOf(job.request);
       try {
         await this.processor!(job.request);
       } finally {
@@ -64,6 +78,9 @@ export class AssistantQueue {
         const remaining = (this.perUserPending.get(key) ?? 1) - 1;
         if (remaining <= 0) this.perUserPending.delete(key);
         else this.perUserPending.set(key, remaining);
+        // Soldée, réussie ou non : l'indicateur de la demande s'éteint.
+        this.typingReleases.get(typingKey)?.();
+        this.typingReleases.delete(typingKey);
       }
     };
     void this.driver.process(this.currentHandler);
@@ -71,7 +88,7 @@ export class AssistantQueue {
 
   /**
    * Point d'entrée du listener : met la demande en file (FIFO par utilisateur).
-   * Retourne false si refusée (caps / queue pleine / agent non prêt) — le
+   * Retourne false si refusée (caps / queue pleine / agent non prêt) : le
    * caller (boot-recovery) n'avance son watermark QUE sur true.
    */
   async enqueueMessage(message: Message, repliesToBot: boolean): Promise<boolean> {
@@ -101,8 +118,23 @@ export class AssistantQueue {
       return false;
     }
 
-    // File silencieuse : la réponse arrive directement (portail éphémère ou salon).
-    await this.driver.enqueue({ request: snapshotFromMessage(message, repliesToBot) });
+    // File silencieuse : rien ne s'affiche avant la réponse finale, sauf « écrit… »,
+    // ouvert ici (l'acceptation) pour couvrir l'attente en file.
+    const request = snapshotFromMessage(message, repliesToBot);
+    const typingKey = typingKeyOf(request);
+    this.typingReleases.get(typingKey)?.();
+    const releaseTyping = this.typing.hold(message.channelId, {
+      // Seul un salon textuel sait afficher l'indicateur (la gate n'accepte que des messages de serveur).
+      sendTyping: () => ('sendTyping' in message.channel ? message.channel.sendTyping() : Promise.resolve()),
+    });
+    this.typingReleases.set(typingKey, releaseTyping);
+    try {
+      await this.driver.enqueue({ request });
+    } catch (error) {
+      releaseTyping();
+      this.typingReleases.delete(typingKey);
+      throw error;
+    }
     this.perUserPending.set(key, pendingForUser + 1);
     return true;
   }
@@ -111,7 +143,7 @@ export class AssistantQueue {
     return this.driver.counts();
   }
 
-  /** 'bullmq' ou 'memory' — exposé par /healthz pour le diagnostic à distance. */
+  /** Nom du driver ('bullmq' ou 'memory'), exposé par /healthz pour le diagnostic à distance. */
   get driverName(): string {
     return this.driver.name;
   }

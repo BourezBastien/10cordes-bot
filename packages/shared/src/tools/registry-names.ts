@@ -9,7 +9,6 @@ export const REGISTERED_TOOL_NAMES = [
   'afk.clear',
   'afk.set',
   'analyzeActivity',
-  'announceStep',
   'archiveChannel',
   'banMember',
   'birthday.list',

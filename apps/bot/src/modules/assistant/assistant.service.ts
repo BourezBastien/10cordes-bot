@@ -29,11 +29,11 @@ import { ResponseCacheService } from './response-cache.service';
 import { isSilenceRequested, ReplySession } from './reply-session';
 import type { AgentRequest } from './queue/types';
 import { IntroContainer } from './v2.containers';
+import { TypingIndicator } from './typing-indicator';
 
 const log = new Logger('Assistant');
 
 const USER_COOLDOWN_MS = 4_000;
-const TYPING_REFRESH_MS = 8_000;
 
 /** Mention nue ou pure salutation : panneau d'identité immédiat, sans LLM. */
 const BARE_GREETING_RE = /^(salut|bonjour|hello|yo|hey|coucou|slt|bjr|ping|hi)[\s!.,?]*$/i;
@@ -43,6 +43,9 @@ const BARE_GREETING_RE = /^(salut|bonjour|hello|yo|hey|coucou|slt|bjr|ping|hi)[\
  * messages → demande mise en file (durable) → traitée par un worker avec
  * réponse publique dans le salon. Orchestration only : le contexte, la boucle
  * et la livraison sont confiés à des collaborateurs à responsabilité unique.
+ *
+ * Rien ne s'affiche entre l'acceptation d'une demande et sa réponse finale,
+ * sauf l'indicateur « écrit… » : ni étape, ni tool, ni réflexion.
  */
 @Injectable()
 export class AssistantService {
@@ -75,6 +78,7 @@ export class AssistantService {
     private readonly cacheStore: CacheStoreService,
     private readonly router: CapabilityRouterService,
     private readonly integrations: GuildIntegrationService,
+    private readonly typing: TypingIndicator,
   ) {
     this.contextBuilder = new ConversationContextBuilder({
       client: this.client,
@@ -118,54 +122,62 @@ export class AssistantService {
     if (!channelMaybe || !channelMaybe.isTextBased() || channelMaybe.partial) return;
     const channel = channelMaybe as TextChannel;
 
-    await this.coalesceWithNewerMessage(channel, request);
-
-    const guildConfig = await this.config.get(guild.id);
-
-    // Salon dédié configuré ailleurs → redirection polie.
-    const assistantChannel = guildConfig.assistant.channelId;
-    if (assistantChannel && request.channelId !== assistantChannel) {
-      await channel
-        .send(notice(`Je ne réponds que dans <#${assistantChannel}> (ou configure un autre salon via le bouton Panneau).`, true))
-        .catch(() => {});
-      return;
-    }
-
-    // Antispam par utilisateur (auto-supprimé).
-    const cooldownKey = `${guild.id}:${request.userId}`;
-    const last = this.cooldowns.get(cooldownKey);
-    const now = Date.now();
-    if (last !== undefined && now - last < USER_COOLDOWN_MS) {
-      const waitSeconds = Math.ceil((USER_COOLDOWN_MS - (now - last)) / 1_000);
-      const cooldownReply = await channel
-        .send(notice(`Antispam : attends encore ${waitSeconds}s avant ta prochaine demande.`, true))
-        .catch(() => null);
-      if (cooldownReply) {
-        setTimeout(() => cooldownReply.delete().catch(() => {}), 6_000).unref?.();
-      }
-      return;
-    }
-    this.cooldowns.set(cooldownKey, now);
-    // Traçabilité : chaque demande porte un ID propagé dans les audits,
-    // les logs FLOW et les notices d'erreur.
-    const requestId = `req-${Math.random().toString(36).slice(2, 10)}`;
-    log.info(`[FLOW] demande acceptée de ${request.authorName} [${requestId}]`);
-
+    // « écrit… » jusqu'à ce que la demande soit soldée, quoi qu'il arrive. Une
+    // demande reprise après un redémarrage n'a pas d'indicateur ouvert à son
+    // acceptation : il part d'ici.
+    const releaseTyping = this.typing.hold(channel.id, channel);
     try {
-      await this.processRequest(channel, guild, request, requestId);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      log.error(`Assistant failure [${requestId}] user=${request.userId}: ${message}`);
-      await channel
-        .send(notice(`Erreur interne [${requestId}] : ${message.slice(0, 120)}. Signale cette référence au staff si ça se répète.`, true))
-        .catch(() => {});
-      this.audit.record({
-        guildId: guild.id,
-        source: 'agent',
-        action: 'assistant.error',
-        actorId: request.userId,
-        metadata: { requestId, error: message.slice(0, 300) },
-      });
+      await this.coalesceWithNewerMessage(channel, request);
+
+      const guildConfig = await this.config.get(guild.id);
+
+      // Salon dédié configuré ailleurs → redirection polie.
+      const assistantChannel = guildConfig.assistant.channelId;
+      if (assistantChannel && request.channelId !== assistantChannel) {
+        await channel
+          .send(notice(`Je ne réponds que dans <#${assistantChannel}> (ou configure un autre salon via le bouton Panneau).`, true))
+          .catch(() => {});
+        return;
+      }
+
+      // Antispam par utilisateur (auto-supprimé).
+      const cooldownKey = `${guild.id}:${request.userId}`;
+      const last = this.cooldowns.get(cooldownKey);
+      const now = Date.now();
+      if (last !== undefined && now - last < USER_COOLDOWN_MS) {
+        const waitSeconds = Math.ceil((USER_COOLDOWN_MS - (now - last)) / 1_000);
+        const cooldownReply = await channel
+          .send(notice(`Antispam : attends encore ${waitSeconds}s avant ta prochaine demande.`, true))
+          .catch(() => null);
+        if (cooldownReply) {
+          setTimeout(() => void cooldownReply.delete().catch(() => {}), 6_000).unref?.();
+        }
+        return;
+      }
+      this.cooldowns.set(cooldownKey, now);
+      // Traçabilité : chaque demande porte un ID propagé dans les audits,
+      // les logs FLOW et les notices d'erreur.
+      const requestId = `req-${Math.random().toString(36).slice(2, 10)}`;
+      log.info(`[FLOW] demande acceptée de ${request.authorName} [${requestId}]`);
+
+      try {
+        await this.processRequest(channel, guild, request, requestId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        log.error(`Assistant failure [${requestId}] user=${request.userId}: ${message}`);
+        await channel
+          .send(notice(`Erreur interne [${requestId}] : ${message.slice(0, 120)}. Signale cette référence au staff si ça se répète.`, true))
+          .catch(() => {});
+        this.audit.record({
+          guildId: guild.id,
+          source: 'agent',
+          action: 'assistant.error',
+          actorId: request.userId,
+          metadata: { requestId, error: message.slice(0, 300) },
+        });
+      }
+    } finally {
+      releaseTyping();
     }
   }
 
@@ -235,46 +247,24 @@ export class AssistantService {
       return;
     }
 
-    // Boucle LLM : contexte complet, tools, livraison.
-    await this.withTypingIndicator(channel, () => this.converse(channel, guild, request, requestId));
-  }
-
-  /** Indicateur « écrit... » rafraîchi pendant tout le traitement. */
-  private async withTypingIndicator<T>(channel: TextChannel, task: () => Promise<T>): Promise<T> {
-    await channel.sendTyping().catch(() => {});
-    const interval = setInterval(() => {
-      void channel.sendTyping().catch(() => {});
-    }, TYPING_REFRESH_MS);
-    try {
-      return await task();
-    } finally {
-      clearInterval(interval);
-    }
+    // Boucle LLM : contexte complet, tools, livraison. Rien ne s'affiche avant la réponse finale.
+    await this.converse(channel, guild, request, requestId);
   }
 
   private async converse(channel: TextChannel, guild: Guild, request: AgentRequest, requestId: string): Promise<void> {
-    const session = new ReplySession(channel, request.messageId, isSilenceRequested(request.content));
-    session.status.arm();
-    let delivered = false;
+    const session = new ReplySession(isSilenceRequested(request.content));
     try {
       const conversation = await this.contextBuilder.build(channel, guild, request, requestId, session);
-      if (await this.delivery.deliverCached(conversation)) {
-        delivered = true;
-        return;
-      }
+      if (await this.delivery.deliverCached(conversation)) return;
       const outcome = await this.runner.run(conversation);
       await this.delivery.deliver(conversation, outcome);
-      delivered = true;
     } finally {
-      // GARANTIE ANTI-BLOCAGE : quoi qu'il arrive (contexte, boucle ou
-      // livraison en erreur), la ligne de statut disparaît et aucun brouillon
-      // non finalisé ne reste dans le salon. Le bot ne reste jamais « en réflexion ».
+      // GARANTIE ANTI-BLOCAGE : quoi qu'il arrive (contexte, boucle ou livraison
+      // en erreur, l'erreur remonte au processeur qui la montre), la demande est soldée.
       // Fin de demande : les actions destructives restées en attente forment UN plan d'approbation.
       await getActionPlans()
         ?.flush(guild.id, request.userId)
         .catch(() => null);
-      await session.status.done().catch(() => {});
-      if (!delivered) session.rejectStream();
     }
   }
 }

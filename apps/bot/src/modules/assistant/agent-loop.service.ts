@@ -27,19 +27,6 @@ export interface AgentLoopHooks {
   interceptToolCall?(name: string, input: unknown, iteration: number): Promise<ToolResult | undefined> | ToolResult | undefined;
   /** Après l'exécution d'un tool (audit, preState). */
   onToolResult?(name: string, result: ToolResult, input: unknown, iteration: number): Promise<void> | void;
-  /**
-   * Texte d'une itération SANS tool_calls, commis pour publication
-   * progressive (R0.2 : le texte d'une itération AVEC tool_calls n'arrive
-   * JAMAIS ici, il va à onIntermediateText pour la narration LiveStatus).
-   */
-  onDelta?(text: string): void;
-  /** Texte intermédiaire d'une itération qui contient des tool_calls : narration LiveStatus uniquement, jamais publié. */
-  onIntermediateText?(text: string): void;
-  /**
-   * Le texte déjà streamé d'un tour REJETÉ (balises internes du modèle, tour
-   * de conclusion sans texte) doit être retiré : il ne sera pas la réponse.
-   */
-  onStreamRejected?(): void;
   /** Message à produire quand les crédits sont épuisés (402). */
   quotaExhaustedMessage: string;
   /** Étiquette de cause pour la comptabilité llm.usage. */
@@ -99,9 +86,9 @@ export function ceilingMessage(executed: readonly string[]): string {
 /**
  * AgentLoop (Template Method) : LA boucle LLM + tools unique, consommée par
  * les deux canaux (Discord via AssistantService, dashboard via
- * WebAgentService). R0.2 : FIN DES PHRASES COUPÉES.
- * - le texte d'une itération est BUFFERISÉ et ne va au responder que si
- *   l'itération ne contient AUCUN tool_call (sinon : LiveStatus uniquement) ;
+ * WebAgentService).
+ * - le texte d'un tour à tool_calls est JETÉ (jamais montré) : seul le texte
+ *   du dernier tour, sans tool_calls, est la réponse, livrée en une fois ;
  * - plafond 12 itérations, puis un dernier tour de conclusion ;
  * - THINKING STABLE : l'effort de raisonnement se décide UNE fois, avant le
  *   premier tour, et reste identique sur toute la requête.
@@ -137,8 +124,8 @@ export class AgentLoopService {
       await hooks.onIterationStart?.(iteration, messages);
       const iterationStartedAt = Date.now();
       let quotaExhausted = false;
-      // R0.2 : buffer PAR itération. Le texte d'un tour à tool_calls n'est
-      // JAMAIS publié (narration LiveStatus seulement).
+      // Texte bufferisé PAR itération. Le texte d'un tour à tool_calls n'est
+      // JAMAIS la réponse : il est jeté (tracé dans le journal).
       const turn = await this.chatTurn(messages, openAiTools, callOptions).catch((error: unknown) => {
         if (error instanceof QuotaExhaustedError) {
           quotaExhausted = true;
@@ -173,7 +160,6 @@ export class AgentLoopService {
       });
 
       if (completion.toolCalls.length > 0) {
-        if (iterationText.trim().length > 0) hooks.onIntermediateText?.(iterationText);
         messages.push({
           role: 'assistant',
           content: completion.content ?? '',
@@ -224,9 +210,7 @@ export class AgentLoopService {
         continue;
       }
 
-      // Tour sans tool_calls : le texte bufferisé est commis au responder
-      // (publication progressive) puis retourné comme texte final.
-      if (iterationText.length > 0) hooks.onDelta?.(iterationText);
+      // Tour sans tool_calls : son texte est la réponse, livrée en une fois par l'appelant.
       return {
         finalText: completion.content ?? (iterationText.trim().length > 0 ? iterationText : null),
         executed,
@@ -242,17 +226,13 @@ export class AgentLoopService {
     // d'outil en texte brut) : il est prié de conclure, et tout tool_call est
     // ignoré. Sans texte utilisable, un message honnête remplace le tour.
     await hooks.onIterationStart?.(MAX_ITERATIONS, messages);
-    const summary = await this.llm
-      .chatStream([...messages, { role: 'user', content: SUMMARY_NUDGE }], openAiTools, callOptions, {
-        onDelta: (text) => hooks.onDelta?.(text),
-      })
-      .catch(() => null);
+    // Ignoré s'il appelle encore un outil : seul son texte est la réponse, et rien n'est publié en cours de route.
+    const summary = await this.llm.chatStream([...messages, { role: 'user', content: SUMMARY_NUDGE }], openAiTools, callOptions, {}).catch(() => null);
     if (summary?.usage) {
       usage.promptTokens += summary.usage.promptTokens;
       usage.completionTokens += summary.usage.completionTokens;
     }
     const summaryText = summary && summary.toolCalls.length === 0 ? (summary.content?.trim() ?? '') : '';
-    if (!summaryText) hooks.onStreamRejected?.();
     return {
       finalText: summaryText || ceilingMessage(executed),
       executed,

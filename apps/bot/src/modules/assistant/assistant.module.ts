@@ -13,6 +13,7 @@ import { AssistantQueue } from './assistant.queue';
 import { AgentLoopService } from './agent-loop.service';
 import { AssistantService } from './assistant.service';
 import { LlmService } from './llm.service';
+import { TypingIndicator } from './typing-indicator';
 
 import { WebAgentService } from './web-agent.service';
 
@@ -29,7 +30,17 @@ import { BootRecoveryService } from './boot-recovery.service';
 @Module({
   imports: [AuditModule, CacheModule, GuildConfigModule, GuildRulesModule, ImagelabModule, IntegrationModule, ProvidersModule, ToolRegistryModule],
   listeners: [AssistantMentionListener],
-  providers: [AssistantQueue, AgentLoopService, SkillPatternDetector, AssistantService, LlmService, WebAgentService, ResponseCacheService, BootRecoveryService],
+  providers: [
+    TypingIndicator,
+    AssistantQueue,
+    AgentLoopService,
+    SkillPatternDetector,
+    AssistantService,
+    LlmService,
+    WebAgentService,
+    ResponseCacheService,
+    BootRecoveryService,
+  ],
   exports: [LlmService, AssistantQueue, WebAgentService, ResponseCacheService],
 })
 export class AssistantModule {}

@@ -1,11 +1,12 @@
 /**
  * Rig GATE (Phase 1, refonte 22/11) : vérifie le comportement de la gate
- * refondue sur 5 scénarios, UNE exécution, E2E_ONLY filtrable :
+ * refondue sur 6 scénarios, UNE exécution, E2E_ONLY filtrable :
  *  1. gate.intruder-webhook  : un webhook NON allowlisté ne déclenche RIEN
  *  2. gate.unaddressed       : message humain sans adresse hors salon dédié → silence
  *  3. gate.mention           : mention du bot → réponse (en reply au message)
  *  4. gate.reply-to-bot      : réponse à un message du bot → réponse
  *  5. gate.other-bot         : mention d'un autre bot sans nous → silence
+ *  6. gate.silence           : rien dans le salon avant la réponse finale
  * Vérification : messages du bot après watermark + audit assistant.* depuis le watermark.
  */
 import { readFileSync, existsSync } from 'node:fs';
@@ -87,6 +88,29 @@ async function assistantActivitySince(since) {
     });
   } finally {
     await prisma.$disconnect();
+  }
+}
+
+/** Une ligne d'audit d'une action depuis un instant (en base, metadata est du texte JSON). */
+async function auditSince(since, action) {
+  const { PrismaClient } = await import('@prisma/client');
+  const prisma = new PrismaClient();
+  try {
+    return await prisma.auditLog.findFirst({ where: { createdAt: { gt: since }, action }, orderBy: { createdAt: 'desc' } });
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+/** Un tool a-t-il REUSSI depuis un instant ? (metadata.ok : le nom seul ne prouve rien) */
+async function toolOkSince(since, tool) {
+  const row = await auditSince(since, `assistant.tool.${tool}`);
+  if (!row) return { ok: false, summary: 'tool non appelé' };
+  try {
+    const metadata = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata;
+    return { ok: metadata?.ok === true, summary: String(metadata?.summary ?? '').slice(0, 120) };
+  } catch {
+    return { ok: false, summary: 'audit illisible' };
   }
 }
 
@@ -244,6 +268,52 @@ async function main() {
       const quiet = !botMsg && auditCount === 0;
       verdict('gate.other-bot', quiet, quiet ? 'redirigé vers l\'autre bot, silence' : `le bot a répondu (msg=${Boolean(botMsg)}, audit=${auditCount})`);
     }
+  }
+
+  // ---- 6. Silence en coulisse : RIEN dans le salon avant la réponse finale ----
+  // Une demande qui passe par un tool (plusieurs tours). Pendant tout le
+  // traitement, le salon est échantillonné toutes les 2 s : une ligne de
+  // statut s'affiche puis s'efface, un relevé fait après coup ne la verrait
+  // pas. Le bot ne doit y écrire que la réponse finale. L'indicateur
+  // « écrit… » n'est pas un message : il est couvert par les tests unitaires.
+  if (!only || only.includes('gate.silence')) {
+    await sleep(COOLDOWN_MS);
+    const sent = await sendVia(staffHook, `<@${botId}> e2e-gate: avec search_skills, cherche la recette des salons vocaux temporaires, puis réponds exactement « gate-silence-ok » et rien d'autre.`);
+    const sinceTs = snowflakeTs(sent.id);
+    const since = new Date(Date.now() - 1_000);
+    const seen = new Map();
+    let samples = 0;
+    const sample = async () => {
+      samples += 1;
+      const messages = await rest(`/channels/${channelId}/messages?limit=30`).catch(() => []);
+      for (const m of messages) {
+        if (m.author.id === botId && snowflakeTs(m.id) >= sinceTs - 2_000 && !seen.has(m.id)) seen.set(m.id, m);
+      }
+    };
+    let settled = null;
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < REPLY_WAIT_MS) {
+      await sleep(2_000);
+      await sample();
+      settled = (await auditSince(since, 'assistant.reply')) ?? (await auditSince(since, 'assistant.error'));
+      if (settled) break;
+    }
+    // La réponse peut arriver juste après son audit : un dernier échantillon.
+    await sleep(2_000);
+    await sample();
+
+    const tool = await toolOkSince(since, 'search_skills');
+    const reply = [...seen.values()].find((m) => String(m.content ?? '').includes('gate-silence-ok'));
+    const others = [...seen.values()].filter((m) => m !== reply);
+    // Un tool doit avoir tourné : sans lui, la demande n'a pas eu de phase de travail, le scénario ne prouve rien.
+    const pass = Boolean(settled?.action === 'assistant.reply' && reply && tool.ok && others.length === 0);
+    verdict(
+      'gate.silence',
+      pass,
+      pass
+        ? `aucun message avant la réponse finale (${samples} échantillons sur ${Math.round((Date.now() - startedAt) / 1000)} s, search_skills ok)`
+        : `soldé=${settled?.action ?? 'non'} · réponse=${Boolean(reply)} · search_skills ${tool.ok ? 'ok' : `non réussi (${tool.summary})`} · messages du bot : ${seen.size}, hors réponse : ${others.map((m) => String(m.content ?? '').slice(0, 60)).join(' | ') || 'aucun'}`,
+    );
   }
 
   // ---- CLEANUP ----
