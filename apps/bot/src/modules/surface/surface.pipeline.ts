@@ -8,6 +8,8 @@ import { PipelineStepSchema, type InteractionBinding, type PipelineStep, type Su
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { CacheStoreService } from '../../shared/cache/cache-store.service';
+import { actingMemberContext } from '../../core/security/access-policy';
+import { massMentionPolicy } from '../../core/security/mass-mention.policy';
 import { getLlm } from '../assistant/llm.accessor';
 import { BindingAccessPolicy } from './pipeline-access.policy';
 import { ConditionEvaluator } from './pipeline-condition.evaluator';
@@ -109,7 +111,9 @@ export class SurfacePipelineService {
           case 'sendMessage': {
             const targetChannel = step.channelId ? this.interpolator.interpolate(step.channelId, ctx.vars) : ctx.vars.channelId;
             const channel = await this.client.channels.fetch(targetChannel).catch(() => null);
-            const content = this.interpolator.interpolate(step.content, ctx.vars).slice(0, 1900);
+            // Le texte a été écrit par le modèle : une mention de masse ne pingue que pour un
+            // administrateur (au clic), jamais pour le système (déclencheur, événement).
+            const content = massMentionPolicy.guard(this.interpolator.interpolate(step.content, ctx.vars).slice(0, 1900), actingMemberContext(ctx.member));
             const sent = channel?.isTextBased() && 'send' in channel
               ? await channel.send({ content }).then(() => true).catch(() => false)
               : false;

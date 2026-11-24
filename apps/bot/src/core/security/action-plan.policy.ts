@@ -27,6 +27,12 @@ export interface PlanAction {
 export type PlanReview = { ok: true } | { ok: false; reason: string };
 
 const SNOWFLAKE_RE = /^\d{1,20}$/u;
+/**
+ * Clés qui portent un identifiant Discord (`channelId`, `targetUserId`,
+ * `locationChannelId`...). Les autres clés en `Id` sont des identifiants de
+ * l'application (`surfaceId`, `skillId`, `recordId`) : leur forme est libre.
+ */
+const DISCORD_ID_KEY_RE = /(?:channel|user|member|role|guild|message|category|thread|target)id$/iu;
 const MEMBER_TARGET_KEYS: readonly string[] = ['memberId', 'userId', 'targetId'];
 const ROLE_TARGET_KEYS: readonly string[] = ['roleId'];
 /** Sanctions : jamais sur soi-même ; un bannissement peut viser un membre parti. */
@@ -45,9 +51,9 @@ export class ActionPlanPolicy {
     return plan.expiresAt <= now;
   }
 
-  /** Tout identifiant Discord passé à une action (clé terminée par `Id`) est un snowflake. */
+  /** Tout identifiant Discord passé à une action (clé en `channelId`, `userId`, `roleId`...) est un snowflake. Les identifiants de l'application ne sont pas concernés. */
   hasValidIds(input: Record<string, unknown>): boolean {
-    return Object.entries(input).every(([key, value]) => !key.endsWith('Id') || typeof value !== 'string' || SNOWFLAKE_RE.test(value));
+    return Object.entries(input).every(([key, value]) => !DISCORD_ID_KEY_RE.test(key) || typeof value !== 'string' || SNOWFLAKE_RE.test(value));
   }
 
   /**

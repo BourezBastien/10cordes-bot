@@ -1,10 +1,12 @@
 import { z } from 'zod';
 import type { BotTool } from '@10cordes/shared';
+import { safeFetchJson } from '../../shared/utils/safe-fetch';
 
 /**
  * Tools d'ouvrages de référence : fiche d'un pays, dictionnaire anglais,
  * paroles de chanson, résumé Wikipédia. Ordre d'origine dans le registry :
- * getCountryInfo, defineWord, getLyrics, searchWikipedia.
+ * getCountryInfo, defineWord, getLyrics, searchWikipedia. Chaque appel passe
+ * par la garde des requêtes sortantes.
  */
 export function buildReferenceTools(): BotTool[] {
   return [
@@ -18,11 +20,9 @@ export function buildReferenceTools(): BotTool[] {
       systemPrompt: 'Source : restcountries.com. Cite-la.',
       handler: async (input, _ctx) => {
         const { country } = input as { country: string };
-        const data = (await fetch(
+        const data = (await safeFetchJson<unknown>(
           `https://restcountries.com/v3.1/name/${encodeURIComponent(country)}?fields=name,capital,population,currencies,languages,flags`,
-        )
-          .then((res) => res.json())
-          .catch(() => null)) as
+        ).catch(() => null)) as
           | Array<{
               name: { common: string };
               capital?: string[];
@@ -31,7 +31,8 @@ export function buildReferenceTools(): BotTool[] {
               languages?: Record<string, string>;
               flags?: { png?: string };
             }>
-          | { status?: number };
+          | { status?: number }
+          | null;
         if (!Array.isArray(data) || data.length === 0) return { ok: false, summary: 'Pays introuvable.' };
         const c = data[0];
         const currency = Object.keys(c.currencies ?? {})[0] ?? '?';
@@ -53,14 +54,14 @@ export function buildReferenceTools(): BotTool[] {
       systemPrompt: 'Source : dictionaryapi.dev. Traduis/paraphrase la définition pour l\u0027utilisateur français.',
       handler: async (input, _ctx) => {
         const { word } = input as { word: string };
-        const data = (await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`).then((res) =>
-          res.json(),
-        )) as
+        // Un mot inconnu répond 404 avec un objet : la réponse est lue quel que soit le statut.
+        const data = await safeFetchJson<
           | Array<{
               meanings?: Array<{ partOfSpeech: string; definitions?: Array<{ definition: string }> }>;
               phonetic?: string;
             }>
-          | { title?: string };
+          | { title?: string }
+        >(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
         if (!Array.isArray(data) || data.length === 0) return { ok: false, summary: `Mot « ${word} » introuvable dans le dictionnaire.` };
         const first = data[0];
         const def = first.meanings?.[0]?.definitions?.[0]?.definition ?? '';
@@ -83,10 +84,8 @@ export function buildReferenceTools(): BotTool[] {
       systemPrompt: 'Paroles complètes longues : extrais le refrain ou les 8 premières lignes et donne le lien source.',
       handler: async (input, _ctx) => {
         const { artist, title } = input as { artist: string; title: string };
-        const data = (await fetch(`https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`).then((res) =>
-          res.json(),
-        )) as { lyrics?: string };
-        if (!data.lyrics) return { ok: false, summary: 'Paroles introuvables pour ce titre.' };
+        const data = await safeFetchJson<{ lyrics?: string; error?: string }>(`https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`);
+        if (!data?.lyrics) return { ok: false, summary: 'Paroles introuvables pour ce titre.' };
         return {
           ok: true,
           summary: `Paroles « ${title} » (${artist}) : ${data.lyrics.slice(0, 1200)}… (source : lyrics.ovh)`,
@@ -107,14 +106,10 @@ export function buildReferenceTools(): BotTool[] {
       handler: async (input, _ctx) => {
         const { topic, lang } = input as { topic: string; lang?: string };
         const host = lang === 'en' ? 'en' : 'fr';
-        const data = (await fetch(
+        const data = await safeFetchJson<{ title?: string; extract?: string; content_urls?: { desktop?: { page?: string } } }>(
           `https://${host}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(topic)}`,
-        ).then((res) => res.json())) as {
-          title?: string;
-          extract?: string;
-          content_urls?: { desktop?: { page?: string } };
-        };
-        if (!data.extract) return { ok: false, summary: 'Article Wikipédia introuvable pour ce sujet.' };
+        );
+        if (!data?.extract) return { ok: false, summary: 'Article Wikipédia introuvable pour ce sujet.' };
         return {
           ok: true,
           summary: `${data.title} (Wikipédia ${host.toUpperCase()}) : ${data.extract.slice(0, 800)} Lien : ${data.content_urls?.desktop?.page ?? ''}`,

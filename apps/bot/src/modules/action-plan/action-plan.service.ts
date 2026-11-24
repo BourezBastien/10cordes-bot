@@ -13,28 +13,23 @@ import { InteractionReply } from '../surface/surface-reply';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { ActionPlanPresenter } from './action-plan.presenter';
 import { bindActionPlans } from './action-plan.runtime';
+import { reviewPlanActions } from './action-plan.review';
+import { PlanSummaryWriter } from './action-plan.summary';
+import { PlanStaging } from './action-plan.staging';
 import { ActionPlanStore } from './action-plan.store';
-import { PLAN_LIMITS, type ActionPlan } from './action-plan.types';
+import { PLAN_LIMITS, type ActionPlan, type PlanRequest } from './action-plan.types';
 
 /**
- * Plans d'action (transposé de discord-agent) : les actions destructives d'UNE
- * demande sont regroupées derrière UNE approbation, et c'est le clic qui les
- * exécute. Le modèle n'exécute jamais lui-même une action approuvée : il
- * propose, la Policy revalide, le bot applique.
+ * Plans d'action (transposé de discord-agent) : les actions qui modifient,
+ * rassemblées derrière UNE approbation, et c'est le clic qui les exécute.
+ * Le modèle n'exécute jamais lui-même une action approuvée : il propose, la
+ * Policy revalide, le bot applique.
  *
- *   tool destructif bloqué par la règle → `stage` (en attente, en mémoire)
- *   fin de la demande                      → `flush` (un plan, un panneau)
+ *   tool qui modifie bloqué par la règle → `stage` (en attente, en mémoire)
+ *   fin de la demande                      → `flush` (revue, résumé, un plan, un panneau)
  *   clic « Appliquer »                     → `apply`  (prise du plan, revalidation, exécution)
  *   clic « Annuler »                       → `cancel`
  */
-
-/** Actions destructives en attente d'une même demande, avant qu'elles forment un plan. */
-interface Staged {
-  actions: PlanAction[];
-  at: number;
-}
-
-const stageKey = (guildId: string, channelId: string, userId: string): string => `${guildId}:${userId}:${channelId}`;
 
 /** Ce qu'un échec imprévu doit dire à l'utilisateur. */
 const reasonOf = (error: unknown): string => (error instanceof Error ? error.message : String(error)).slice(0, 200);
@@ -44,7 +39,8 @@ export class ActionPlanService implements SpraxiumOnBoot {
   private readonly log = new Logger('ActionPlan');
   private readonly presenter = new ActionPlanPresenter();
   private readonly store: ActionPlanStore;
-  private readonly staged = new Map<string, Staged>();
+  private readonly staging = new PlanStaging();
+  private readonly summaries = new PlanSummaryWriter();
 
   constructor(
     prisma: PrismaService,
@@ -61,52 +57,54 @@ export class ActionPlanService implements SpraxiumOnBoot {
   }
 
   /**
-   * Le registry bloque une action destructive : elle rejoint le plan de la
+   * Le registry bloque une action qui modifie : elle rejoint le plan de la
    * demande en cours. Null quand aucun plan ne peut être affiché (pas de
    * salon : la porte du registry refuse alors sans promettre de panneau).
    */
   stage(ctx: ToolRunContext, tool: string, input: Record<string, unknown>): { count: number; full: boolean } | null {
-    if (!ctx.guildId || !ctx.channelId) return null;
-    const key = stageKey(ctx.guildId, ctx.channelId, ctx.userId);
-    const found = this.staged.get(key);
-    const current: Staged = found && Date.now() - found.at < PLAN_LIMITS.stageMs ? found : { actions: [], at: Date.now() };
-    current.at = Date.now();
-    this.staged.set(key, current);
-    if (current.actions.length >= PLAN_LIMITS.maxActions) return { count: current.actions.length, full: true };
-    current.actions.push({ tool, input });
-    return { count: current.actions.length, full: false };
+    return this.staging.stage(ctx, tool, input);
   }
 
-  /** Fin de la demande : les actions en attente de ce demandeur forment UN plan, affiché une seule fois. */
-  async flush(guildId: string, userId: string): Promise<ActionPlan | null> {
-    const prefix = `${guildId}:${userId}:`;
-    const actions: PlanAction[] = [];
-    let channelId = '';
-    for (const [key, entry] of this.staged) {
-      if (!key.startsWith(prefix)) continue;
-      this.staged.delete(key);
-      channelId = key.slice(prefix.length);
-      actions.push(...entry.actions);
-    }
-    if (actions.length === 0 || !channelId) return null;
-    await this.store.purgeExpired(guildId, Date.now()).catch(() => 0);
+  /**
+   * Fin de la demande : les actions en attente de ce demandeur forment UN
+   * plan, affiché une seule fois. Chaque action est revue AVANT l'affichage
+   * (une action que le demandeur ne peut pas exécuter est écartée, et dite
+   * telle), puis le modèle en écrit le résumé. Null sans action en attente,
+   * ou quand aucune ne survit à la revue.
+   */
+  async flush(guildId: string, userId: string, request: PlanRequest = {}): Promise<ActionPlan | null> {
+    const gathered = this.staging.take(guildId, userId);
+    if (!gathered) return null;
+    const { channelId } = gathered;
+    const guild = this.client.guilds.cache.get(guildId) ?? null;
+    const member = guild ? await guild.members.fetch({ user: userId, force: true }).catch(() => null) : null;
+    const { kept, dropped } = reviewPlanActions(member, gathered.actions.slice(0, PLAN_LIMITS.maxActions), (name) => this.registry.get(name));
 
+    if (kept.length === 0) {
+      this.audit.record({ guildId, source: 'agent', action: 'plan.rejected', actorId: userId, metadata: { dropped: dropped.map((entry) => `${entry.tool} : ${entry.reason}`) } });
+      await this.post(channelId, this.presenter.rejected(dropped));
+      return null;
+    }
+
+    await this.store.purgeExpired(guildId, Date.now()).catch(() => 0);
     const now = Date.now();
     const id = await this.store.create({
       guildId,
       channelId,
       requesterId: userId,
       messageId: null,
-      actions: actions.slice(0, PLAN_LIMITS.maxActions),
+      actions: kept,
+      summary: null,
+      dropped,
       status: 'pending',
       createdAt: now,
       expiresAt: now + PLAN_LIMITS.lifetimeMs,
       report: null,
     });
-    const stored = await this.store.get(id);
-    if (!stored) return null;
-    const plan = stored;
-    plan.messageId = await this.paint(plan, this.presenter.render(plan));
+    const plan = await this.store.get(id);
+    if (!plan) return null;
+    plan.summary = await this.summaries.write({ guildId, userId, request, actions: plan.actions });
+    plan.messageId = await this.post(channelId, this.presenter.render(plan));
     if (!plan.messageId) {
       plan.status = 'cancelled';
       plan.report = { done: 0, reason: 'panneau non affiché' };
@@ -117,7 +115,7 @@ export class ActionPlanService implements SpraxiumOnBoot {
       source: 'agent',
       action: 'plan.posted',
       actorId: userId,
-      metadata: { planId: id, actions: plan.actions.length, posted: Boolean(plan.messageId) },
+      metadata: { planId: id, actions: plan.actions.length, dropped: plan.dropped.length, summary: plan.summary !== null, posted: Boolean(plan.messageId) },
     });
     return plan;
   }
@@ -231,7 +229,12 @@ export class ActionPlanService implements SpraxiumOnBoot {
     });
   }
 
-  /** Contexte d'exécution d'un tool du plan : le demandeur tel qu'il est AU CLIC (permissions portées par l'interaction, rôles du membre rechargé). */
+  /**
+   * Contexte d'exécution d'un tool du plan : le demandeur tel qu'il est AU
+   * CLIC (permissions portées par l'interaction, rôles du membre rechargé).
+   * Le plan est approuvé : cette autorisation vaut pour chaque action et
+   * pour ce qu'elle déclenche.
+   */
   private contextOf(plan: ActionPlan, member: GuildMember, interaction: ButtonInteraction): ToolRunContext {
     return {
       guildId: plan.guildId,
@@ -240,25 +243,35 @@ export class ActionPlanService implements SpraxiumOnBoot {
       locale: interaction.locale,
       permissions: interactionAccessContext(interaction)?.permissions ?? [],
       roleIds: roleIdsOf(member),
+      approvedBy: plan.id,
       reply: async () => undefined,
     };
   }
 
   /** Affiche (ou remplace) le panneau d'un plan ; null si le salon n'est plus accessible, ou si le panneau à remplacer n'est pas connu. */
   private async paint(plan: ActionPlan, payload: MessageCreateOptions, edit = false): Promise<string | null> {
+    if (!edit) return this.post(plan.channelId, payload, plan.id);
     try {
+      if (!plan.messageId) return null;
       const channel = this.client.channels.cache.get(plan.channelId) ?? (await this.client.channels.fetch(plan.channelId).catch(() => null));
       if (!channel?.isTextBased() || !('send' in channel)) return null;
-      if (edit) {
-        if (!plan.messageId) return null;
-        const message = await channel.messages.fetch(plan.messageId).catch(() => null);
-        await message?.edit({ components: payload.components, allowedMentions: { parse: [] } });
-        return plan.messageId;
-      }
-      const sent = await channel.send({ ...payload, allowedMentions: { parse: [] } });
-      return sent.id;
+      const message = await channel.messages.fetch(plan.messageId).catch(() => null);
+      await message?.edit({ components: payload.components, allowedMentions: { parse: [] } });
+      return plan.messageId;
     } catch (error) {
       this.log.warn(`panneau du plan ${plan.id} impossible (${reasonOf(error).slice(0, 120)})`);
+      return null;
+    }
+  }
+
+  /** Envoie un panneau dans un salon, sans notifier personne ; null si le salon n'est plus accessible. */
+  private async post(channelId: string, payload: MessageCreateOptions, planId = ''): Promise<string | null> {
+    try {
+      const channel = this.client.channels.cache.get(channelId) ?? (await this.client.channels.fetch(channelId).catch(() => null));
+      if (!channel?.isTextBased() || !('send' in channel)) return null;
+      return (await channel.send({ ...payload, allowedMentions: { parse: [] } })).id;
+    } catch (error) {
+      this.log.warn(`panneau du plan ${planId} impossible (${reasonOf(error).slice(0, 120)})`);
       return null;
     }
   }

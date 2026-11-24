@@ -4,34 +4,39 @@ import type { AuditService } from '../audit/audit.service';
 import type { RegistryRuntimeDeps } from './tool-registry.runtime';
 
 /**
- * Porte de confirmation des actions destructives (règle serveur
- * confirmDestructiveActions), transposée de discord-agent.
+ * Porte de confirmation des actions (règle serveur « Confirmer les actions
+ * (hors lecture) », champ `confirmDestructiveActions`), transposée de
+ * discord-agent.
  *
- * Le modèle ne peut pas exécuter un tool destructif quand la règle est
- * active : l'action rejoint le plan de la demande en cours, et c'est le clic
- * de son auteur sur « Appliquer » qui l'exécute, après revalidation
- * déterministe (`ActionPlanPolicy`). Le modèle n'a donc jamais à relancer
- * lui-même une action approuvée.
+ * Quand la règle est active, le modèle ne peut pas exécuter un tool qui
+ * modifie (classification `TOOL_EFFECTS`, hors lectures et outils directs) :
+ * l'action rejoint le plan de la demande en cours, et c'est le clic de son
+ * auteur sur « Appliquer » qui l'exécute, après revalidation déterministe
+ * (`ActionPlanPolicy`). Le modèle n'a donc jamais à relancer lui-même une
+ * action approuvée.
  *
- * Un plan approuvé revient ici avec `approvedBy` : ses actions passent, la
- * Policy les ayant revérifiées à l'instant du clic sur le membre rechargé.
+ * La règle vaut pour ce que le modèle PROPOSE en conversation. Un tool déjà
+ * autorisé par le serveur ne repasse pas par la porte : un plan approuvé au
+ * clic (`approvedBy`), l'action d'un membre sur une surface, une tâche du
+ * système (`ctx.approvedBy`), ni ceux qu'il déclenche.
  */
 
 /** Refus à relayer quand l'action attend une approbation. */
 export function waitingApprovalSummary(name: string, count: number, full: boolean, userId: string): string {
   if (full) {
-    return `Action destructive (${name}) bloquée par la règle du serveur : le plan d\u0027approbation de cette demande est plein (${count} actions). Termine ce qui ne dépend pas d\u0027elle.`;
+    return `Action (${name}) bloquée par la règle du serveur : le plan d\u0027approbation de cette demande est plein (${count} actions). Termine ce qui ne dépend pas d\u0027elle.`;
   }
   return (
-    `Action destructive (${name}) bloquée par la règle du serveur : elle attend l\u0027approbation de <@${userId}> (${count} action(s) en attente). ` +
-    'Termine ce qui ne dépend pas d\u0027elle et dis ce qui reste à approuver : un panneau ✅ Appliquer / ❌ Annuler regroupera ces actions en fin de réponse (réservé au demandeur, valable 15 min). NE RETENTE PAS cette action.'
+    `Action (${name}) bloquée par la règle du serveur : sur ce serveur, toute action qui modifie attend l\u0027approbation de <@${userId}> (${count} action(s) en attente). ` +
+    'Termine ce qui ne dépend pas d\u0027elle et dis ce qui reste à approuver : un panneau ✅ Appliquer / ❌ Annuler regroupera ces actions en fin de réponse (réservé au demandeur, valable 15 min). ' +
+    'NE RETENTE PAS cette action, et n\u0027en appelle aucune qui dépendrait de son résultat : elle ne pourrait pas s\u0027exécuter non plus.'
   );
 }
 
 export class DestructiveConfirmationGate {
   constructor(private readonly deps: () => RegistryRuntimeDeps, private readonly audit: AuditService) {}
 
-  /** Refus à relayer quand l'action destructive doit être approuvée, null si l'exécution peut continuer. */
+  /** Refus à relayer quand l'action qui modifie doit être approuvée, null si l'exécution peut continuer. */
   async refuseUnlessApproved(name: string, input: Record<string, unknown>, ctx: ToolRunContext, approvedBy?: string): Promise<ToolResult | null> {
     // Hors serveur, la règle n'existe pas.
     if (approvedBy || !ctx.guildId) return null;
@@ -53,7 +58,7 @@ export class DestructiveConfirmationGate {
       return {
         ok: false,
         summary:
-          `Action destructive (${name}) bloquée par la règle du serveur : une confirmation par boutons est requise ` +
+          `Action (${name}) bloquée par la règle du serveur : une confirmation par boutons est requise ` +
           'mais impossible à afficher ici. Informe poliment l\u0027utilisateur que cette action doit être demandée depuis un salon du serveur.',
       };
     }

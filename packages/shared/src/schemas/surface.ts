@@ -1,5 +1,5 @@
 /**
- * MOTEUR GÉNÉRIQUE (Phase 2.4) — schémas de InteractiveSurface /
+ * MOTEUR GÉNÉRIQUE (Phase 2.4) : schémas de InteractiveSurface /
  * InteractionBinding / ScheduledTrigger / EventTrigger / ActionPipeline.
  *
  * Principe : TOUT système interactif (tickets, sondages, vocaux temporaires,
@@ -11,8 +11,10 @@
  *
  * Interpolation : les chaînes supportent {{actor.id}}, {{actor.username}},
  * {{state.<path>}}, {{steps.<n>.<field>}}, {{surface.channelId}},
- * {{surface.messageId}}, {{guild.id}} — résolues au runtime, JAMAIS choisies
+ * {{surface.messageId}}, {{guild.id}} : résolues au runtime, JAMAIS choisies
  * par le modèle pour les identités (actor.id vient du contexte Discord).
+ * Les références `{{steps.<n>...}}` d'un pipeline sont vérifiées avant
+ * qu'il soit enregistré (surface-pipeline-refs.ts).
  *
  * Répartition : un fichier par concept, dans l'ordre des dépendances (un
  * fichier n'importe que des concepts déjà définis, aucun cycle) :
@@ -21,6 +23,7 @@
  * - surface-access-policy.ts : AccessPolicy d'un binding ;
  * - surface-modal.ts : ModalInput et ModalSpec ;
  * - surface-pipeline-step.ts : PipelineStep (étapes d'ActionPipeline) ;
+ * - surface-pipeline-refs.ts : références d'étape d'un pipeline, et leur vérification ;
  * - surface-binding.ts : InteractionBinding ;
  * - surface-definition.ts : SurfaceRow, SurfaceDefinition et leur validation ;
  * - surface-trigger.ts : ScheduledTriggerKind et TriggerStatus.
@@ -34,6 +37,7 @@ export { ConditionSpecSchema, type ConditionSpec, type StateOp } from './surface
 export { AccessPolicySchema, type AccessPolicy } from './surface-access-policy.js';
 export { ModalInputSchema, ModalSpecSchema, type ModalInput, type ModalSpec } from './surface-modal.js';
 export { PipelineStepSchema, type PipelineStep } from './surface-pipeline-step.js';
+export { validateStepReferences } from './surface-pipeline-refs.js';
 export { InteractionBindingSchema, type InteractionBinding } from './surface-binding.js';
-export { SurfaceDefinitionSchema, SurfaceRowSchema, validateSurfaceDefinition, type SurfaceDefinition } from './surface-definition.js';
+export { SurfaceDefinitionSchema, SurfaceRowSchema, validatePipelineReferences, validateSurfaceDefinition, type SurfaceDefinition } from './surface-definition.js';
 export { ScheduledTriggerKind, TriggerStatus } from './surface-trigger.js';

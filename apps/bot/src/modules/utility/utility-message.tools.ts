@@ -1,12 +1,17 @@
 import { ChannelType } from 'discord.js';
 import { z } from 'zod';
 import type { BotTool } from '@10cordes/shared';
+import { toolRequesterContext } from '../../core/security/access-policy';
+import { massMentionPolicy } from '../../core/security/mass-mention.policy';
 import type { UtilityToolsDeps } from './utility-resolver';
 
 /**
  * Tools d'action sur les messages : épinglage et désépinglage, annonce par
  * webhook, publication (crosspost) d'un message d'annonces, réaction.
  */
+
+/** Dit au demandeur pourquoi sa mention de masse n'a pingué personne. */
+const MASS_MENTION_NOTE = 'mentions @everyone et @here neutralisées : elles ne pinguent que pour le propriétaire du serveur et les administrateurs';
 
 /** Tool message.pin : épingle un message dans un salon. */
 export function messagePinTool(deps: UtilityToolsDeps): BotTool {
@@ -86,9 +91,11 @@ export function webhookPostTool(deps: UtilityToolsDeps): BotTool {
         hook = await channel.createWebhook({ name: 'agent-annonces', avatar: avatarUrl, reason: 'annonces agent' }).catch(() => undefined);
       }
       if (!hook) return { ok: false, summary: 'Création du webhook impossible (permissions ManageWebhooks ?).' };
-      const sent = await hook.send({ content: content.slice(0, 1500), username: name.slice(0, 80), avatarURL: avatarUrl }).then(() => true).catch(() => false);
+      // Une annonce ne fait pas pinguer tout le serveur pour qui ne le pourrait pas lui-même.
+      const safe = massMentionPolicy.guard(content.slice(0, 1500), toolRequesterContext(ctx, resolver.guildOf(ctx)));
+      const sent = await hook.send({ content: safe, username: name.slice(0, 80), avatarURL: avatarUrl }).then(() => true).catch(() => false);
       return sent
-        ? { ok: true, summary: 'Annonce postée via webhook.' }
+        ? { ok: true, summary: `Annonce postée via webhook${safe === content.slice(0, 1500) ? '' : ` (${MASS_MENTION_NOTE})`}.` }
         : { ok: false, summary: "Envoi via webhook échoué (permissions du salon, contenu rejeté ?)." };
     },
   };

@@ -86,6 +86,20 @@ function isGuildOwner(ctx: GuildAccessContext): boolean {
 }
 
 /**
+ * Contexte d'accès du MEMBRE qui agit (clic sur une surface, action de
+ * composant). Null pour le système : pas de membre, ou le bot lui-même
+ * (un déclencheur planifié s'exécute « en tant que le bot »).
+ */
+export function actingMemberContext(member: GuildMember | null | undefined): GuildAccessContext | null {
+  return member && !member.user.bot ? guildAccessContext(member.guild, member.id, member) : null;
+}
+
+/** Contexte d'accès du demandeur d'un tool, lu dans le serveur de la demande ; null hors serveur. */
+export function toolRequesterContext(ctx: { userId: string; permissions: readonly string[] }, guild: Guild | null): GuildAccessContext | null {
+  return guild ? accessContextFromNames(guild, ctx.userId, ctx.permissions) : null;
+}
+
+/**
  * Le contexte porte-t-il cette permission ? Les permissions arrivent soit
  * par leur nom (Administrator, issue de `permissions.toArray()`), soit par la
  * valeur du bitflag (8). Les deux formes sont acceptées.

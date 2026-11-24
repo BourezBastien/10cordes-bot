@@ -79,3 +79,47 @@ describe('surface.create · boutons toujours câblés', () => {
     expect(result?.summary).toContain('rangée');
   });
 });
+
+describe('surface.create · références d\u0027étape', () => {
+  // Clé calculée : sync-tool-names.mjs repère la clé name suivie d'une chaîne, même pour un simple paramètre.
+  const CHANNEL_NAME = 'name';
+  const ticket = (reference: string) => ({
+    key: 'ouvrir',
+    label: 'Ouvrir un ticket',
+    pipeline: [
+      { type: 'runTool', name: 'createChannel', input: { [CHANNEL_NAME]: 'ticket' } },
+      { type: 'sendMessage', content: `Ton salon : <#${reference}>` },
+    ],
+  });
+
+  it('{{steps.0.data.channelId}} est refusé avant toute création : le bouton et le champ sont nommés', async () => {
+    const { d, result } = await create(definition({}, ticket('{{steps.0.data.channelId}}')));
+    expect(result?.ok).toBe(false);
+    expect(result?.summary).toContain('Définition rejeté');
+    expect(result?.summary).toContain('{{steps.0.data.channelId}} dans content, bouton « ouvrir », étape 2 (sendMessage)');
+    expect(result?.summary).toContain('le résultat d\u0027un outil se lit sans `data`');
+    expect(d.prisma.interactiveSurface.create).not.toHaveBeenCalled();
+    expect(d.render).not.toHaveBeenCalled();
+  });
+
+  it('une référence à une étape qui n\u0027existe pas encore est refusée, avec la plage lisible', async () => {
+    const { d, result } = await create(definition({}, ticket('{{steps.1.channelId}}')));
+    expect(result?.ok).toBe(false);
+    expect(result?.summary).toContain('l\u0027étape 1 n\u0027existe pas encore à cette position (étapes lisibles à cet endroit : 0 à 0)');
+    expect(d.prisma.interactiveSurface.create).not.toHaveBeenCalled();
+  });
+
+  it('la même référence écrite à plat est acceptée', async () => {
+    const { d, result } = await create(definition({}, ticket('{{steps.0.channelId}}')));
+    expect(result?.ok).toBe(true);
+    expect(d.prisma.interactiveSurface.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('au plus quatre références fautives sont listées, puis un compte', async () => {
+    const button = { ...ticket('x'), pipeline: Array.from({ length: 6 }, (_, index) => ({ type: 'sendMessage', content: `<#{{steps.${index + 3}.channelId}}>` })) };
+    const { result } = await create(definition({}, button));
+    expect(result?.ok).toBe(false);
+    expect(result?.summary.match(/n\u0027existe pas encore/gu)).toHaveLength(4);
+    expect(result?.summary).toContain('… et 2 autre(s) référence(s) fausse(s).');
+  });
+});

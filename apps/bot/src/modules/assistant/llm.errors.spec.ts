@@ -37,8 +37,9 @@ describe('throwProviderError · table de décision des statuts HTTP', () => {
     expect(error.message.length).toBe(209);
   });
 
-  it('la notice de quota est la même pour la boucle et la livraison, sans tiret cadratin', () => {
-    expect(QUOTA_EXHAUSTED_MESSAGE).toContain('crédits DeepSeek épuisés');
+  it('la notice de quota est la même pour la boucle et la livraison, sans fournisseur nommé ni tiret cadratin', () => {
+    expect(QUOTA_EXHAUSTED_MESSAGE).toContain('crédits du fournisseur IA sont épuisés');
+    expect(QUOTA_EXHAUSTED_MESSAGE).not.toMatch(/deepseek|anthropic|openai/iu);
     expect(QUOTA_EXHAUSTED_MESSAGE).not.toContain('\u2014');
   });
 });

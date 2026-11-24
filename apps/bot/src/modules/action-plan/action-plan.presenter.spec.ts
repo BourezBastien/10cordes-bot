@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { ButtonStyle, ComponentType, MessageFlags } from 'discord.js';
+import { v2TextLength } from '../../shared/ui/v2-text-length';
 import { ActionPlanPresenter, describeAction } from './action-plan.presenter';
-import type { ActionPlan } from './action-plan.types';
+import { PLAN_LIMITS, type ActionPlan } from './action-plan.types';
 
 /**
  * Panneau d'un plan d'action. POO pure : ces tests fixent le payload complet
  * tel que Discord le reçoit (sérialisé) : un conteneur Components V2, le
  * demandeur et l'expiration, une ligne par action, et des boutons qui ne
- * portent l'identifiant du plan que sur le panneau en attente.
+ * portent l'identifiant du plan que sur le panneau en attente. Le panneau
+ * porte aussi le résumé du modèle et les actions écartées, et son texte
+ * reste sous le plafond de Discord, au pire cas compris.
  */
 
 const GUILD = '1550000000000000001';
@@ -18,6 +21,7 @@ const T0 = Date.UTC(2026, 10, 24, 12, 0, 0);
 const EXPIRES = T0 + 15 * 60_000 + 999;
 const FOOTER = 'Seul l\'auteur de la demande peut appliquer ou annuler. Chaque action est revérifiée au clic : permissions et hiérarchie.';
 const EPHEMERAL_V2 = MessageFlags.Ephemeral | MessageFlags.IsComponentsV2;
+const TITLE = '## Confirmer les actions (hors lecture)';
 
 const FIRST = { tool: 'test.deleteThing', input: { target: 'salon-a' } };
 const SECOND = { tool: 'test.renameThing', input: { target: 'salon-b', reason: 'nettoyage' } };
@@ -30,6 +34,8 @@ const plan = (overrides: Partial<ActionPlan> = {}): ActionPlan => ({
   requesterId: USER,
   messageId: 'msg-1',
   actions: [FIRST, SECOND, THIRD],
+  summary: null,
+  dropped: [],
   status: 'pending',
   createdAt: T0,
   expiresAt: EXPIRES,
@@ -90,12 +96,12 @@ describe('describeAction · paramètres d\'une action sur une ligne', () => {
 });
 
 describe('ActionPlanPresenter · panneau à approuver', () => {
-  it('un conteneur Components V2, jamais éphémère : titre, demandeur et expiration, une ligne numérotée par action, pied', () => {
+  it('un conteneur Components V2, jamais éphémère : titre au nom de la règle, demandeur et expiration, une ligne numérotée par action, pied', () => {
     const panel = shown(new ActionPlanPresenter().render(plan()));
     expect(panel.flags).toBe(MessageFlags.IsComponentsV2);
     expect(panel.containers).toBe(1);
     expect(panel.texts).toEqual([
-      '## Plan d\'action à approuver',
+      TITLE,
       `Demande de <@${USER}> · Expire <t:${(T0 + 15 * 60_000) / 1000}:R>`,
       '1. **test.deleteThing** · target=salon-a',
       '2. **test.renameThing** · target=salon-b, reason=nettoyage',
@@ -112,6 +118,76 @@ describe('ActionPlanPresenter · panneau à approuver', () => {
         ['plan:cancel~p=cmplan0000000000001', '❌ Annuler', ButtonStyle.Secondary],
       ],
     ]);
+  });
+
+  it('le résumé écrit par le modèle suit la ligne du demandeur', () => {
+    const panel = shown(new ActionPlanPresenter().render(plan({ summary: 'Je vais renommer deux salons et fermer le troisième.' })));
+    expect(panel.texts).toEqual([
+      TITLE,
+      `Demande de <@${USER}> · Expire <t:${(T0 + 15 * 60_000) / 1000}:R>`,
+      'Je vais renommer deux salons et fermer le troisième.',
+      '1. **test.deleteThing** · target=salon-a',
+      '2. **test.renameThing** · target=salon-b, reason=nettoyage',
+      '3. **test.closeThing**',
+      `-# ${FOOTER}`,
+    ]);
+  });
+
+  it('les actions écartées sont dites en sous-texte : trois détaillées, les autres comptées', () => {
+    const prefix = 'permission manquante dans ce salon : ';
+    const dropped = ['a', 'b', 'c', 'd', 'e'].map((tool) => ({ tool: `test.${tool}Thing`, reason: `${prefix}${'r'.repeat(160)}` }));
+    const panel = shown(new ActionPlanPresenter().render(plan({ dropped })));
+    // La raison d'une action écartée est coupée à 100 caractères.
+    expect(panel.texts[5]).toBe(`-# Écartée (le demandeur ne peut pas l\'exécuter) : **test.aThing** · ${prefix}${'r'.repeat(100 - prefix.length)}`);
+    expect(panel.texts.slice(5).map((line) => line.slice(0, 24))).toEqual([
+      '-# Écartée (le demandeur',
+      '-# Écartée (le demandeur',
+      '-# Écartée (le demandeur',
+      '-# … et 2 autre(s) actio',
+      `-# ${FOOTER}`.slice(0, 24),
+    ]);
+  });
+});
+
+describe('ActionPlanPresenter · plafond de texte de Discord', () => {
+  /** Texte total du panneau sérialisé, comme Discord le compte. */
+  const total = (payload: { components?: readonly unknown[] }): number => v2TextLength(payload);
+
+  it('au pire cas (dix actions aux paramètres longs, résumé maximal, actions écartées), le panneau reste sous 4 000 caractères', () => {
+    const actions = Array.from({ length: PLAN_LIMITS.maxActions }, (_, index) => ({
+      tool: `test.${'t'.repeat(36)}`,
+      input: { target: `${index}-${'x'.repeat(200)}`, content: 'y'.repeat(400) },
+    }));
+    const dropped = Array.from({ length: PLAN_LIMITS.maxActions }, (_, index) => ({ tool: `test.ecarte${index}`, reason: 'z'.repeat(300) }));
+    const payload = new ActionPlanPresenter().render(plan({ actions, dropped, summary: 's'.repeat(PLAN_LIMITS.summaryMax) }));
+    const length = total(payload);
+    expect(length).toBeLessThan(4_000);
+    expect(length).toBeLessThanOrEqual(PLAN_LIMITS.textMax);
+    // Les dix actions à approuver sont toujours là, dans l'ordre.
+    const texts = shown(payload).texts;
+    expect(texts.filter((line) => /^\d+\. \*\*test\.t+/u.test(line))).toHaveLength(PLAN_LIMITS.maxActions);
+  });
+
+  it('un panneau qui dépasse serre d\'abord le résumé, puis le retire, avant de toucher aux actions', () => {
+    const long = plan({
+      actions: Array.from({ length: PLAN_LIMITS.maxActions }, (_, index) => ({ tool: `test.outil${index}`, input: { target: 'x'.repeat(300) } })),
+      summary: 's'.repeat(PLAN_LIMITS.summaryMax),
+    });
+    const full = new ActionPlanPresenter().render(long);
+    expect(total(full)).toBeLessThanOrEqual(PLAN_LIMITS.textMax);
+    expect(shown(full).texts.some((line) => /^s{300,}$/u.test(line))).toBe(true);
+  });
+
+  it('rien à confirmer : les actions écartées et pourquoi, sans bouton', () => {
+    const payload = new ActionPlanPresenter().rejected([{ tool: 'test.aThing', reason: 'cible placée au-dessus de toi' }]);
+    const panel = shown(payload);
+    expect(panel.rows).toEqual([]);
+    expect(panel.texts).toEqual([
+      '## Rien à confirmer',
+      '-# Écartée (le demandeur ne peut pas l\'exécuter) : **test.aThing** · cible placée au-dessus de toi',
+      '-# Aucune action n\'a été proposée ni exécutée. Une de ces actions te semble due : passe par le staff.',
+    ]);
+    expect(total(payload)).toBeLessThan(4_000);
   });
 });
 

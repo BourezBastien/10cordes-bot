@@ -9,7 +9,9 @@ import type { PrismaService } from '../database/prisma.service';
 import type { MemoryService } from '../memory/memory.service';
 import type { GuildRulesService } from '../rules/guild-rules.service';
 import type { ToolRegistryService } from '../tool-registry/tool-registry.service';
+import { toolRequesterContext } from '../../core/security/access-policy';
 import { botPermissionPolicy } from '../../core/security/bot-permission.policy';
+import { massMentionPolicy } from '../../core/security/mass-mention.policy';
 import { permissionsOf } from '../../core/security/permission-name';
 import { detectLocale } from '../../shared/utils/locale-detect';
 import type { AgentRequest } from './queue/types';
@@ -236,6 +238,8 @@ export class ConversationContextBuilder {
       guildId: guild.id,
       channelId: channel.id,
       userId: request.userId,
+      // Référence de la demande : les audits et les lignes de journal de chaque tool s'y rattachent.
+      requestId,
       locale,
       permissions,
       roleIds: member ? [...member.roles.cache.keys()] : [],
@@ -245,7 +249,7 @@ export class ConversationContextBuilder {
         fileLog()?.event('info', 'tool', 'progress', { requestId, guildId: guild.id, text: String(text).slice(0, 200) });
       },
       reply: async (replyText) => {
-        await channel.send({ content: replyText }).catch(() => {});
+        await channel.send({ content: massMentionPolicy.guard(replyText, toolRequesterContext({ userId: request.userId, permissions }, guild)) }).catch(() => {});
       },
       sendFile: async (file, targetChannelId) => {
         if (!client.user || !botPermissionPolicy.canInGuild(guild, 'AttachFiles')) {

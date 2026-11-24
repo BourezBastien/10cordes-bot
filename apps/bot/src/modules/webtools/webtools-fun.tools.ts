@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import type { BotTool } from '@10cordes/shared';
+import { safeFetchJson } from '../../shared/utils/safe-fetch';
 
 /**
  * Tools de détente : blague, GIF, mème, fait insolite, conseil, citation,
  * question de quiz, photo d'animal. Ordre d'origine dans le registry :
  * getJoke, getGif, getMeme, getFact, getAdvice, getZenQuote, getTrivia,
- * getRandomAnimal.
+ * getRandomAnimal. Chaque appel passe par la garde des requêtes sortantes.
  */
 export function buildFunTools(): BotTool[] {
   return [
@@ -23,19 +24,17 @@ export function buildFunTools(): BotTool[] {
       handler: async (input, _ctx) => {
         const { lang, source } = input as { lang?: string; source?: string };
         if (source === 'chucknorris') {
-          const joke = (await fetch('https://api.chucknorris.io/jokes/random').then((res) => res.json())) as { value?: string };
-          return { ok: true, summary: joke.value ?? 'Aucune blague trouvée.', data: { source: 'api.chucknorris.io' } };
+          const joke = await safeFetchJson<{ value?: string }>('https://api.chucknorris.io/jokes/random');
+          return { ok: true, summary: joke?.value ?? 'Aucune blague trouvée.', data: { source: 'api.chucknorris.io' } };
         }
-        const joke = (await fetch(
-          `https://v2.jokeapi.dev/joke/Any?lang=${lang === 'en' ? 'en' : 'fr'}&safe-mode`,
-        ).then((res) => res.json())) as {
+        const joke = await safeFetchJson<{
           error?: boolean;
           type?: string;
           joke?: string;
           setup?: string;
           delivery?: string;
-        };
-        if (joke.error || (!joke.joke && !joke.setup)) return { ok: false, summary: 'Aucune blague disponible.' };
+        }>(`https://v2.jokeapi.dev/joke/Any?lang=${lang === 'en' ? 'en' : 'fr'}&safe-mode`);
+        if (joke?.error || (!joke.joke && !joke.setup)) return { ok: false, summary: 'Aucune blague disponible.' };
         const text = joke.type === 'twopart' ? `${joke.setup} … ${joke.delivery}` : (joke.joke ?? '');
         return { ok: true, summary: text, data: { source: 'jokeapi.dev' } };
       },
@@ -52,13 +51,8 @@ export function buildFunTools(): BotTool[] {
       handler: async (input, _ctx) => {
         const { subreddit } = input as { subreddit?: string };
         const clean = (subreddit ?? 'gifs').replace(/[^a-zA-Z0-9_]/gu, '');
-        const gif = (await fetch(`https://meme-api.com/gimme/${clean}`).then((res) => res.json())) as {
-          url?: string;
-          title?: string;
-          postLink?: string;
-          nsfw?: boolean;
-        };
-        if (!gif.url) return { ok: false, summary: 'Aucun GIF trouvé pour ce subreddit.' };
+        const gif = await safeFetchJson<{ url?: string; title?: string; postLink?: string; nsfw?: boolean }>(`https://meme-api.com/gimme/${clean}`);
+        if (!gif?.url) return { ok: false, summary: 'Aucun GIF trouvé pour ce subreddit.' };
         if (gif.nsfw) return { ok: false, summary: 'Le GIF trouvé est NSFW : refuse et propose un autre subreddit.' };
         return {
           ok: true,
@@ -76,12 +70,8 @@ export function buildFunTools(): BotTool[] {
       destructive: false,
       systemPrompt: 'Ambiance détendue uniquement. Vérifie que le mème est adapté au salon avant de le partager.',
       handler: async (_input, _ctx) => {
-        const meme = (await fetch('https://meme-api.com/gimme').then((res) => res.json())) as {
-          url?: string;
-          title?: string;
-          postLink?: string;
-        };
-        if (!meme.url) return { ok: false, summary: 'Aucun mème disponible.' };
+        const meme = await safeFetchJson<{ url?: string; title?: string; postLink?: string }>('https://meme-api.com/gimme');
+        if (!meme?.url) return { ok: false, summary: 'Aucun mème disponible.' };
         return {
           ok: true,
           summary: `${meme.title ?? 'mème'} : ${meme.url} (source : ${meme.postLink ?? 'reddit'})`,
@@ -99,10 +89,8 @@ export function buildFunTools(): BotTool[] {
       systemPrompt: 'Anecdote insolite : livre-la avec la mention « fait vérifié » si tu la présentes comme vraie.',
       handler: async (input, _ctx) => {
         const { lang } = input as { lang?: string };
-        const fact = (await fetch(`https://uselessfacts.jsph.pl/api/v2/facts/random?language=${lang === 'en' ? 'en' : 'fr'}`).then((res) =>
-          res.json(),
-        )) as { text?: string };
-        return { ok: true, summary: fact.text ?? 'Aucun fait trouvé.', data: { source: 'uselessfacts.jsph.pl' } };
+        const fact = await safeFetchJson<{ text?: string }>(`https://uselessfacts.jsph.pl/api/v2/facts/random?language=${lang === 'en' ? 'en' : 'fr'}`);
+        return { ok: true, summary: fact?.text ?? 'Aucun fait trouvé.', data: { source: 'uselessfacts.jsph.pl' } };
       },
     },
     {
@@ -114,10 +102,8 @@ export function buildFunTools(): BotTool[] {
       destructive: false,
       systemPrompt: 'Le conseil arrive en anglais : traduis-le si l\u0027utilisateur parle français.',
       handler: async (_input, _ctx) => {
-        const advice = (await fetch('https://api.adviceslip.com/advice').then((res) => res.json())) as {
-          slip?: { advice?: string };
-        };
-        return { ok: true, summary: advice.slip?.advice ?? 'Aucun conseil trouvé.', data: { source: 'api.adviceslip.com' } };
+        const advice = await safeFetchJson<{ slip?: { advice?: string } }>('https://api.adviceslip.com/advice');
+        return { ok: true, summary: advice?.slip?.advice ?? 'Aucun conseil trouvé.', data: { source: 'api.adviceslip.com' } };
       },
     },
     {
@@ -129,8 +115,8 @@ export function buildFunTools(): BotTool[] {
       destructive: false,
       systemPrompt: 'Citation en anglais : traduis-la pour un public français.',
       handler: async (_input, _ctx) => {
-        const quote = (await fetch('https://zenquotes.io/api/random').then((res) => res.json())) as Array<{ q?: string; a?: string }>;
-        const first = quote?.[0];
+        const quote = await safeFetchJson<Array<{ q?: string; a?: string }>>('https://zenquotes.io/api/random');
+        const first = Array.isArray(quote) ? quote[0] : undefined;
         return { ok: true, summary: first ? `"${first.q}" : ${first.a}` : 'Aucune citation trouvée.', data: { source: 'zenquotes.io' } };
       },
     },
@@ -144,12 +130,10 @@ export function buildFunTools(): BotTool[] {
       systemPrompt: 'Lance le quiz : pose la question SANS révéler la réponse, puis dis que la réponse arrive quand les gens répondent (ou à la prochaine demande « réponse »).',
       handler: async (input, _ctx) => {
         const { lang } = input as { lang?: string };
-        const data = (await fetch(`https://opentdb.com/api.php?amount=1&type=multiple${lang === 'fr' ? '' : ''}`).then((res) =>
-          res.json(),
-        )) as {
+        const data = await safeFetchJson<{
           results?: Array<{ question: string; correct_answer: string; incorrect_answers: string[]; category: string }>;
-        };
-        const q = data.results?.[0];
+        }>(`https://opentdb.com/api.php?amount=1&type=multiple${lang === 'fr' ? '' : ''}`);
+        const q = data?.results?.[0];
         if (!q) return { ok: false, summary: 'Aucune question disponible.' };
         return {
           ok: true,
@@ -167,10 +151,8 @@ export function buildFunTools(): BotTool[] {
       destructive: false,
       systemPrompt: 'Ambiance : parfait pour détendre un salon. Envoie juste l\u0027URL de l\u0027image.',
       handler: async (_input, _ctx) => {
-        const dog = (await fetch('https://dog.ceo/api/breeds/image/random').then((res) => res.json())) as {
-          message?: string;
-        };
-        return { ok: true, summary: dog.message ?? 'Aucune image trouvée.', data: { url: dog.message } };
+        const dog = await safeFetchJson<{ message?: string }>('https://dog.ceo/api/breeds/image/random');
+        return { ok: true, summary: dog?.message ?? 'Aucune image trouvée.', data: { url: dog?.message } };
       },
     },
   ];

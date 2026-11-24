@@ -16,11 +16,13 @@ const KIND_CLOSED = 'action-plan:closed';
 const DEFINITION = JSON.stringify({ title: 'Plan d\u0027action', rows: [] });
 
 /** Ce qu'une ligne garde de l'état du plan (le reste vit dans les colonnes). */
-type PlanState = Pick<ActionPlan, 'requesterId' | 'actions' | 'status' | 'createdAt' | 'expiresAt' | 'report'>;
+type PlanState = Pick<ActionPlan, 'requesterId' | 'actions' | 'summary' | 'dropped' | 'status' | 'createdAt' | 'expiresAt' | 'report'>;
 
 const stateOf = (plan: ActionPlan): PlanState => ({
   requesterId: plan.requesterId,
   actions: plan.actions,
+  summary: plan.summary,
+  dropped: plan.dropped,
   status: plan.status,
   createdAt: plan.createdAt,
   expiresAt: plan.expiresAt,
@@ -43,6 +45,9 @@ function toPlan(row: Row): ActionPlan | null {
       messageId: row.messageId,
       requesterId: state.requesterId,
       actions: state.actions,
+      // Les plans écrits avant le résumé et la revue n'en portent pas.
+      summary: typeof state.summary === 'string' ? state.summary : null,
+      dropped: Array.isArray(state.dropped) ? state.dropped : [],
       status: state.status ?? 'pending',
       createdAt: state.createdAt ?? Date.now(),
       expiresAt: state.expiresAt,

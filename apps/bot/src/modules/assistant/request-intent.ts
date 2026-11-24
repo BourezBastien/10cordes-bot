@@ -1,4 +1,4 @@
-import type { BotTool } from '@10cordes/shared';
+import { isMutatingTool, type BotTool } from '@10cordes/shared';
 import { ACTION_VERB_RE, POLITE_PREFACE_RE, QUESTION_MARKER_RE } from './request-intent.lexicon';
 
 /**
@@ -12,15 +12,11 @@ import { ACTION_VERB_RE, POLITE_PREFACE_RE, QUESTION_MARKER_RE } from './request
  * routé ») classait presque toute phrase réelle en action : un seul mot commun
  * de 4 lettres routait un tool, et 109 des 113 tours d'une nuit sont partis
  * sur chat.reasoning.
+ *
+ * Un tool nommé dans la demande annonce une action s'il modifie : c'est la
+ * classification des outils qui le dit (`TOOL_EFFECTS`), la même que pour la
+ * confirmation des actions. Jamais une liste tenue à part, qui oublie.
  */
-
-/**
- * Nom de tool qui n'annonce qu'une lecture : il ne signale pas une action.
- * Fournisseurs : lister, contrôler une connexion, feuilleter un catalogue et
- * ouvrir le panneau ne modifient rien (lier une route ou écrire un fournisseur, si).
- */
-const READ_ONLY_NAME_RE =
-  /^(?:get|search|read|list|find|analyze|describe|lookup|fetch|calc|translate|wiki|dictionary|weather|server|blueprint|skills|activity|rules\.list$|web\.|openSkill$|tool-registry|provider\.(?:list|test|models)$|capability\.list$|providers\.panel$|records\.(?:collections|get|list|search)$|members\.(?:get|list|pick))/u;
 
 /** Ce qui a fait reconnaître une action. */
 export type IntentSignal = 'skill' | 'verb' | 'tool';
@@ -99,7 +95,7 @@ export function detectRequestIntent(request: string, routedTools: readonly BotTo
   const questionAt = firstIndex(text, QUESTION_MARKER_RE);
   const isCommand = (at: number): boolean => at >= 0 && (questionAt < 0 || at < questionAt);
 
-  const mutatingTools = routedTools.filter((tool) => !READ_ONLY_NAME_RE.test(tool.name) && namedIn(text, tool.name)).map((tool) => tool.name);
+  const mutatingTools = routedTools.filter((tool) => isMutatingTool(tool.name) && namedIn(text, tool.name)).map((tool) => tool.name);
   const verbAt = firstIndex(text, ACTION_VERB_RE);
   const matchedSkills = skillTriggers.filter((line) => isCommand(triggerMatchIndex(line, text)));
   const signal: IntentSignal | null = mutatingTools.length > 0 ? 'tool' : isCommand(verbAt) ? 'verb' : matchedSkills.length > 0 ? 'skill' : null;

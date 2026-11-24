@@ -2,10 +2,12 @@ import { Injectable } from '@spraxium/common';
 import { Logger } from '@spraxium/logger';
 import { Client, type TextChannel } from 'discord.js';
 import { AuditService } from '../audit/audit.service';
+import { getActionPlans } from '../action-plan/action-plan.runtime';
 import { MemoryService } from '../memory/memory.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import { LlmService, type ChatMessage, type OpenAiTool } from './llm.service';
+import { QUOTA_EXHAUSTED_MESSAGE } from './llm.errors';
 import { fetchRecentActions } from './agent-history';
 import { sanitizeTranscriptLine } from './reply-text';
 import { buildSystemPrompt } from './system-prompt.builder';
@@ -14,9 +16,11 @@ import { detectRequestIntent } from './request-intent';
 import { AgentLoopService } from './agent-loop.service';
 import { getSkillTriggers } from '../agent/skill.service';
 import { GuildRulesService } from '../rules/guild-rules.service';
+import { fileLog } from '../logging/file-log.service';
 import { type ToolRunContext } from '@10cordes/shared';
 import { PrismaService } from '../database/prisma.service';
 import { permissionsOf } from '../../core/security/permission-name';
+import { describeError, stackExcerpt } from '../../shared/utils/error-stack';
 import { GuildIntegrationService } from '../integrations/guild-integration.service';
 import { imageEnginesLine } from '../providers/image-engines';
 import { CapabilityRouterService } from '../providers/capability-router.service';
@@ -139,10 +143,12 @@ export class WebAgentService {
       },
     ];
 
+    const requestId = `web-${Math.random().toString(36).slice(2, 10)}`;
     const ctx: ToolRunContext = {
       guildId,
       channelId: channel?.id ?? null,
       userId: discordUserId,
+      requestId,
       locale,
       permissions,
       reply: async () => {
@@ -157,17 +163,23 @@ export class WebAgentService {
       detectRequestIntent(trimmed, relevant, skillTriggers).action,
     );
     const outcome = await this.loop
-      .run(messages, toolset, ctx, { userId: discordUserId, guildId, ...plan }, {
+      .run(messages, toolset, ctx, { userId: discordUserId, guildId, requestId, ...plan }, {
         cause: 'web',
-        quotaExhaustedMessage: 'IA désactivée : crédits DeepSeek épuisés. Recharge le compte API.',
+        quotaExhaustedMessage: QUOTA_EXHAUSTED_MESSAGE,
         onToolResult: (name, result) => {
           executed.push({ name, ok: result.ok, summary: result.summary.slice(0, 200) });
         },
       })
       .catch((error: unknown) => {
         this.log.warn(`chat web erreur : ${error instanceof Error ? error.message : String(error)}`);
+        fileLog()?.event('error', 'loop', 'loop.error', { requestId, guildId, error: describeError(error), stack: stackExcerpt(error) });
         return null;
       });
+    // Fin de demande, comme sur Discord : les actions qui modifient, restées en attente,
+    // forment UN plan, affiché dans le salon dédié IA du serveur.
+    await getActionPlans()
+      ?.flush(guildId, discordUserId, { content: trimmed, locale })
+      .catch(() => null);
 
     // Comptabilité IA alignée sur le canal Discord (elle manquait côté web).
     if (outcome && outcome.usage.promptTokens + outcome.usage.completionTokens > 0) {
@@ -177,9 +189,11 @@ export class WebAgentService {
         action: 'llm.usage',
         actorId: discordUserId,
         metadata: {
+          requestId,
           cause: 'web',
           promptTokens: outcome.usage.promptTokens,
           completionTokens: outcome.usage.completionTokens,
+          turns: outcome.turns,
         },
       });
     }

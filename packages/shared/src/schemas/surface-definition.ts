@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { InteractionBindingSchema } from './surface-binding.js';
+import { validateStepReferences } from './surface-pipeline-refs.js';
 
 // ── SurfaceDefinition (layout V2 data-driven) ───────────────────────
 
@@ -42,13 +43,32 @@ function utf8ByteLength(text: string): number {
   return bytes;
 }
 
+/** Références fausses signalées au plus par définition : au-delà, le modèle corrigerait sans tout lire. */
+const REFERENCE_ERRORS_MAX = 4;
+
+/**
+ * Références `{{steps.N...}}` fausses des pipelines de tous les bindings,
+ * chacune nommée par le bouton ou l'option qui la porte (voir surface-pipeline-refs).
+ */
+export function validatePipelineReferences(definition: SurfaceDefinition): string[] {
+  const errors: string[] = [];
+  for (const row of definition.rows) {
+    const kind = row.kind === 'buttons' ? 'bouton' : 'option';
+    for (const binding of row.kind === 'buttons' ? row.buttons : row.select.options) {
+      errors.push(...validateStepReferences(binding.pipeline, `${kind} « ${binding.key} »`));
+    }
+  }
+  if (errors.length <= REFERENCE_ERRORS_MAX) return errors;
+  return [...errors.slice(0, REFERENCE_ERRORS_MAX), `… et ${errors.length - REFERENCE_ERRORS_MAX} autre(s) référence(s) fausse(s).`];
+}
+
 /**
  * Validation runtime d'une définition complète : bindings aux clés uniques,
- * openModal uniquement en 1re position, budget 10 000 octets des TextDisplay.
- * (Utilisée par le renderer ET le tool surface.create.)
+ * openModal uniquement en 1re position, références d'étape lisibles, budget
+ * 10 000 octets des TextDisplay. (Utilisée par le tool surface.create.)
  */
 export function validateSurfaceDefinition(definition: SurfaceDefinition): string[] {
-  const errors: string[] = [];
+  const errors = validatePipelineReferences(definition);
   const keys = new Set<string>();
   let textBytes = 0;
   const countBytes = (value: string | undefined) => {

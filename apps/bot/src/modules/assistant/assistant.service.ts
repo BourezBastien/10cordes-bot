@@ -3,12 +3,14 @@ import { Logger } from '@spraxium/logger';
 import { Client, type Guild, type Message, type TextChannel } from 'discord.js';
 import { V2Service } from '@spraxium/components';
 import { notice } from '../../shared/ui';
+import { describeError, stackExcerpt } from '../../shared/utils/error-stack';
 import { CacheStoreService } from '../../shared/cache/cache-store.service';
 import { AppEnv } from '../../app.env';
 import { getActionPlans } from '../action-plan/action-plan.runtime';
 import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { MemoryService } from '../memory/memory.service';
+import { fileLog } from '../logging/file-log.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import { GuildRulesService } from '../rules/guild-rules.service';
@@ -165,6 +167,8 @@ export class AssistantService {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         log.error(`Assistant failure [${requestId}] user=${request.userId}: ${message}`);
+        // La console ne garde que le message ; le journal garde la nature de l'erreur et sa pile, tronquée.
+        fileLog()?.event('error', 'assistant', 'request.failure', { requestId, guildId: guild.id, error: describeError(error), stack: stackExcerpt(error) });
         await channel
           .send(notice(`Erreur interne [${requestId}] : ${message.slice(0, 120)}. Signale cette référence au staff si ça se répète.`, true))
           .catch(() => {});
@@ -253,17 +257,20 @@ export class AssistantService {
 
   private async converse(channel: TextChannel, guild: Guild, request: AgentRequest, requestId: string): Promise<void> {
     const session = new ReplySession(isSilenceRequested(request.content));
+    let locale = 'fr';
     try {
       const conversation = await this.contextBuilder.build(channel, guild, request, requestId, session);
+      locale = conversation.locale;
       if (await this.delivery.deliverCached(conversation)) return;
       const outcome = await this.runner.run(conversation);
       await this.delivery.deliver(conversation, outcome);
     } finally {
       // GARANTIE ANTI-BLOCAGE : quoi qu'il arrive (contexte, boucle ou livraison
       // en erreur, l'erreur remonte au processeur qui la montre), la demande est soldée.
-      // Fin de demande : les actions destructives restées en attente forment UN plan d'approbation.
+      // Fin de demande : les actions qui modifient, restées en attente, forment UN plan
+      // d'approbation ; la demande elle-même sert au résumé du panneau.
       await getActionPlans()
-        ?.flush(guild.id, request.userId)
+        ?.flush(guild.id, request.userId, { content: request.content, locale })
         .catch(() => null);
     }
   }

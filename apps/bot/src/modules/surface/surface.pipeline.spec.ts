@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { GuildMember } from 'discord.js';
 import type { PipelineContext, PipelineVars } from './pipeline.types';
 
 const mocks = vi.hoisted(() => ({ chat: vi.fn() }));
@@ -94,5 +95,42 @@ describe('SurfacePipelineService · étape llm avec saveTo', () => {
     expect(result.stateChanged).toBe(false);
     expect(ctx.vars.state).toEqual({});
     expect(ctx.vars.steps[0]?.text).toBe('juste une reformulation');
+  });
+});
+
+describe('SurfacePipelineService · étape sendMessage et mentions de masse', () => {
+  const member = (permissions: string[], bot = false): GuildMember =>
+    ({
+      id: bot ? 'bot' : USER,
+      user: { bot },
+      guild: { id: GUILD, ownerId: 'owner' },
+      permissions: { toArray: () => permissions, has: () => false },
+      roles: { cache: new Map() },
+    }) as unknown as GuildMember;
+
+  /** Exécute une étape sendMessage pour un acteur donné ; rend ce que le salon a reçu. */
+  const announce = async (actor: GuildMember | null) => {
+    const send = vi.fn(async () => ({ id: 'message-1' }));
+    const channel = { id: CHANNEL, isTextBased: () => true, send };
+    const service = new SurfacePipelineService({} as never, { record: vi.fn() } as never, {} as never, { channels: { fetch: vi.fn(async () => channel) } } as never);
+    const vars: PipelineVars = { guildId: GUILD, channelId: CHANNEL, actorId: actor?.id ?? USER, actorName: 'Paul', surfaceId: 'surface-1', messageId: null, state: {}, steps: [], values: {} };
+    const result = await service.executePipeline([{ type: 'sendMessage', content: 'Soirée @Everyone à 21 h' }], { vars, runTool: vi.fn(), member: actor });
+    return { send, result };
+  };
+
+  it('le texte a été écrit par le modèle : sans acteur (événement), la mention de masse est neutralisée', async () => {
+    const { send, result } = await announce(null);
+    expect(result).toMatchObject({ ok: true, stateChanged: false });
+    expect(send).toHaveBeenCalledWith({ content: 'Soirée `Everyone` à 21 h' });
+  });
+
+  it('un déclencheur planifié s\u0027exécute en tant que le bot : ça ne compte pas comme un administrateur', async () => {
+    const { send } = await announce(member(['Administrator'], true));
+    expect(send).toHaveBeenCalledWith({ content: 'Soirée `Everyone` à 21 h' });
+  });
+
+  it('un membre sans le droit, puis un administrateur au clic', async () => {
+    expect((await announce(member(['SendMessages']))).send).toHaveBeenCalledWith({ content: 'Soirée `Everyone` à 21 h' });
+    expect((await announce(member(['Administrator']))).send).toHaveBeenCalledWith({ content: 'Soirée @Everyone à 21 h' });
   });
 });

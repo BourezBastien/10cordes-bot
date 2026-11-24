@@ -4,7 +4,7 @@ import { parseChatCompletion } from '../../shared/llm/chat-response';
 import type { ChatCause, ChatCompletionResult, ChatMessage, ChatOptions, OpenAiTool } from '../../shared/llm/chat-contract';
 import { LlmFormatLeakError } from '../../shared/llm/format-leak.error';
 import { containsInternalTokens } from '../../shared/llm/internal-tokens';
-import { assertSafeUrl, safeFetch } from '../../shared/utils/safe-fetch';
+import { safeFetch } from '../../shared/utils/safe-fetch';
 import { STREAMABLE_CHAT_PROTOCOLS } from '../providers/provider-protocols';
 import type { ChatEndpoint } from './llm-endpoint';
 import { ProviderHttpError, ProviderTimeoutError, ProviderUnavailableError, throwProviderError } from './llm.errors';
@@ -115,8 +115,10 @@ export class ChatTransport {
       inactivityTimer = setTimeout(() => stalled.abort(), STREAM_INACTIVITY_MS);
     };
     try {
-      const response = await fetch(assertSafeUrl(endpoint.url), {
+      // La durée de l'échange est décidée par l'appelant (`signal`, 180 s au total) : pas de délai propre ici.
+      const response = await safeFetch(endpoint.url, {
         method: 'POST',
+        timeoutMs: null,
         signal: signal ? AbortSignal.any([signal, stalled.signal]) : stalled.signal,
         headers: endpoint.headers,
         body: JSON.stringify(body),

@@ -7,6 +7,10 @@ import { ProviderAuthError, ProviderHttpError, ProviderTimeoutError, ProviderUna
 import { ChatTransport, type ChatTurn } from './llm-transport';
 import type { ReasoningEffortPlanner } from './llm-thinking.planner';
 
+// La garde des requêtes résout l'hôte avant chaque appel : résolution simulée, pour que les horloges simulées restent maîtresses du temps.
+const dns = vi.hoisted(() => ({ lookup: vi.fn() }));
+vi.mock('node:dns/promises', () => ({ lookup: dns.lookup }));
+
 /**
  * Échange HTTP d'un tour de conversation : corps envoyé, streaming, refus de
  * `reasoning_effort`, watchdog d'inactivité, et pont vers l'adaptateur des
@@ -81,10 +85,12 @@ function transport() {
 
 beforeEach(() => {
   fetchMock.mockReset();
+  dns.lookup.mockResolvedValue([{ address: '104.18.1.2' }]);
   vi.stubGlobal('fetch', fetchMock);
 });
 
 afterEach(() => {
+  dns.lookup.mockReset();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });

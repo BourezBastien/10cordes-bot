@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ToolRunContext } from '@10cordes/shared';
 import { AgentLoopService, ceilingMessage } from './agent-loop.service';
+import { setFileLog, type FileLogService } from '../logging/file-log.service';
 import { LlmFormatLeakError } from './llm.errors';
 import type { ChatCompletionResult, ChatMessage, ChatOptions, OpenAiTool } from './llm.types';
 
@@ -164,6 +165,60 @@ describe('AgentLoopService · plafond d\u0027itérations', () => {
     const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
     expect(outcome.finalText).toBe('Salon créé.');
     expect(outcome.executed).toEqual([TOOL]);
+  });
+});
+
+describe('AgentLoopService · comptage des tours et référence de la demande', () => {
+  /** Journal factice : les lignes LLM et les événements sont conservés. */
+  function journal() {
+    const lines: Array<Record<string, unknown>> = [];
+    const events: Array<{ event: string; data: Record<string, unknown> | undefined }> = [];
+    const log: Pick<FileLogService, 'event' | 'llm'> = {
+      event: (_level, _ctx, event, data) => {
+        events.push({ event, data });
+      },
+      llm: (entry) => {
+        lines.push(entry as unknown as Record<string, unknown>);
+      },
+    };
+    setFileLog(log as FileLogService);
+    return { lines, events };
+  }
+
+  afterEach(() => {
+    setFileLog(null);
+  });
+
+  it('le nombre de tours compte chaque appel LLM : un tour d\u0027outil, un tour de réponse', async () => {
+    const { llm } = fakeLlm([toolTurn('c1'), textTurn('Fait.')]);
+    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
+    expect(outcome.turns).toBe(2);
+  });
+
+  it('un tour rejoué après une fuite compte pour deux appels', async () => {
+    const { llm } = fakeLlm([leakingTurn(), textTurn('Propre')]);
+    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
+    expect(outcome.turns).toBe(2);
+  });
+
+  it('au plafond, le tour de conclusion compte et entre dans le journal des coûts ; chaque ligne porte la référence de la demande', async () => {
+    const { lines, events } = journal();
+    const { llm } = fakeLlm(ceilingScript(textTurn('Résumé.')));
+    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null, requestId: 'req-comptage' }, hooks());
+    expect(outcome.turns).toBe(13);
+    expect(lines).toHaveLength(13);
+    expect(lines.every((line) => line.requestId === 'req-comptage')).toBe(true);
+    const iterations = events.filter((entry) => entry.event === 'iteration');
+    expect(iterations).toHaveLength(12);
+    expect(iterations.every((entry) => entry.data?.requestId === 'req-comptage')).toBe(true);
+  });
+
+  it('un échec du tour de conclusion est journalisé avec la nature de l\u0027erreur', async () => {
+    const { events } = journal();
+    const { llm } = fakeLlm([...ceilingScript(async () => { throw new Error('plus de réseau'); })]);
+    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
+    expect(outcome.finalText).toBe(ceilingMessage(outcome.executed));
+    expect(events.find((entry) => entry.event === 'summary_failed')?.data).toMatchObject({ error: 'Error: plus de réseau' });
   });
 });
 

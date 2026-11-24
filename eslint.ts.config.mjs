@@ -29,6 +29,9 @@ export default tseslint.config(
             'apps/bot/config/http.config.ts',
             'packages/shared/tests/*.spec.ts',
           ],
+          // Neuf fichiers relèvent de ce projet par défaut (quatre du bot, cinq tests de
+          // shared) : la garde de performance du service les plafonne à huit d'office.
+          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 16,
         },
         // Monorepo pnpm : les tsconfig se résolvent depuis la racine du dépôt,
         // et non depuis le dossier d'où ESLint est lancé.

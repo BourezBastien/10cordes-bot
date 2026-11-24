@@ -83,7 +83,7 @@ function harness() {
   const prisma = fakePrisma();
   const channel = fakeChannel();
   const otherChannel = fakeChannel();
-  const client = { channels: { cache: new Map([[CHANNEL, channel], [OTHER_CHANNEL, otherChannel]]), fetch: vi.fn(async (_id: string): Promise<unknown> => null) } };
+  const client = { channels: { cache: new Map([[CHANNEL, channel], [OTHER_CHANNEL, otherChannel]]), fetch: vi.fn(async (_id: string): Promise<unknown> => null) }, guilds: { cache: new Map() } };
   const audit = { record: vi.fn() };
   const registry = { get: vi.fn(), run: vi.fn() };
   const service = new ActionPlanService({ interactiveSurface: prisma } as never, audit as never, client as never, registry as never);
@@ -114,7 +114,7 @@ describe('ActionPlanService · fin de demande : panneau impossible à afficher',
       source: 'agent',
       action: 'plan.posted',
       actorId: USER,
-      metadata: { planId: 'plan1', actions: 1, posted: false },
+      metadata: { planId: 'plan1', actions: 1, dropped: 0, summary: false, posted: false },
     });
   });
 

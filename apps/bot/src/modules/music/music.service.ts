@@ -4,7 +4,7 @@ import { Client } from 'discord.js';
 import { z } from 'zod';
 import type { BotTool, ToolRunContext } from '@10cordes/shared';
 import { IntegrationService } from '../integrations/integration.service';
-import { safeFetch } from '../../shared/utils/safe-fetch';
+import { safeFetch, safeFetchBytes } from '../../shared/utils/safe-fetch';
 import { AppEnv } from '../../app.env';
 import { getToolRegistry } from '../tool-registry/tool-registry.service';
 import { CapabilityRouterService } from '../providers/capability-router.service';
@@ -25,6 +25,9 @@ const INSTANCE_BASE_URL = 'https://api.kie.ai';
 const DEFAULT_MODEL = 'V6_MINI';
 const POLL_INTERVAL_MS = 6_000;
 const POLL_MAX_MS = 150_000;
+/** Téléchargement du morceau généré : délai et taille acceptés. */
+const AUDIO_TIMEOUT_MS = 120_000;
+const AUDIO_MAX_BYTES = 25 * 1024 * 1024;
 
 interface SunoTrack {
   audio_url?: string;
@@ -189,12 +192,13 @@ export class MusicService implements SpraxiumOnBoot {
               await update(`musique prête (${seconds}s) : envoi du fichier`);
               if (progressChannel?.isTextBased() && 'send' in progressChannel) {
                 const destination = progressChannel as import('discord.js').TextChannel;
-                const audio = await fetch(track.audio_url).then((res) => res.arrayBuffer()).catch(() => null);
+                // Le fichier vient d'un hébergeur tiers : requête gardée, taille plafonnée (quelques minutes de mp3).
+                const audio = await safeFetchBytes(track.audio_url, { timeoutMs: AUDIO_TIMEOUT_MS, maxBytes: AUDIO_MAX_BYTES }).catch(() => null);
                 if (audio) {
                   await destination
                     .send({
                       content: `**${track.title ?? title}** (${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')})`,
-                      files: [{ name: `${(track.title ?? title).replace(/[^a-zA-Z0-9-_]/gu, '-').slice(0, 40)}.mp3`, attachment: Buffer.from(audio) }],
+                      files: [{ name: `${(track.title ?? title).replace(/[^a-zA-Z0-9-_]/gu, '-').slice(0, 40)}.mp3`, attachment: audio }],
                     })
                     .catch(() => {});
                 }

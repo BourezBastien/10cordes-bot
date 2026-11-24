@@ -11,7 +11,8 @@ import { bindGuildRules } from './guild-rules.runtime';
  * Règles Serveur (R0.4) : le système demandé en langage naturel par les
  * admins, appliqué À DEUX NIVEAUX :
  * - EN CODE : la Gate (zone libre vs mention stricte) et le ToolRegistry
- *   (confirmation ✅/❌ des actions destructives) lisent ce store ;
+ *   (confirmation des actions qui modifient, règle « Confirmer les actions
+ *   (hors lecture) ») lisent ce store ;
  * - EN PROMPT : SystemPromptBuilder injecte la section <SERVER_RULES>.
  * Zéro commande : tout passe par l'agent (« la catégorie AGENTS est une
  * zone libre agents, ailleurs mention stricte »).
@@ -23,6 +24,7 @@ export interface GuildRules {
   blockedChannelIds: string[];
   strictMentionElsewhere: boolean;
   seriousOnlyElsewhere: boolean;
+  /** Règle « Confirmer les actions (hors lecture) » : tout ce que le modèle propose et qui modifie attend le clic du demandeur. */
   confirmDestructiveActions: boolean;
   customInstructions: string[];
 }
@@ -33,11 +35,17 @@ const DEFAULT_RULES: GuildRules = {
   blockedChannelIds: [],
   strictMentionElsewhere: true,
   seriousOnlyElsewhere: false,
+  // Désactivée par défaut : la confirmation de chaque action qui modifie est un choix du staff.
   confirmDestructiveActions: false,
   customInstructions: [],
 };
 
 const CACHE_TTL_MS = 60_000;
+
+/** Ligne du prompt système quand la règle est active : ce que le modèle doit faire, et ne pas faire. */
+const CONFIRM_RULE_PROMPT =
+  'Confirmer les actions (hors lecture) : sur ce serveur, toute action qui modifie attend le clic du demandeur sur un panneau « Appliquer » / « Annuler », affiché en fin de réponse (géré par le système). ' +
+  'Propose chaque action UNE fois, annonce qu\u0027elle attend son approbation, ne la retente pas et n\u0027enchaîne rien qui dépendrait d\u0027elle. Les lectures, et la livraison d\u0027un fichier ou d\u0027un média, ne sont pas concernées.';
 
 @Injectable()
 export class GuildRulesService implements SpraxiumOnBoot {
@@ -54,15 +62,15 @@ export class GuildRulesService implements SpraxiumOnBoot {
     getToolRegistry().register(this.rulesListTool());
     // Liaisons runtime, ICI et non dans GuildRulesModule (que le framework
     // n'instancie pas) : sans elles le registry sautait silencieusement la
-    // confirmation des actions destructives, règle serveur activée ou non.
+    // confirmation des actions, règle serveur activée ou non.
     bindRegistryRuntimeDeps({ rules: this });
     bindGuildRules(this);
     const ready = ToolRegistryService.runtimeDepsReady();
     const missing = (Object.entries(ready) as Array<[string, boolean]>).filter(([, bound]) => !bound).map(([name]) => name);
     if (missing.length > 0) {
-      this.log.warn(`Confirmation destructive INOPÉRANTE : dépendances runtime non liées (${missing.join(', ')}).`);
+      this.log.warn(`Confirmation des actions INOPÉRANTE : dépendances runtime non liées (${missing.join(', ')}).`);
     } else {
-      this.log.info('GuildRules ready (rules.set / rules.list) · confirmation destructive opérationnelle (plans d\u0027action).');
+      this.log.info('GuildRules ready (rules.set / rules.list) · confirmation des actions opérationnelle (plans d\u0027action).');
     }
   }
 
@@ -164,7 +172,7 @@ export class GuildRulesService implements SpraxiumOnBoot {
     }
     if (rules.strictMentionElsewhere) lines.push('Hors zone libre : le membre doit me mentionner (@) ou me répondre : je ne réagis pas à mon nom en texte brut.');
     if (rules.seriousOnlyElsewhere) lines.push('Hors zone libre : ton sérieux uniquement, pas de blagues ni de bavardage hors-sujet.');
-    if (rules.confirmDestructiveActions) lines.push('Actions destructives : une confirmation par boutons ✅/❌ est exigée AVANT exécution (gérée par le système, informe l\u0027utilisateur).');
+    if (rules.confirmDestructiveActions) lines.push(CONFIRM_RULE_PROMPT);
     for (const instruction of rules.customInstructions) lines.push(`Règle du serveur : ${instruction}`);
     return lines;
   }
@@ -174,7 +182,7 @@ export class GuildRulesService implements SpraxiumOnBoot {
     return defineTool({
       name: 'rules.set',
       description:
-        "Définit les règles de comportement du serveur (persistées, appliquées automatiquement par le système). Champs : freeCategoryIds/freeChannelIds (zones libres : le bot répond sans mention et agit librement), strictMentionElsewhere (ailleurs, mention @ obligatoire), seriousOnlyElsewhere (ailleurs, ton sérieux uniquement), confirmDestructiveActions (confirmation ✅/❌ avant actions destructives), customInstructions (règles libres). Seuls les champs fournis changent.",
+        "Définit les règles de comportement du serveur (persistées, appliquées automatiquement par le système). Champs : freeCategoryIds/freeChannelIds (zones libres : le bot répond sans mention et agit librement), strictMentionElsewhere (ailleurs, mention @ obligatoire), seriousOnlyElsewhere (ailleurs, ton sérieux uniquement), confirmDestructiveActions (règle « Confirmer les actions (hors lecture) » : tout ce qui modifie attend un clic du demandeur), customInstructions (règles libres). Seuls les champs fournis changent.",
       category: 'rules',
       paramsSchema: z.object({
         freeCategoryIds: z.array(z.string().min(15)).max(20).optional(),
@@ -182,7 +190,7 @@ export class GuildRulesService implements SpraxiumOnBoot {
         blockedChannelIds: z.array(z.string().min(15)).max(50).optional().describe('Salons où le bot est TOTALEMENT muet (même mentionné)'),
         strictMentionElsewhere: z.boolean().optional(),
         seriousOnlyElsewhere: z.boolean().optional(),
-        confirmDestructiveActions: z.boolean().optional(),
+        confirmDestructiveActions: z.boolean().optional().describe('Règle « Confirmer les actions (hors lecture) » : toute action qui modifie attend le clic du demandeur'),
         addCustomInstructions: z.array(z.string().min(3).max(300)).max(10).optional(),
         removeCustomInstructions: z.array(z.string().min(3).max(300)).max(10).optional(),
       }),
@@ -237,7 +245,7 @@ export class GuildRulesService implements SpraxiumOnBoot {
     const service = this;
     return defineTool({
       name: 'rules.list',
-      description: 'Liste les règles de comportement actives du serveur (zones libres, mention stricte, confirmation destructive, instructions libres).',
+      description: 'Liste les règles de comportement actives du serveur (zones libres, mention stricte, confirmer les actions (hors lecture), instructions libres).',
       category: 'rules',
       paramsSchema: z.object({}),
       requiredModules: [],
@@ -259,7 +267,7 @@ export class GuildRulesService implements SpraxiumOnBoot {
     if (rules.freeChannelIds.length > 0) parts.push(`zones libres salons ${rules.freeChannelIds.map((id) => `<#${id}>`).join(', ')}`);
     parts.push(`mention stricte ailleurs : ${rules.strictMentionElsewhere ? 'oui' : 'non'}`);
     parts.push(`ton sérieux ailleurs : ${rules.seriousOnlyElsewhere ? 'oui' : 'non'}`);
-    parts.push(`confirmation destructive : ${rules.confirmDestructiveActions ? 'oui' : 'non'}`);
+    parts.push(`confirmer les actions (hors lecture) : ${rules.confirmDestructiveActions ? 'oui' : 'non'}`);
     if (rules.customInstructions.length > 0) parts.push(`instructions : ${rules.customInstructions.length}`);
     return parts.join(' · ') || 'aucune règle spécifique (défauts)';
   }

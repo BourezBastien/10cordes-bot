@@ -4,7 +4,7 @@ import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
 import { Logger } from '@spraxium/logger';
 
 /**
- * FileLogService (R3) — logging fichier ULTRA POUSSÉ pour auditer le bot en
+ * FileLogService (R3) : logging fichier ULTRA POUSSÉ pour auditer le bot en
  * local : chaque événement clé (gate, boucle LLM, tools, surfaces, triggers,
  * intégrations, santé) devient une ligne JSONL exploitable.
  *
@@ -62,6 +62,10 @@ export class FileLogService implements SpraxiumOnBoot {
     fallback?: boolean;
     /** Capacité routée qui a servi le tour (chat.default, chat.reasoning, chat.ingestion). */
     capability?: string;
+    /** Référence de la demande : relie les tours d'une même demande. */
+    requestId?: string;
+    /** Serveur de la demande : rapproche les coûts par serveur. */
+    guildId?: string;
     promptTokens: number;
     completionTokens: number;
     ms: number;
@@ -173,7 +177,8 @@ export class FileLogService implements SpraxiumOnBoot {
 /** Accès process-global (chokepoints statiques : gate, registry...). */
 let globalFileLog: FileLogService | null = null;
 
-export function setFileLog(instance: FileLogService): void {
+/** Pose l'instance unique (le service au démarrage) ; `null` la retire (les specs le remettent à zéro). */
+export function setFileLog(instance: FileLogService | null): void {
   globalFileLog = instance;
 }
 

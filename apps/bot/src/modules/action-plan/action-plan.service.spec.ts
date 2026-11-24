@@ -87,7 +87,7 @@ function harness() {
   const prisma = fakePrisma();
   const channel = fakeChannel();
   const otherChannel = fakeChannel();
-  const client = { channels: { cache: new Map([[CHANNEL, channel], [OTHER_CHANNEL, otherChannel]]), fetch: vi.fn(async () => null) } };
+  const client = { channels: { cache: new Map([[CHANNEL, channel], [OTHER_CHANNEL, otherChannel]]), fetch: vi.fn(async () => null) }, guilds: { cache: new Map() } };
   const audit = { record: vi.fn() };
   const service = new ActionPlanService({ interactiveSurface: prisma } as never, audit as never, client as never, { get: vi.fn(), run: vi.fn() } as never);
   return { prisma, channel, otherChannel, client, audit, service };
@@ -200,6 +200,8 @@ describe('ActionPlanService · fin de demande (flush)', () => {
       requesterId: USER,
       messageId: 'msg-1',
       actions: [action('salon-a'), action('salon-b')],
+      summary: null,
+      dropped: [],
       status: 'pending',
       createdAt: T0,
       expiresAt: T0 + PLAN_LIMITS.lifetimeMs,
@@ -219,7 +221,7 @@ describe('ActionPlanService · fin de demande (flush)', () => {
       source: 'agent',
       action: 'plan.posted',
       actorId: USER,
-      metadata: { planId: 'plan1', actions: 2, posted: true },
+      metadata: { planId: 'plan1', actions: 2, dropped: 0, summary: false, posted: true },
     });
   });
 
@@ -233,7 +235,7 @@ describe('ActionPlanService · fin de demande (flush)', () => {
     expect(payload.allowedMentions).toEqual({ parse: [] });
     expect(payload.content).toBeUndefined();
     expect(textsOf(payload.components)).toEqual([
-      '## Plan d\'action à approuver',
+      '## Confirmer les actions (hors lecture)',
       `Demande de <@${USER}> · Expire <t:${(T0 + PLAN_LIMITS.lifetimeMs) / 1000}:R>`,
       `1. **${TOOL}** · target=salon-a`,
       expect.stringContaining('Seul l\'auteur de la demande'),

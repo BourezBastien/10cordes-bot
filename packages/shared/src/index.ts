@@ -9,6 +9,7 @@ export * from './tools/types.js';
 export { rankTools, toolMatchScore, wordsOf } from './tools/tool-search.js';
 export { AdminOpSchema, type AdminOp, opLabel } from './tools/admin-ops.js';
 export { REGISTERED_TOOL_NAMES, type RegisteredToolName } from './tools/registry-names.js';
+export { TOOL_EFFECTS, isMutatingTool, toolEffectOf, type ToolEffect } from './tools/tool-effects.js';
 export type {
   SkillBlueprint,
   SkillDomain,

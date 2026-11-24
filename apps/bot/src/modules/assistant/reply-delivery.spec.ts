@@ -42,7 +42,7 @@ function harness() {
   return { audit, responseCache, delivery };
 }
 
-const run = (overrides: Partial<ReplyRunOutcome> = {}): ReplyRunOutcome => ({ finalText: 'Voilà.', executed: [], usage: { promptTokens: 3, completionTokens: 2 }, error: null, ...overrides });
+const run = (overrides: Partial<ReplyRunOutcome> = {}): ReplyRunOutcome => ({ finalText: 'Voilà.', executed: [], usage: { promptTokens: 3, completionTokens: 2 }, turns: 1, error: null, ...overrides });
 
 const addressed = { reply: { messageReference: MESSAGE, failIfNotExists: false } };
 
@@ -56,18 +56,32 @@ describe('ReplyDelivery · la réponse finale, une fois, adressée', () => {
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith({ content: 'Voilà.', ...addressed });
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ guildId: GUILD, action: 'assistant.reply', actorId: USER, metadata: expect.objectContaining({ requestId: 'req-test', tools: 0 }) }));
-    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'llm.usage', metadata: expect.objectContaining({ requestId: 'req-test', promptTokens: 3, completionTokens: 2 }) }));
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'llm.usage', metadata: expect.objectContaining({ requestId: 'req-test', promptTokens: 3, completionTokens: 2, turns: 1 }) }));
   });
 
-  it('une longue réponse est découpée : seul le premier morceau est adressé', async () => {
+  it('la comptabilité porte le nombre de tours de la demande', async () => {
+    const { delivery, audit } = harness();
+    await delivery.deliver(conversation(), run({ turns: 4 }));
+    const usage = audit.record.mock.calls.map((call) => call[0]).find((row) => row.action === 'llm.usage');
+    expect(usage.metadata.turns).toBe(4);
+  });
+
+  it('une réponse plus longue qu\u0027un message est découpée : seul le premier morceau est adressé, rien n\u0027est coupé au milieu d\u0027un mot', async () => {
     const { delivery } = harness();
     const context = conversation();
-    await delivery.deliver(context, run({ finalText: 'a'.repeat(1300) }));
+    await delivery.deliver(context, run({ finalText: `${'a'.repeat(1900)} ${'b'.repeat(700)}` }));
 
     const send = sends(context);
     expect(send).toHaveBeenCalledTimes(2);
-    expect(send.mock.calls[0]?.[0]).toEqual({ content: 'a'.repeat(1200), ...addressed });
-    expect(send.mock.calls[1]?.[0]).toEqual({ content: 'a'.repeat(100) });
+    expect(send.mock.calls[0]?.[0]).toEqual({ content: `${'a'.repeat(1900)} `, ...addressed });
+    expect(send.mock.calls[1]?.[0]).toEqual({ content: 'b'.repeat(700) });
+  });
+
+  it('une réponse de 1300 caractères tient en un seul message', async () => {
+    const { delivery } = harness();
+    const context = conversation();
+    await delivery.deliver(context, run({ finalText: 'a'.repeat(1300) }));
+    expect(sends(context)).toHaveBeenCalledTimes(1);
   });
 
   it('si la réponse adressée échoue (message d\u0027origine parti), le morceau part nu', async () => {
@@ -132,6 +146,13 @@ describe('ReplyDelivery · silence et mentions', () => {
     const context = conversation({ request: { ...conversation().request, userId: OWNER } });
     await delivery.deliver(context, run({ finalText: 'Alerte @everyone' }));
     expect(sends(context)).toHaveBeenCalledWith({ content: 'Alerte @everyone', ...addressed });
+  });
+
+  it('la casse ne passe plus : @Everyone et @HERE sont neutralisés eux aussi', async () => {
+    const { delivery } = harness();
+    const context = conversation();
+    await delivery.deliver(context, run({ finalText: 'Alerte @Everyone et @HERE' }));
+    expect(sends(context)).toHaveBeenCalledWith({ content: 'Alerte `Everyone` et `HERE`', ...addressed });
   });
 });
 

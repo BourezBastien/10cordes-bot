@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { defineTool, PipelineStepSchema, type BotTool, type ToolResult } from '@10cordes/shared';
+import { defineTool, PipelineStepSchema, validateStepReferences, type BotTool, type ToolResult } from '@10cordes/shared';
 import type { SurfaceToolsDeps } from './surface.tools';
 
 const GUILD_REQUIRED = 'Contexte de serveur requis.';
@@ -29,7 +29,7 @@ function triggerScheduleTool(deps: TriggerToolsDeps): BotTool {
     permissions: ['ManageGuild'],
     destructive: false,
     systemPrompt:
-      'TOUS les délais des systèmes passent par ici (jamais setTimeout). Utilise cancelKey prévisible (ex : ticket-esc-{{surfaceId}}) pour permettre l\u0027annulation. La condition est ré-évaluée à l\u0027échéance.',
+      'TOUS les délais des systèmes passent par ici (jamais setTimeout). Utilise cancelKey prévisible (ex : ticket-esc-{{surfaceId}}) pour permettre l\u0027annulation. La condition est ré-évaluée à l\u0027échéance. Le pipeline planifié s\u0027exécute plus tard avec SES PROPRES étapes seulement : il ne lit jamais les étapes de celui qui l\u0027a créé (passe par l\u0027état).',
     handler: async (input, ctx): Promise<ToolResult> => {
       if (!ctx.guildId) return { ok: false, summary: GUILD_REQUIRED };
       const { surfaceId, cancelKey, delaySec, cron, condition, steps: rawSteps } = input as {
@@ -42,6 +42,9 @@ function triggerScheduleTool(deps: TriggerToolsDeps): BotTool {
       };
       const parsedSteps = z.array(PipelineStepSchema).min(1).max(10).safeParse(JSON.parse(rawSteps));
       if (!parsedSteps.success) return { ok: false, summary: `Steps invalides : ${parsedSteps.error.issues[0]?.message}` };
+      // Une référence d'étape fausse rendrait une chaîne vide à l'exécution, sans erreur.
+      const references = validateStepReferences(parsedSteps.data, 'pipeline planifié');
+      if (references.length > 0) return { ok: false, summary: `Steps refusés : ${references.join(' | ')} Ce pipeline s\u0027exécutera avec ses propres étapes seulement.` };
       if (!delaySec && !cron) return { ok: false, summary: 'delaySec ou cron requis.' };
       if (cancelKey) {
         await deps.prisma.scheduledTrigger.updateMany({ where: { guildId: ctx.guildId, cancelKey, status: 'armed' }, data: { status: 'cancelled' } });

@@ -6,6 +6,15 @@ export interface ToolRunContext {
   /** Canal d'où provient la demande : requis par les tools qui créent des plans/proposals. */
   channelId?: string | null;
   userId: string;
+  /** Référence de la demande, posée par l'appelant : portée par chaque ligne d'audit et de journal de ses tools. */
+  requestId?: string;
+  /**
+   * Autorisation de cette exécution, posée par le serveur seul (jamais par le
+   * modèle) : plan approuvé au clic, action d'un membre sur une surface,
+   * tâche du système. Une action ainsi autorisée n'est jamais remise en
+   * attente d'approbation, ni celles qu'elle déclenche.
+   */
+  approvedBy?: string;
   locale: string;
   /**
    * Permissions Discord de l'appelant (noms des flags, ex: "ManageGuild", "Administrator").

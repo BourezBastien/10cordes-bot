@@ -2,6 +2,8 @@ import { Logger } from '@spraxium/logger';
 import type { SkillPatternDetector } from '../agent/skill-pattern.detector';
 import type { AuditService } from '../audit/audit.service';
 import type { CacheStoreService } from '../../shared/cache/cache-store.service';
+import { describeError, stackExcerpt } from '../../shared/utils/error-stack';
+import { fileLog } from '../logging/file-log.service';
 import type { AgentLoopService } from './agent-loop.service';
 import { archiveServerSnapshot, requiresServerSnapshot } from './agent-history';
 import type { ConversationContext } from './conversation-context';
@@ -17,6 +19,8 @@ export interface ReplyRunOutcome {
   /** Noms des tools réellement exécutés, dans l'ordre. */
   executed: string[];
   usage: { promptTokens: number; completionTokens: number };
+  /** Nombre d'appels LLM de la demande. */
+  turns: number;
   error: Error | null;
 }
 
@@ -44,6 +48,7 @@ export class AgentReplyRunner {
       finalText: null,
       executed: [],
       usage: { promptTokens: 0, completionTokens: 0 },
+      turns: 0,
       error: null,
     };
     let snapshotTaken = false;
@@ -53,7 +58,7 @@ export class AgentReplyRunner {
     const plan = await llm.planRequest({ userId: request.userId, guildId: guild.id, cause: 'reply' }, conversation.intent.action);
 
     const loopOutcome = await loop
-      .run(messages, toolset, runContext, { userId: request.userId, guildId: guild.id, ...plan }, {
+      .run(messages, toolset, runContext, { userId: request.userId, guildId: guild.id, requestId, ...plan }, {
         cause: 'reply',
         quotaExhaustedMessage: QUOTA_EXHAUSTED_MESSAGE,
         onIterationStart: (iteration) => {
@@ -80,6 +85,7 @@ export class AgentReplyRunner {
             action: `assistant.tool.${name}`,
             actorId: request.userId,
             metadata: {
+              requestId,
               ok: result.ok,
               summary: result.summary.slice(0, 200),
               preState: (resultData as Record<string, unknown> | undefined)?.preState ?? undefined,
@@ -102,6 +108,8 @@ export class AgentReplyRunner {
       })
       .catch((error: unknown) => {
         log.info(`[FLOW][${requestId}] boucle ERREUR : ${error instanceof Error ? error.message : String(error)}`);
+        // La console ne garde que le message ; le journal garde la nature de l'erreur et sa pile, tronquée.
+        fileLog()?.event('error', 'loop', 'loop.error', { requestId, guildId: guild.id, error: describeError(error), stack: stackExcerpt(error) });
         outcome.error = error instanceof Error ? error : new Error(String(error));
         return null;
       });
@@ -111,6 +119,7 @@ export class AgentReplyRunner {
       outcome.executed.push(...loopOutcome.executed);
       outcome.usage.promptTokens += loopOutcome.usage.promptTokens;
       outcome.usage.completionTokens += loopOutcome.usage.completionTokens;
+      outcome.turns = loopOutcome.turns;
       if (loopOutcome.quotaExhausted) {
         outcome.error = new QuotaExhaustedError();
       }

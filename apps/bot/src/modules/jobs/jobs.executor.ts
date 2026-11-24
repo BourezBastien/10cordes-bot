@@ -2,6 +2,7 @@ import type { Logger } from '@spraxium/logger';
 import { ChannelType, type Client } from 'discord.js';
 import { z } from 'zod';
 import { botPermissionPolicy } from '../../core/security/bot-permission.policy';
+import { massMentionPolicy } from '../../core/security/mass-mention.policy';
 import { ActionSchema } from '../automations/automations.schemas';
 import type { PrismaService } from '../database/prisma.service';
 import { runToolAsSystem } from '../../shared/actions/run-tool';
@@ -9,7 +10,7 @@ import { renderTemplate } from '@10cordes/shared';
 
 /**
  * Schéma d'actions propre aux jobs : les 4 actions d'automatisations +
- * runTool (exécute N'IMPORTE QUEL tool du registry à l'échéance — c'est ce
+ * runTool (exécute N'IMPORTE QUEL tool du registry à l'échéance : c'est ce
  * qui rend les jobs universels, ex : tally.votes pour clôturer un sondage).
  */
 const JobActionSchema = z.discriminatedUnion('type', [
@@ -58,7 +59,8 @@ export class JobsExecutor {
           const channel = await this.client.channels.fetch(action.channelId).catch(() => null);
           if (channel?.type === ChannelType.GuildText) {
             if (!botPermissionPolicy.canAllInChannel(channel, ['SendMessages'])) throw new Error(botPermissionPolicy.refusal('SendMessages', 'channel'));
-            await channel.send({ content: renderTemplate(action.content, vars) });
+            // Le système exécute la tâche : il ne sait plus qui l'a demandée, une mention de masse ne pingue jamais.
+            await channel.send({ content: massMentionPolicy.guard(renderTemplate(action.content, vars), null) });
           }
         } else if (action.type === 'sendDm') {
           // Un job n'a pas de destinataire DM naturel (pas de user dans le

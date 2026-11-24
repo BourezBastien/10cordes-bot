@@ -1,9 +1,14 @@
 import { z } from 'zod';
 import type { BotTool } from '@10cordes/shared';
+import { toolRequesterContext } from '../../../core/security/access-policy';
 import { botPermissionPolicy } from '../../../core/security/bot-permission.policy';
+import { massMentionPolicy } from '../../../core/security/mass-mention.policy';
 import type { DiscordToolContext } from './tool-context';
 
-/** Tools sur les messages : purge bornée, envoi, suppression, lecture, étape de montage. */
+/** Tools sur les messages : purge bornée, envoi, suppression, lecture. */
+
+/** Dit au demandeur pourquoi sa mention de masse n'a pingué personne. */
+const MASS_MENTION_NOTE = 'mentions @everyone et @here neutralisées : elles ne pinguent que pour le propriétaire du serveur et les administrateurs';
 export function messageTools(toolCtx: DiscordToolContext): BotTool[] {
   const { guildOf, noGuild, textChannelOf } = toolCtx;
   return [
@@ -87,15 +92,21 @@ export function messageTools(toolCtx: DiscordToolContext): BotTool[] {
       requiredModules: [],
       permissions: ['SendMessages'],
       destructive: false,
-      systemPrompt: 'Le bot doit avoir SendMessages dans le salon.',
+      systemPrompt: 'Le bot doit avoir SendMessages dans le salon. Les mentions @everyone et @here ne pinguent que pour le propriétaire du serveur et les administrateurs.',
       handler: async (input, ctx) => {
         const guild = guildOf(ctx);
         if (!guild) return noGuild();
         const { channelId, content } = input as { channelId: string; content: string };
         const channel = await textChannelOf(guild, channelId);
         if (!channel) return { ok: false, summary: 'Salon introuvable ou non textuel.' };
-        const message = await channel.send({ content });
-        return { ok: true, summary: `Message envoyé dans <#${channel.id}>.`, data: { messageId: message.id } };
+        // Le bot a souvent le droit de pinguer tout le monde là où le demandeur ne l'a pas.
+        const safe = massMentionPolicy.guard(content, toolRequesterContext(ctx, guild));
+        const message = await channel.send({ content: safe });
+        return {
+          ok: true,
+          summary: `Message envoyé dans <#${channel.id}>${safe === content ? '' : ` (${MASS_MENTION_NOTE})`}.`,
+          data: { messageId: message.id },
+        };
       },
     },
     {

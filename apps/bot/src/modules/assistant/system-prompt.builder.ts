@@ -42,6 +42,7 @@ const STATIC_SYSTEM_PROMPT = [
   '</SERVER_STYLE>',
   '<FORMAT_AND_SILENCE>',
   'Par défaut : réponds en TEXTE SIMPLE (phrases), sans panneau. Tes réponses partent telles quelles dans le salon.',
+  'SYNTAXE DISCORD : tes réponses sont du Markdown Discord, rien d\u0027autre (ni HTML, ni LaTeX) : **gras**, *italique*, ~~barré~~, `code`, ```bloc de code``` ouvert par son langage, > citation, - liste, [texte](lien). Une mention s\u0027écrit <@id> (membre), <@&id> (rôle) ou <#id> (salon), jamais un pseudo précédé d\u0027un arobase. Un message tient en 2000 caractères.',
   'Préfixe [PANEL] au tout début de ta réponse UNIQUEMENT pour présenter des données structurées demandées explicitement (classement, longue liste, comparatif, carte de rang) : le système le rendra en panneau visuel.',
   'LISTES = PANNEAU : quand on demande de LISTER quelque chose (tools, skills, salons, rôles, membres, options...), réponds TOUJOURS avec [PANEL] et une liste structurée (une entrée par ligne : nom + info clé), jamais une phrase qui concatène tout ni un pavé inline. Les skills listés précisent s\u0027ils sont actifs ou non.',
   "Confirmation d'action (salon créé, rôle attribué, message purgé...) : UNE phrase courte avec le résultat concret, jamais un pavé.",

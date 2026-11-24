@@ -1,9 +1,11 @@
 import { Injectable } from '@spraxium/common';
 import type { ToolResult, ToolRunContext } from '@10cordes/shared';
-import { LlmFormatLeakError, LlmService, QuotaExhaustedError, toApiToolName, type ChatCause, type ChatCompletionResult, type ChatMessage, type ChatOptions, type OpenAiTool } from './llm.service';
+import { LlmService, QuotaExhaustedError, toApiToolName, type ChatCause, type ChatCompletionResult, type ChatMessage, type OpenAiTool } from './llm.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { fileLog } from '../logging/file-log.service';
+import { describeError } from '../../shared/utils/error-stack';
 import { stringifySafe } from '../../shared/utils/object';
+import { LoopTurns, type TurnOptions } from './agent-loop.turns';
 
 /**
  * R0.2 : plafond relevé à 12 pour les constructions multi-étapes (un casino
@@ -39,6 +41,8 @@ export interface AgentLoopOutcome {
   /** Noms des tools réellement exécutés dans l'ordre (hors court-circuits). */
   executed: string[];
   usage: { promptTokens: number; completionTokens: number };
+  /** Nombre d'appels LLM de la demande : tour rejoué après une fuite et tour de conclusion compris. */
+  turns: number;
   error: Error | null;
   /** Vrai si le dernier appel LLM ne contenait plus de tool_calls. */
   completed: boolean;
@@ -55,12 +59,11 @@ export interface AgentLoopToolset {
   byName: Map<string, OpenAiTool>;
 }
 
-/** Options identiques sur tous les tours d'une même requête. */
-export type TurnOptions = ChatOptions & { reasoningEffort: string | null; preferReasoning: boolean | undefined };
-
 export interface AgentLoopRequest {
   userId: string;
   guildId: string | null;
+  /** Référence de la demande : portée par chaque ligne du journal (tours LLM, itérations). */
+  requestId?: string;
   /**
    * Effort de raisonnement de TOUTE la requête, décidé par l'appelant avant
    * le premier tour. Absent : la boucle le décide elle-même une fois, avant
@@ -95,10 +98,14 @@ export function ceilingMessage(executed: readonly string[]): string {
  */
 @Injectable()
 export class AgentLoopService {
+  private readonly turns: LoopTurns;
+
   constructor(
     private readonly llm: LlmService,
     private readonly registry: ToolRegistryService,
-  ) {}
+  ) {
+    this.turns = new LoopTurns(llm);
+  }
 
   async run(
     messages: ChatMessage[],
@@ -110,6 +117,10 @@ export class AgentLoopService {
     const usage = { promptTokens: 0, completionTokens: 0 };
     const executed: string[] = [];
     const openAiTools = [...toolset.active];
+    let turns = 0;
+    const countTurn = (): void => {
+      turns += 1;
+    };
 
     // THINKING STABLE : l'effort ET la capacité de conversation (donc le
     // modèle) se décident UNE fois, par l'appelant ou ici, et restent
@@ -126,7 +137,7 @@ export class AgentLoopService {
       let quotaExhausted = false;
       // Texte bufferisé PAR itération. Le texte d'un tour à tool_calls n'est
       // JAMAIS la réponse : il est jeté (tracé dans le journal).
-      const turn = await this.chatTurn(messages, openAiTools, callOptions).catch((error: unknown) => {
+      const turn = await this.turns.run(messages, openAiTools, callOptions, countTurn).catch((error: unknown) => {
         if (error instanceof QuotaExhaustedError) {
           quotaExhausted = true;
           const notice: ChatCompletionResult = { content: hooks.quotaExhaustedMessage, toolCalls: [], reasoningContent: null, usage: undefined };
@@ -140,23 +151,13 @@ export class AgentLoopService {
         usage.promptTokens += completion.usage.promptTokens;
         usage.completionTokens += completion.usage.completionTokens;
       }
-      fileLog()?.llm({
-        cause: hooks.cause,
-        // Le modèle qui a réellement répondu (fournisseur de la route du serveur, ou de son repli).
-        model: completion.served?.model ?? 'runtime',
-        provider: completion.served?.provider,
-        fallback: completion.served?.fallback,
-        capability: completion.served?.capability,
-        promptTokens: completion.usage?.promptTokens ?? 0,
-        completionTokens: completion.usage?.completionTokens ?? 0,
-        ms: Date.now() - iterationStartedAt,
-        ok: !quotaExhausted,
-      });
+      this.turns.log(completion, hooks.cause, Date.now() - iterationStartedAt, !quotaExhausted, options.requestId, options.guildId);
       fileLog()?.event('info', 'loop', 'iteration', {
         iteration,
         toolCalls: completion.toolCalls.length,
         textChars: iterationText.length,
         thrownAway: completion.toolCalls.length > 0 && iterationText.trim().length > 0,
+        requestId: options.requestId,
       });
 
       if (completion.toolCalls.length > 0) {
@@ -215,6 +216,7 @@ export class AgentLoopService {
         finalText: completion.content ?? (iterationText.trim().length > 0 ? iterationText : null),
         executed,
         usage,
+        turns,
         error: null,
         completed: true,
         ...(quotaExhausted ? { quotaExhausted: true } : {}),
@@ -226,8 +228,15 @@ export class AgentLoopService {
     // d'outil en texte brut) : il est prié de conclure, et tout tool_call est
     // ignoré. Sans texte utilisable, un message honnête remplace le tour.
     await hooks.onIterationStart?.(MAX_ITERATIONS, messages);
+    const summaryStartedAt = Date.now();
+    countTurn();
     // Ignoré s'il appelle encore un outil : seul son texte est la réponse, et rien n'est publié en cours de route.
-    const summary = await this.llm.chatStream([...messages, { role: 'user', content: SUMMARY_NUDGE }], openAiTools, callOptions, {}).catch(() => null);
+    const summary = await this.llm.chatStream([...messages, { role: 'user', content: SUMMARY_NUDGE }], openAiTools, callOptions, {}).catch((error: unknown) => {
+      fileLog()?.event('warn', 'loop', 'summary_failed', { requestId: options.requestId, error: describeError(error) });
+      return null;
+    });
+    // Le tour de conclusion est un appel LLM comme les autres : il entre dans le journal des coûts.
+    if (summary) this.turns.log(summary, hooks.cause, Date.now() - summaryStartedAt, true, options.requestId, options.guildId);
     if (summary?.usage) {
       usage.promptTokens += summary.usage.promptTokens;
       usage.completionTokens += summary.usage.completionTokens;
@@ -237,38 +246,10 @@ export class AgentLoopService {
       finalText: summaryText || ceilingMessage(executed),
       executed,
       usage,
+      turns,
       error: null,
       completed: true,
       forcedSummary: true,
     };
-  }
-
-  /**
-   * Un tour LLM, texte bufferisé. Si le modèle laisse fuir ses balises
-   * internes (LlmFormatLeakError), le tour est rejoué UNE fois à identique,
-   * le texte déjà reçu étant jeté ; une seconde fuite fait échouer la requête.
-   */
-  private async chatTurn(
-    messages: ChatMessage[],
-    openAiTools: OpenAiTool[],
-    callOptions: TurnOptions,
-  ): Promise<{ completion: ChatCompletionResult; text: string }> {
-    let text = '';
-    const stream = async (): Promise<ChatCompletionResult> => {
-      text = '';
-      return this.llm.chatStream(messages, openAiTools, callOptions, {
-        onDelta: (delta) => {
-          text += delta;
-        },
-      });
-    };
-    try {
-      return { completion: await stream(), text };
-    } catch (error) {
-      if (!(error instanceof LlmFormatLeakError)) throw error;
-      fileLog()?.event('warn', 'loop', 'turn_leak_retried', { sample: error.sample });
-      const completion = await stream();
-      return { completion, text };
-    }
   }
 }

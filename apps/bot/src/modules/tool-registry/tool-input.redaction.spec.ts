@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ToolRunContext } from '@10cordes/shared';
 import { z } from 'zod';
-import { ToolRegistryService } from './tool-registry.service';
+import { ToolRegistryService, bindRegistryRuntimeDeps } from './tool-registry.service';
 import { redactToolInput } from './tool-input.redaction';
 
 // Clé calculée : sync-tool-names.mjs repère la clé name suivie d'une chaîne.
@@ -43,6 +43,8 @@ describe('redactToolInput', () => {
 describe('ToolRegistryService · audit d\u0027un tool à paramètre sensible', () => {
   it('journalise l\u0027entrée avec la clé masquée, et transmet la vraie valeur au handler', async () => {
     const audit = { record: vi.fn() };
+    // Règle de confirmation désactivée : ce tool de test n\u0027est pas classé, il attendrait sinon.
+    bindRegistryRuntimeDeps({ rules: { get: async () => ({ confirmDestructiveActions: false }) } as never });
     const registry = new ToolRegistryService(
       { activeModules: async () => new Set<string>() } as never,
       {} as never,

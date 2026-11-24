@@ -1,4 +1,6 @@
+import { interactionAccessContext } from '../../core/security/access-policy';
 import { botPermissionPolicy } from '../../core/security/bot-permission.policy';
+import { massMentionPolicy } from '../../core/security/mass-mention.policy';
 import { registerComponentAction } from './registry';
 
 /**
@@ -12,7 +14,8 @@ export function registerDefaultComponentExecutors(): void {
     if (action.type !== 'reply') return 'Action inattendue.';
     const channel = ctx.interaction.channel;
     if (!channel || channel.isDMBased() || !channel.isTextBased()) return 'Salon introuvable.';
-    await channel.send({ content: action.message.slice(0, 1000) }).catch(() => {});
+    // Le message a été écrit par le modèle : une mention de masse ne pingue que pour un administrateur.
+    await channel.send({ content: massMentionPolicy.guard(action.message.slice(0, 1000), interactionAccessContext(ctx.interaction)) }).catch(() => {});
     return 'Message posté dans le salon.';
   });
 

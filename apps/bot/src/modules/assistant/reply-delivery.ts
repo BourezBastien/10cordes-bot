@@ -1,11 +1,12 @@
 import { Logger } from '@spraxium/logger';
 import type { AuditService } from '../audit/audit.service';
-import { accessContextFromNames, guildAdminPolicy } from '../../core/security/access-policy';
+import { accessContextFromNames } from '../../core/security/access-policy';
+import { massMentionPolicy } from '../../core/security/mass-mention.policy';
 import { notice } from '../../shared/ui';
+import { splitDiscordMessage } from '../../shared/utils/message-split';
 import type { ConversationContext } from './conversation-context';
 import { LlmFormatLeakError, ProviderAuthError, ProviderUnavailableError, QUOTA_EXHAUSTED_MESSAGE, QuotaExhaustedError } from './llm.errors';
 import type { ReplyRunOutcome } from './reply-runner';
-import { splitReplyChunks } from './reply-text';
 import type { ResponseCacheService } from './response-cache.service';
 
 const log = new Logger('Assistant');
@@ -67,7 +68,7 @@ export class ReplyDelivery {
       finalText = run.executed.length > 0 ? '' : 'Fait.';
     }
 
-    // Comptabilité IA : un enregistrement par demande (somme des itérations).
+    // Comptabilité IA : un enregistrement par demande (somme des itérations, nombre de tours).
     if (run.usage.promptTokens + run.usage.completionTokens > 0) {
       this.deps.audit.record({
         guildId: conversation.guild.id,
@@ -79,6 +80,7 @@ export class ReplyDelivery {
           cause: 'reply',
           promptTokens: run.usage.promptTokens,
           completionTokens: run.usage.completionTokens,
+          turns: run.turns,
         },
       });
     }
@@ -99,14 +101,12 @@ export class ReplyDelivery {
       return;
     }
 
-    // Garde déterministe : @everyone/@here uniquement si le demandeur est
-    // admin (permission Administrator) ou owner. Sinon neutralise en texte.
-    const isPrivileged = guildAdminPolicy.isAuthorized(
-      accessContextFromNames(conversation.guild, request.userId, conversation.permissions),
-    );
-    const finalDelivery = isPrivileged ? finalText : finalText.replaceAll('@everyone', '`everyone`').replaceAll('@here', '`here`');
+    // Mentions de masse : réservées au propriétaire du serveur et aux administrateurs ; pour les
+    // autres, @everyone et @here s'affichent en texte, sans ping (quelle que soit la casse).
+    const finalDelivery = massMentionPolicy.guard(finalText, accessContextFromNames(conversation.guild, request.userId, conversation.permissions));
 
-    const chunks = splitReplyChunks(finalDelivery);
+    // Chaque morceau tient dans un message, et la coupure ne se voit pas (paragraphe, ligne, mot).
+    const chunks = splitDiscordMessage(finalDelivery);
     await this.sendAddressed(channel, request.messageId, chunks);
     // Le cache coûts ne s'applique qu'aux réponses conversationnelles pures sans tools.
     if (run.executed.length === 0 && chunks.length === 1 && chunks[0].trim()) {

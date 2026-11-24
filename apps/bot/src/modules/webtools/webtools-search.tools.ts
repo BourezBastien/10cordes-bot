@@ -2,6 +2,14 @@ import { z } from 'zod';
 import { searchDuckDuckGo } from 'ts-duckduckgo-search';
 import { XMLParser } from 'fast-xml-parser';
 import type { BotTool } from '@10cordes/shared';
+import { safeFetchText } from '../../shared/utils/safe-fetch';
+import { SAFE_XML_OPTIONS, assertSafeXml, xmlAt, xmlLink, xmlList, xmlText } from './xml-guard';
+
+/** Flux officiels des sources de presse établie. */
+const NEWS_FEEDS: Readonly<Record<'lemonde' | 'france24', string>> = {
+  lemonde: 'https://www.lemonde.fr/rss/une.xml',
+  france24: 'https://www.france24.com/fr/rss',
+};
 
 /** Recherche DuckDuckGo : titres, descriptions et URLs des 5 premiers résultats exploitables. */
 async function searchWeb(query: string): Promise<Array<{ title: string; description: string; url: string }>> {
@@ -13,6 +21,25 @@ async function searchWeb(query: string): Promise<Array<{ title: string; descript
     .filter((row) => row.url && row.title)
     .slice(0, 5)
     .map((row) => ({ title: String(row.title), description: String(row.description ?? '').slice(0, 200), url: String(row.url) }));
+}
+
+/**
+ * Lit un flux gardé et rend ses articles (titre, lien, date), au plus `limit`.
+ * Le flux vient de n'importe où : requête gardée (hôte public, taille
+ * plafonnée), XML refusé s'il déclare un DOCTYPE ou des entités, puis analysé
+ * sans en développer une seule.
+ */
+async function readFeed(url: string, limit: number): Promise<string[]> {
+  const xml = await safeFetchText(url);
+  assertSafeXml(xml);
+  const parsed: unknown = new XMLParser(SAFE_XML_OPTIONS).parse(xml);
+  const items = [...xmlList(xmlAt(parsed, ['rss', 'channel', 'item'])), ...xmlList(xmlAt(parsed, ['feed', 'entry']))];
+  return items.slice(0, limit).map((item, index) => {
+    const title = xmlText(xmlAt(item, ['title'])) || '(sans titre)';
+    const link = xmlLink(item);
+    const date = xmlText(xmlAt(item, ['pubDate'])) || xmlText(xmlAt(item, ['updated']));
+    return `${index + 1}. ${title}${link ? ` : ${link}` : ''}${date ? ` (${date})` : ''}`;
+  });
 }
 
 /**
@@ -52,29 +79,12 @@ export function buildSearchTools(): BotTool[] {
       }),
       requiredModules: [],
       destructive: false,
-      systemPrompt: 'Seulement des flux fournis par l\u2019utilisateur. Les dates sont au format ISO.',
+      systemPrompt: 'Seulement des flux fournis par l\u0027utilisateur, en https. Les dates sont au format ISO.',
       handler: async (input, _ctx) => {
         const { url, limit } = input as { url: string; limit?: number };
-        if (!/^https?:\/\//i.test(url)) return { ok: false, summary: 'URL invalide.' };
-        const xml = await fetch(url).then((res) => res.text());
-        const parsed = new XMLParser({ ignoreAttributes: false }).parse(xml) as {
-          rss?: { channel?: { item?: unknown } };
-          feed?: { entry?: unknown };
-        };
-        const items = (parsed.rss?.channel?.item ?? parsed.feed?.entry ?? []) as Array<{
-          title?: string | { '#text': string };
-          link?: string | { '#text': string; '@_href': string };
-          pubDate?: string;
-          updated?: string;
-        }>;
-        const list = Array.isArray(items) ? items.slice(0, limit ?? 5) : [];
-        if (list.length === 0) return { ok: false, summary: 'Aucun article dans ce flux.' };
-        const lines = list.map((item, index) => {
-          const title = typeof item.title === 'string' ? item.title : (item.title as { '#text'?: string })?.['#text'] ?? '?';
-          const link = typeof item.link === 'string' ? item.link : (item.link as { '@_href'?: string })?.['@_href'] ?? '';
-          const date = item.pubDate ?? item.updated ?? '';
-          return `${index + 1}. ${title}${link ? ` : ${link}` : ''}${date ? ` (${date})` : ''}`;
-        });
+        if (!/^https:\/\//i.test(url)) return { ok: false, summary: 'URL invalide : un flux se lit en https uniquement.' };
+        const lines = await readFeed(url, limit ?? 5);
+        if (lines.length === 0) return { ok: false, summary: 'Aucun article dans ce flux.' };
         return { ok: true, summary: lines.join(' | ').slice(0, 2000), data: { count: lines.length } };
       },
     },
@@ -91,27 +101,10 @@ export function buildSearchTools(): BotTool[] {
       systemPrompt:
         'Sources vérifiées uniquement (presse établie). Liste les titres avec leurs liens pour que l\u0027utilisateur aille vérifier lui-même.',
       handler: async (input, _ctx) => {
-        const { source, limit } = input as { source?: string; limit?: number };
-        const feeds: Record<string, string> = {
-          lemonde: 'https://www.lemonde.fr/rss/une.xml',
-          france24: 'https://www.france24.com/fr/rss',
-        };
-        const xml = await fetch(feeds[source ?? 'lemonde']).then((res) => res.text());
-        const parsed = new XMLParser({ ignoreAttributes: false }).parse(xml) as {
-          rss?: { channel?: { item?: Array<{ title?: unknown; link?: unknown }> } };
-        };
-        const items = parsed.rss?.channel?.item ?? [];
-        const list = (Array.isArray(items) ? items : [items]).slice(0, limit ?? 5);
-        if (list.length === 0) return { ok: false, summary: 'Aucune actualité récupérée.' };
-        const lines = list.map((item, index) => {
-          const title = typeof item.title === 'string' ? item.title : '?';
-          const link = typeof item.link === 'string' ? item.link : '';
-          return `${index + 1}. ${title}${link ? ` : ${link}` : ''}`;
-        });
-        return {
-          ok: true,
-          summary: `Actualités (${source === 'france24' ? 'France24' : 'Le Monde'}) : ${lines.join(' | ')}`,
-        };
+        const { source, limit } = input as { source?: 'lemonde' | 'france24'; limit?: number };
+        const lines = await readFeed(NEWS_FEEDS[source ?? 'lemonde'], limit ?? 5);
+        if (lines.length === 0) return { ok: false, summary: 'Aucune actualité récupérée.' };
+        return { ok: true, summary: `Actualités (${source === 'france24' ? 'France24' : 'Le Monde'}) : ${lines.join(' | ')}` };
       },
     },
   ];

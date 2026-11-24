@@ -33,6 +33,8 @@ const plan = (overrides: Partial<PlanInput> = {}): PlanInput => ({
   requesterId: USER,
   messageId: null,
   actions: [FIRST],
+  summary: null,
+  dropped: [],
   status: 'pending',
   createdAt: T0,
   expiresAt: EXPIRES,
@@ -117,7 +119,7 @@ describe('ActionPlanStore · créer et relire', () => {
         messageId: null,
         kind: 'action-plan',
         definition: expect.any(String),
-        state: JSON.stringify({ requesterId: USER, actions: [FIRST, SECOND], status: 'pending', createdAt: T0, expiresAt: EXPIRES, report: null }),
+        state: JSON.stringify({ requesterId: USER, actions: [FIRST, SECOND], summary: null, dropped: [], status: 'pending', createdAt: T0, expiresAt: EXPIRES, report: null }),
         createdBy: USER,
       },
     ]);
@@ -129,7 +131,13 @@ describe('ActionPlanStore · créer et relire', () => {
   it('ce qui est créé se relit à l\'identique, l\'identifiant en plus', async () => {
     const prisma = makePrisma();
     const store = storeOf(prisma);
-    const input = plan({ actions: [FIRST, SECOND], status: 'interrupted', report: { done: 1, stoppedAt: SECOND.tool, reason: 'refusé' } });
+    const input = plan({
+      actions: [FIRST, SECOND],
+      summary: 'Je vais supprimer deux salons.',
+      dropped: [{ tool: 'test.renameThing', reason: 'permission manquante dans ce salon : ManageChannels' }],
+      status: 'interrupted',
+      report: { done: 1, stoppedAt: SECOND.tool, reason: 'refusé' },
+    });
     const id = await store.create(input);
     expect(await store.get(id)).toEqual({ id, ...input });
     expect(prisma.interactiveSurface.findUnique).toHaveBeenCalledWith({ where: { id }, select: COLUMNS });
@@ -153,7 +161,7 @@ describe('ActionPlanStore · créer et relire', () => {
     expect(await storeOf(prisma).get('p1')).toBeNull();
   });
 
-  it('un état ancien incomplet se lit comme un plan en attente, sans compte rendu, daté de maintenant', async () => {
+  it('un état ancien incomplet se lit comme un plan en attente, sans compte rendu, résumé ni action écartée, daté de maintenant', async () => {
     const prisma = makePrisma([rawRow('p1', JSON.stringify({ requesterId: USER, actions: [FIRST], expiresAt: EXPIRES }))]);
     expect(await storeOf(prisma).get('p1')).toEqual({
       id: 'p1',
@@ -162,11 +170,19 @@ describe('ActionPlanStore · créer et relire', () => {
       messageId: 'msg-1',
       requesterId: USER,
       actions: [FIRST],
+      summary: null,
+      dropped: [],
       status: 'pending',
       createdAt: NOW,
       expiresAt: EXPIRES,
       report: null,
     });
+  });
+
+  it('un résumé ou une liste d\'actions écartées d\'une autre forme se lisent comme absents', async () => {
+    const prisma = makePrisma([rawRow('p1', JSON.stringify({ requesterId: USER, actions: [FIRST], expiresAt: EXPIRES, summary: 42, dropped: 'non' }))]);
+    const plan = await storeOf(prisma).get('p1');
+    expect(plan).toMatchObject({ summary: null, dropped: [] });
   });
 });
 
@@ -189,7 +205,7 @@ describe('ActionPlanStore · enregistrer, le statut porté par le kind', () => {
       data: { kind, messageId: 'msg-1', state: expect.any(String) },
       select: { id: true },
     });
-    expect(JSON.parse(prisma.rows[0].state)).toEqual({ requesterId: USER, actions: [FIRST], status, createdAt: T0, expiresAt: EXPIRES, report });
+    expect(JSON.parse(prisma.rows[0].state)).toEqual({ requesterId: USER, actions: [FIRST], summary: null, dropped: [], status, createdAt: T0, expiresAt: EXPIRES, report });
     expect(prisma.rows[0].kind).toBe(kind);
   });
 

@@ -108,7 +108,7 @@ function harness(flags: PermissionName[] = ['ManageChannels', 'KickMembers']) {
   const edit = vi.fn(async (_payload: Payload) => undefined);
   const fetchMessage = vi.fn(async (_id: string) => ({ edit }));
   const channel = { isTextBased: () => true, send: vi.fn(async (_payload: Payload) => ({ id: MESSAGE })), messages: { fetch: fetchMessage } };
-  const client = { channels: { cache: new Map([[CHANNEL, channel]]), fetch: vi.fn(async (_id: string): Promise<unknown> => null) } };
+  const client = { channels: { cache: new Map([[CHANNEL, channel]]), fetch: vi.fn(async (_id: string): Promise<unknown> => null) }, guilds: { cache: new Map() } };
   const audit = { record: vi.fn() };
   const registry = {
     get: vi.fn((label: string): BotTool | undefined => TOOLS[label]),

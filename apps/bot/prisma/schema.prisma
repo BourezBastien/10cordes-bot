@@ -508,7 +508,7 @@ model AgentRecord {
   @@map("agent_records")
 }
 
-// ── Règles serveur (R0.4) : appliquées en code (gate, confirmation destructive) et en prompt ──
+// ── Règles serveur (R0.4) : appliquées en code (gate, confirmer les actions) et en prompt ──
 
 model GuildRule {
   guildId                   String   @id
@@ -517,7 +517,7 @@ model GuildRule {
   blockedChannelIds         String   @default("[]") // JSON string[] : MUET total, meme mention
   strictMentionElsewhere    Boolean  @default(true) // hors zone libre : seule une vraie @mention/reply déclenche
   seriousOnlyElsewhere      Boolean  @default(false) // hors zone libre : ton sérieux uniquement
-  confirmDestructiveActions Boolean  @default(false) // ✅/❌ avant tools destructifs
+  confirmDestructiveActions Boolean  @default(false) // règle « Confirmer les actions (hors lecture) » : toute action qui modifie attend le clic du demandeur
   customInstructions        String   @default("[]") // JSON string[] : règles libres des admins
   updatedAt                 DateTime @updatedAt
   guild                     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)

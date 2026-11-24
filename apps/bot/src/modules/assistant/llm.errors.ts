@@ -58,8 +58,8 @@ export class ProviderHttpError extends Error {
 export { LlmFormatLeakError } from '../../shared/llm/format-leak.error';
 import { isFallbackEligible } from '../providers/provider.types';
 
-/** Notice salon quand les crédits sont épuisés : la même pour la boucle et la livraison. */
-export const QUOTA_EXHAUSTED_MESSAGE = 'IA désactivée : crédits DeepSeek épuisés. Recharge le compte API, je reprends dès que c\u0027est réglé.';
+/** Notice salon quand les crédits sont épuisés : la même pour la boucle et la livraison, quel que soit le fournisseur. */
+export const QUOTA_EXHAUSTED_MESSAGE = 'IA désactivée : les crédits du fournisseur IA sont épuisés. Recharge le compte, je reprends dès que c\u0027est réglé.';
 
 /**
  * Convertit une réponse HTTP en erreur du fournisseur. À appeler uniquement

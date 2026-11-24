@@ -19,8 +19,10 @@ export interface ToolActor {
 
 /**
  * Exécute un tool au nom du membre qui a cliqué : permissions et rôles
- * réels transmis au registry — un node deny ou un manque de permission
+ * réels transmis au registry : un node deny ou un manque de permission
  * Discord refuse donc le clic comme il refuserait une demande directe.
+ * Le clic est l'autorisation de l'action : la règle de confirmation des
+ * actions (qui vise ce que le modèle propose en conversation) ne s'y applique pas.
  */
 export async function runToolAsActor(
   name: string,
@@ -34,6 +36,7 @@ export async function runToolAsActor(
     locale: 'fr',
     permissions: actor.permissions,
     roleIds: actor.roleIds,
+    approvedBy: 'surface',
     reply: async () => {},
   };
   return getToolRegistry().run(name, input, ctx);
@@ -43,7 +46,8 @@ export async function runToolAsActor(
  * Exécute un tool en tant que système (job planifié, tâche de fond) : le
  * bot agit de sa propre autorité. Le job a lui-même été créé via un tool
  * gated (jobs.schedule = ManageGuild), la traçabilité passe par l'audit
- * du registry (userId = bot).
+ * du registry (userId = bot). Autorisé depuis sa création : la règle de
+ * confirmation ne s'y applique pas.
  */
 export async function runToolAsSystem(
   name: string,
@@ -57,6 +61,7 @@ export async function runToolAsSystem(
     locale: 'fr',
     permissions: ['Administrator'],
     roleIds: [],
+    approvedBy: 'system',
     reply: async () => {},
   };
   return getToolRegistry().run(name, input, ctx);

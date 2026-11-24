@@ -25,6 +25,29 @@ describe('detectRequestIntent · tools nommés', () => {
     expect(intent(`e2e : ${id}`, [id])).toMatchObject({ action: false, signal: null });
   });
 
+  it.each([
+    'surface.get',
+    'githubRepo',
+    'voice.status',
+    'jobs.list',
+    'birthday.list',
+    'channel.history.search',
+    'members.export',
+    'snipe',
+    'http.fetch',
+    'convertCurrency',
+  ])('%s nommé ne signale pas une action : la classification le dit lecture, sans liste à tenir', (id) => {
+    expect(intent(`e2e : ${id}`, [id])).toMatchObject({ action: false, signal: null });
+  });
+
+  it.each(['search_tools', 'search_skills', 'openSkill', 'translate', 'generateImage'])('%s nommé ne signale pas une action : outil direct', (id) => {
+    expect(intent(`e2e : ${id}`, [id])).toMatchObject({ action: false, signal: null });
+  });
+
+  it.each(['renameChannel', 'sendMessage', 'reaction.add', 'voice.join', 'afk.set', 'node.set'])('%s nommé signale une action, sans être signalé destructif', (id) => {
+    expect(intent(`e2e : ${id}`, [id])).toMatchObject({ action: true, signal: 'tool', mutatingTools: [id] });
+  });
+
   it.each(['provider.upsert', 'provider.delete', 'capability.bind', 'records.create', 'rules.set'])('%s nommé signale une action', (id) => {
     expect(intent(`e2e : ${id}`, [id])).toMatchObject({ action: true, signal: 'tool', mutatingTools: [id] });
   });
