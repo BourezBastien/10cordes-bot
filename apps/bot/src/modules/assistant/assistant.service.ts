@@ -5,6 +5,7 @@ import { V2Service } from '@spraxium/components';
 import { notice } from '../../shared/ui';
 import { CacheStoreService } from '../../shared/cache/cache-store.service';
 import { AppEnv } from '../../app.env';
+import { getActionPlans } from '../action-plan/action-plan.runtime';
 import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { MemoryService } from '../memory/memory.service';
@@ -262,6 +263,10 @@ export class AssistantService {
       // GARANTIE ANTI-BLOCAGE : quoi qu'il arrive (contexte, boucle ou
       // livraison en erreur), la ligne de statut disparaît et aucun brouillon
       // non finalisé ne reste dans le salon. Le bot ne reste jamais « en réflexion ».
+      // Fin de demande : les actions destructives restées en attente forment UN plan d'approbation.
+      await getActionPlans()
+        ?.flush(guild.id, request.userId)
+        .catch(() => null);
       await session.status.done().catch(() => {});
       if (!delivered) session.rejectStream();
     }

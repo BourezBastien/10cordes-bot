@@ -25,6 +25,7 @@ import { MetaController } from './modules/api/meta.controller';
 import { HealthController } from './modules/health/health.controller';
 import { HealthMonitor } from './modules/health/health.monitor';
 import { ToolRegistryModule } from './modules/tool-registry/tool-registry.module';
+import { ActionPlanModule } from './modules/action-plan/action-plan.module';
 
 import { WebToolsModule } from './modules/webtools/webtools.module';
 import { MusicModule } from './modules/music/music.module';
@@ -57,6 +58,7 @@ import { UtilityModule } from './modules/utility/utility.module';
     ModerationModule,
     ModuleManagerModule,
     ToolRegistryModule,
+    ActionPlanModule,
     WebToolsModule,
     MusicModule,
     VoiceModule,

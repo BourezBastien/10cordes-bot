@@ -18,11 +18,14 @@
 | Queue | `assistant.queue.ts` + `queue/` | Driver BullMQ (Redis) / memory fallback (sonde 5 s, bascule à chaud) ; FIFO par user, 3 parallèles |
 | Boucle | `agent-loop.service.ts` | Template Method partagé Discord/web ; 12 itérations max ; synthèse finale sans tools si boucle épuisée ; résultats de tools sérialisés avec `stringifySafe` (tolérant aux BigInt) |
 | Prompt | `system-prompt.builder.ts` | XML par sections (`<SERVER_RULES>`, `<SKILLS>`) ; préfixe statique pour le cache provider DeepSeek |
-| Streaming | `llm.service.ts` | SSE + watchdog inactivité ; thinking adaptatif ; erreurs typées (QuotaExhausted, ProviderAuth, ProviderUnavailable) ; repli de `baseUrl` sur l'env |
+| Streaming | `llm.service.ts` + `llm-endpoint.ts` + `llm-transport.ts` | orchestrateur du moteur multi-fournisseurs (§6b) : route du serveur ou instance, SSE + watchdog d'inactivité, erreurs typées, bascule sur le fournisseur de repli |
+| Statut | `live-status.ts` + `investigation.policy.ts` | une seule ligne, éditée en place ; les lectures de recherche se taisent (`[SOURCES]` une fois) |
 | Rendu | `progressive-responder.ts` | Édition unique throttlée 1,8 s ; médias = UNE pièce jointe réelle |
 | Reprise | `boot-recovery.service.ts` | Watermark par salon dédié + relance des jobs persistés |
 
-**Thinking adaptatif** (`LlmService.shouldSendThinking`, réglage par serveur dans `guild_agent_settings`, défaut `adaptive`) : `reasoning_effort` n'est envoyé que sur les tours qui portent des tools et qui ne sont pas la synthèse finale (`toolChoice !== 'none'`), et uniquement aux endpoints compatibles (DeepSeek, Anthropic). Le champ est omis sinon : plusieurs fournisseurs le rejettent avec un 400.
+**Thinking stable** (`LlmService.planRequest`, réglage par serveur, défaut `adaptive`) : décidé UNE fois par requête, avant le premier tour, et gardé identique sur tous ses tours. `preferReasoning` vient du réglage et de l'intention de la demande (orientée action ou non) ; il choisit la route `chat.reasoning` quand le serveur en a une. L'effort envoyé se décide contre le fournisseur qui exécutera la requête, et part seulement vers les endpoints qui l'acceptent (DeepSeek, Anthropic). Le basculer en cours de boucle a coïné avec la fuite de balises internes de l'incident de 20:09.
+
+**Investigation silencieuse** (`investigation.policy.ts`, transposé de discord-agent) : une lecture de recherche (recherche web, actualités, flux, page, dépôt) n'est pas racontée appel par appel. La ligne de statut affiche `[SOURCES] Je consulte mes sources...` à la première, puis ne bouge plus. Les actions et les lectures du serveur gardent leur ligne `[TOOL]`, de même que `search_tools` et `search_skills`.
 
 ## 3. Registry et exécution d'un tool (`tool-registry.service.ts`)
 
@@ -70,6 +73,19 @@ L'intégration d'instance (section 6) devient l'amorce. Chaque serveur connecte 
 - **Consommateurs** : la musique, l'image kie.ai et PixelLab lisent clé, URL et modèle de la route du serveur (`credentialsFor`) ; une image routée vers un autre fournisseur passe par l'adaptateur (`runCapability`).
 
 Couverture : 26 fichiers de spec sous `modules/providers` et les specs du client LLM (`llm.service`, `llm-transport`, `llm-endpoint`, `llm-thinking.planner`, `llm.errors`, `request-intent`). Preuve live : `06_E2E_LIVE_REPORT.md` §11.
+
+## 6c. Plans d'action (`modules/action-plan/`, transposé de discord-agent, nuit du 23 au 24/11)
+
+L'étude du dépôt `discord-agent` se lit dans `07_BENCHMARK_DISCORD_AGENT.md`. Quatre mécanismes en ont été tirés.
+
+- **Un plan par demande.** Règle `confirmDestructiveActions` active : un tool `destructive` ne s'exécute pas. La porte du registry (`tool-registry.confirm.ts`) le met en attente (`ActionPlanService.stage`, en mémoire, par serveur, demandeur et salon, 10 actions au plus) ; `AssistantService`, en fin de demande, en fait UN plan (`flush`) : une ligne `InteractiveSurface` de `kind` `action-plan`, un panneau Components V2 posté une fois, l'audit `plan.posted`.
+- **Le clic exécute.** Boutons `plan:apply~p=<id>` et `plan:cancel~p=<id>` (`action-plan.handlers.ts`, décorés). `apply` prend le plan une seule fois (`ActionPlanStore.lock` : le statut est le `kind` de la ligne, un second clic le trouve pris), vérifie l'auteur, l'expiration (15 minutes), que le message d'approbation n'a pas été modifié, recharge le membre, archive un instantané du serveur si une action est structurelle, puis exécute les actions dans l'ordre par `registry.run(tool, input, ctx, { approvedBy })`. Un refus ou un échec arrête le plan, avec le compte de ce qui a été fait.
+- **Revalidation déterministe** (`core/security/action-plan.policy.ts`) : permissions de l'outil dans le serveur et dans le salon visé, hiérarchie de la cible membre et du rôle, identifiants bien formés, compte suspendu. Elle s'appuie sur `MemberPermissionPolicy.hasIn`, `canActOn`, `canManageRole` et `grantsOnly`.
+- **Porte fermée par défaut.** Règles du serveur illisibles : l'action reste bloquée. Auparavant la porte s'ouvrait.
+
+Le panneau est dessiné par `ActionPlanPresenter` (pur) : en attente, demandeur, expiration, actions numérotées, deux boutons ; terminé, le résultat et plus aucun bouton.
+
+Couverture : `tool-registry.confirm.spec` (8 tests), `hierarchy-policy.spec` (50 tests de sécurité), et les specs du module (`action-plan.*.spec`). Le clic réel n'est pas simulable : le scénario live `rule.confirm` vérifie le blocage, le plan et le panneau, pas l'exécution.
 
 ## 7. Configuration par serveur (`modules/guild-config/`)
 

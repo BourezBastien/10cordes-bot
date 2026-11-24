@@ -1,13 +1,13 @@
-import type { Client } from 'discord.js';
-import type { PrismaService } from '../database/prisma.service';
 import type { GuildRulesService } from '../rules/guild-rules.service';
-import type { CacheStoreService } from '../../shared/cache/cache-store.service';
 import type { ToolRegistryService } from './tool-registry.service';
 
 /**
- * Accès runtime au registry et dépendances runtime du registry lui-même
- * (elles cassent des cycles DI) : règles serveur, cache, prisma, client, rendu
- * de surface. Les providers propriétaires les lient dans leur onBoot.
+ * Accès runtime au registry, et dépendance runtime du registry lui-même
+ * (elle casse un cycle DI) : les règles serveur. Le provider propriétaire
+ * (`GuildRulesService.onBoot`) la lie.
+ *
+ * Le plan d'action, lui, est atteint par son propre accesseur
+ * (`getActionPlans`, module action-plan) : son service injecte le registry.
  */
 
 let registryInstance: ToolRegistryService | undefined;
@@ -25,10 +25,6 @@ export function bindRegistryInstance(instance: ToolRegistryService): void {
 
 export interface RegistryRuntimeDeps {
   rules?: GuildRulesService;
-  cache?: CacheStoreService;
-  prisma?: PrismaService;
-  client?: Client;
-  renderSurface?: (surfaceId: string) => Promise<void>;
 }
 
 export const registryRuntimeDeps: RegistryRuntimeDeps = {};
@@ -37,12 +33,7 @@ export function bindRegistryRuntimeDeps(deps: Partial<RegistryRuntimeDeps>): voi
   Object.assign(registryRuntimeDeps, deps);
 }
 
-/** Auto-diagnostic : dépendances runtime effectivement liées (logs de boot, rigs). */
-export function registryRuntimeDepsReady(): { cache: boolean; prisma: boolean; renderSurface: boolean; rules: boolean } {
-  return {
-    cache: registryRuntimeDeps.cache !== undefined,
-    prisma: registryRuntimeDeps.prisma !== undefined,
-    renderSurface: registryRuntimeDeps.renderSurface !== undefined,
-    rules: registryRuntimeDeps.rules !== undefined,
-  };
+/** Auto-diagnostic : dépendance runtime effectivement liée (logs de boot, rigs). */
+export function registryRuntimeDepsReady(): { rules: boolean } {
+  return { rules: registryRuntimeDeps.rules !== undefined };
 }

@@ -5,7 +5,6 @@ import { Client, type GuildMember } from 'discord.js';
 import { SurfaceDefinitionSchema, type InteractionBinding, type PipelineStep, type SurfaceDefinition } from '@10cordes/shared';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
-import { CacheStoreService } from '../../shared/cache/cache-store.service';
 import { getToolRegistry } from '../tool-registry/tool-registry.service';
 import { SurfaceRenderer } from './surface.renderer';
 import { bindSurfaceRuntime } from './surface.runtime';
@@ -59,7 +58,6 @@ export class SurfaceService implements SpraxiumOnBoot {
     private readonly pipeline: SurfacePipelineService,
     private readonly buttons: ButtonService,
     private readonly client: Client,
-    private readonly cache: CacheStoreService,
   ) {
     this.store = new SurfaceStore(prisma);
   }
@@ -123,8 +121,6 @@ export class SurfaceService implements SpraxiumOnBoot {
     if (!surface) return { ok: false, message: 'Surface illisible.' };
     const binding = findBinding(surface.definition, args.bindingKey);
     if (!binding) return { ok: false, message: `Bouton « ${args.bindingKey} » inconnu sur cette surface.` };
-
-    this.recordConfirmDecision(row.kind, row.state, args.bindingKey, row.guildId, args.userId);
 
     const ctx: PipelineContext = {
       vars: {
@@ -197,22 +193,5 @@ export class SurfaceService implements SpraxiumOnBoot {
     if (!row) return;
     const definition = SurfaceDefinitionSchema.parse(JSON.parse(row.definition));
     if (applyBindingPatches(definition, steps)) await this.saveDefinition(surfaceId, definition);
-  }
-
-  /**
-   * R0.4c, confirmation destructive : le clic ✅ sur une surface kind=confirm
-   * pose la clé ICacheStore (TTL 5 min) que le registry vérifie au re-run.
-   */
-  private async recordConfirmDecision(kind: string, rawState: string, bindingKey: string, guildId: string, userId: string): Promise<void> {
-    if (kind !== 'confirm') return;
-    const state = JSON.parse(rawState || '{}') as { confirmKey?: string };
-    if (!state.confirmKey) return;
-    if (bindingKey === 'confirmer') {
-      await this.cache.active.set(state.confirmKey, 'ok', 300);
-      this.pipeline.auditRun(guildId, 'rule.confirm.accepted', userId, { confirmKey: state.confirmKey });
-    }
-    if (bindingKey === 'annuler') {
-      this.pipeline.auditRun(guildId, 'rule.confirm.denied', userId, { confirmKey: state.confirmKey });
-    }
   }
 }

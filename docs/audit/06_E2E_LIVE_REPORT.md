@@ -199,3 +199,48 @@ La migration, elle, a eu lieu pendant le premier passage (00:42) : au premier me
 - Le clic sur les menus, les boutons et la modale du panneau exige une interaction Discord réelle : 68 tests unitaires couvrent les handlers et le presenter, le clic reste à faire à la main.
 - Un seul fournisseur réel a été exercé (DeepSeek, protocole `openai-chat`). Anthropic Messages, kie.ai et les opérations `generic-http` n'ont que des tests unitaires sur `fetch` simulé.
 - La bascule a été vue en live sur une panne réseau. Le 429 et le 5xx sont couverts par les tests unitaires (`capability-router.service.spec`, `llm.service.spec`), pas par un fournisseur réel.
+
+## 12. Plans d'action (transposition de discord-agent) : build F, 24/11
+
+### Build F
+
+`pnpm verify` vert sur les sources finales : typecheck, 703 tests bot et 20 shared, build des trois workspaces, cohérence des modules (27 dossiers), registre des 171 tools, audit d'architecture strict à 0 violation. Démarrage vérifié à 02:09 et 02:33 : `ActionPlanModule` chargé (1 provider, 2 handlers), « ActionPlan ready (plan:apply / plan:cancel) », connecté sur 2 serveurs, aucun `ERROR`.
+
+### Ce que le test live couvre, et ce qu'il ne couvre pas
+
+Le clic sur « ✅ Appliquer » exige une interaction Discord réelle, qu'un rig ne peut pas produire. Le scénario `rule.confirm` vérifie donc la moitié de la chaîne : blocage, plan constitué, panneau affiché, rien exécuté. L'autre moitié (prise du plan, revalidation, exécution dans l'ordre, arrêts, accusé) est couverte par 113 tests unitaires (`action-plan.*.spec`), dont une vérification de sensibilité : 25 mutations du code de production, 25 détectées.
+
+### `rule.confirm` (02:35, build F) : PASS
+
+| Étape | Preuve |
+|---|---|
+| Règle activée par le bot | `rules.set` ok, `confirmDestructiveActions: true` en base |
+| Suppression demandée | 1 appel à `deleteChannel`, refusé : « Action destructive (deleteChannel) bloquée par la règle du serveur : elle attend l'approbation de <@…> (1 action(s) en attente) » |
+| Trace de la porte | audit `rule.confirm.shown` (`staged: true`) |
+| Plan | ligne `action-plan` constituée avec l'action `deleteChannel` sur le salon sonde ; audit `plan.posted` (1 action, `posted: true`) |
+| Panneau | message du bot portant `plan:apply~p=<id>` et `plan:cancel~p=<id>` : 2 boutons sur 2 |
+| Rien exécuté | 0 ligne `plan.executed` ou `plan.interrupted` ; salon sonde intact |
+| Restauration | règle désactivée par le bot, panneau et ligne de plan supprimés, salon sonde supprimé |
+
+### `tickets.surface` (01:11 puis 01:34) : FAIL deux fois, pour deux raisons
+
+**01:11, une régression que j'avais introduite.** Le filtre de visibilité de `getChannels` répondait « 0 salons » : le demandeur du rig est un webhook, qui n'est pas membre du serveur, donc sans permissions de salon à lire. Hier le même tool répondait « 54 salons ». Le modèle, ne trouvant aucun salon, a inventé un identifiant de surface. Correctif : un demandeur non membre voit tout si et seulement si la liste de permissions qu'on lui connaît porte `Administrator` (`ChannelVisibilityPolicy.visibleWithoutMember`), testé. Après correctif : « 54 salons » de nouveau.
+
+**01:34, après correctif : plafond d'étapes.** Le modèle a cherché `surface.create` sept fois de suite (chaque réponse disait « désormais appelable ») sans jamais l'appeler, puis a appelé `surface.get` sur un identifiant de message sans rapport, puis a atteint les 12 itérations. Aucune surface créée. La veille, le même scénario réussissait en quatre appels : `search_tools > openSkill > surface.create > surface.create`. Je n'ai pas trouvé de cause dans les changements de la nuit (le prompt a deux règles de plus, la sélection d'outils est inchangée) et je n'ai pas rejoué le scénario. À surveiller : même symptôme que les ratés déjà connus de `skills.casino` et `skills.voice`.
+
+### Un lancement sans filtre, à signaler
+
+À 01:09, j'ai lancé `e2e-full-suite.mjs` sans `E2E_ONLY`. Toute la suite a démarré au lieu du seul scénario demandé, contre la règle « tester uniquement les additions ». Elle s'est arrêtée au huitième scénario sur un `fetch failed` du rig (erreur réseau, pas du bot).
+
+| Scénario | Verdict | Note |
+|---|---|---|
+| gate.noise | PASS | |
+| rules.list | PASS | |
+| server.overview | PASS | |
+| config.panel | PASS | |
+| tickets.surface | FAIL | `getChannels` à 0 salon (régression, corrigée) |
+| skills.voice | PASS avec échecs | `enableModule` en échec (valeur de champ invalide) |
+| skills.casino | PASS | |
+| ingest.status | interrompu | `fetch failed` côté rig |
+
+Ce passage n'a rien laissé : aucune surface créée, règle inchangée, aucun salon de test. Les quatre salons « e2e » encore présents sur le serveur datent du 17 au 20 novembre.

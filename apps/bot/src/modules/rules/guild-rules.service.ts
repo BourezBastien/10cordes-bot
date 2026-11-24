@@ -62,7 +62,7 @@ export class GuildRulesService implements SpraxiumOnBoot {
     if (missing.length > 0) {
       this.log.warn(`Confirmation destructive INOPÉRANTE : dépendances runtime non liées (${missing.join(', ')}).`);
     } else {
-      this.log.info('GuildRules ready (rules.set / rules.list) · confirmation destructive opérationnelle (rules, cache, prisma, rendu liés).');
+      this.log.info('GuildRules ready (rules.set / rules.list) · confirmation destructive opérationnelle (plans d\u0027action).');
     }
   }
 

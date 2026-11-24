@@ -1,4 +1,5 @@
 import type { Message } from 'discord.js';
+import { READING_LINE } from './investigation.policy';
 
 /**
  * Ligne de statut UNIQUE pendant le traitement : éditée en place, jamais
@@ -10,8 +11,14 @@ import type { Message } from 'discord.js';
 export class LiveStatus {
   private message: Message | null = null;
   private timer: NodeJS.Timeout | null = null;
+  /** Dernier texte affiché, et si la ligne de lecture a déjà été posée pour cette demande. */
+  private lastContent = '';
+  private readingShown = false;
 
-  constructor(private readonly channel: { send: (opts: { content: string }) => Promise<Message> }) {}
+  constructor(
+    private readonly channel: { send: (opts: { content: string }) => Promise<Message> },
+    private readonly readingLine: string = READING_LINE,
+  ) {}
 
   /** Programme la ligne [THINKING] : postée seulement si rien ne répond en 3s. */
   arm(): void {
@@ -40,12 +47,29 @@ export class LiveStatus {
     await this.post(`[TOOL] ${toolName}`);
   }
 
+  /**
+   * Lecture de recherche (investigation silencieuse) : dit UNE fois que le
+   * bot consulte ses sources, puis ne bouge plus, quels que soient le nombre
+   * de lectures. Une ligne [TOOL] déjà affichée (une action a commencé) est
+   * laissée telle quelle : elle dit quelque chose de plus important.
+   */
+  async reading(): Promise<void> {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    if (this.readingShown || (this.message && this.lastContent.startsWith('[TOOL]'))) return;
+    this.readingShown = true;
+    await this.post(this.readingLine);
+  }
+
   /** Détail de progression DANS la ligne du tool (ex : 24/48 salons). */
   async detail(text: string): Promise<void> {
     await this.post(`[TOOL] ${text}`);
   }
 
   private async post(content: string): Promise<void> {
+    this.lastContent = content;
     if (this.message) {
       await this.message.edit({ content }).catch(() => {});
       return;
@@ -63,5 +87,7 @@ export class LiveStatus {
       await this.message.delete().catch(() => {});
       this.message = null;
     }
+    this.lastContent = '';
+    this.readingShown = false;
   }
 }

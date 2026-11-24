@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { BotTool } from '@10cordes/shared';
+import { channelVisibilityPolicy } from '../../../core/security/channel-visibility.policy';
 import type { DiscordToolContext } from './tool-context';
 import { buildServerStyleGuide } from './tool-support';
 
@@ -36,11 +37,14 @@ export function serverReadTools(toolCtx: DiscordToolContext): BotTool[] {
       handler: async (_input, ctx) => {
         const guild = guildOf(ctx);
         if (!guild) return noGuild();
-        const channels = guild.channels.cache.map((channel) => ({
-          id: channel.id,
-          name: channel.name,
-          type: channel.type,
-        }));
+        // Le demandeur ne voit que les salons qu'il peut voir lui-même : le bot
+        // en voit parfois plus (salons staff, salons privés) et ne doit pas les révéler.
+        // Sans membre résolvable (webhook du rig E2E, qui parle en staff), tout ou rien selon Administrator.
+        const requester = guild.members.cache.get(ctx.userId) ?? (await guild.members.fetch(ctx.userId).catch(() => null));
+        const all = [...guild.channels.cache.values()];
+        const channels = (requester ? channelVisibilityPolicy.visibleOnly(requester, all, (channel) => channel) : channelVisibilityPolicy.visibleWithoutMember(ctx.permissions) ? all : []).map(
+          (channel) => ({ id: channel.id, name: channel.name, type: channel.type }),
+        );
         return { ok: true, summary: `${channels.length} salons.`, data: { channels } };
       },
     },

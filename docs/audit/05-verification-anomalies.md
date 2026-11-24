@@ -146,6 +146,22 @@ Le moteur a été construit en relevant chaque défaut croisé sur son passage, 
 
 **Leçon** : la preuve live a valeur de test. Trois de ces défauts (12, 14, 16) étaient invisibles en relecture et sont sortis d'un test ou du journal `llm.jsonl`, une fois que chaque tour y porte sa capacité, son fournisseur et son modèle.
 
+## 8e. Anomalies 18 à 21 : trouvées en transposant discord-agent (nuit du 23 au 24/11)
+
+L'étude de `discord-agent` (`07_BENCHMARK_DISCORD_AGENT.md`) a servi de miroir. Quatre défauts de notre côté sont apparus en la préparant.
+
+18. **Le clic « Confirmer » n'exécutait rien.** Le mécanisme de confirmation installé le 23/11 postait un panneau par tool ; le clic ✅ posait une clé en cache (5 minutes) et répondait « Confirmé : le bot va relancer l'action ». Mais personne ne relançait : il fallait que le modèle ré-appelle le même tool avec la même entrée, dans une boucle déjà terminée ou occupée ailleurs. Et l'exécution reprenait les permissions du demandeur telles qu'elles étaient au moment de la demande, pas au moment du clic. Le scénario live `rule.confirm` passait parce qu'il vérifiait le blocage, jamais l'exécution après le clic. Correctif : plans d'action (voir `02` §6c).
+19. **La porte s'ouvrait quand elle ne pouvait pas lire la règle.** Règles du serveur non liées ou illisibles : `refuseUnlessApproved` rendait `null`, donc laissait passer l'action destructive. C'est maintenant un refus.
+20. **`getChannels` révélait les salons cachés.** Le tool rendait, à tout membre et sans exiger de permission, tous les salons que le bot voit (id, nom, type). Un membre sans accès à un salon staff en apprenait le nom en demandant « liste les salons ». `ChannelVisibilityPolicy` filtre désormais sur `ViewChannel`, overwrites compris.
+21. **Le prompt système contredisait le code.** « Exécution DIRECTE (depuis le 17/11) : plus de plans ni de panneau de confirmation », alors que la règle `confirmDestructiveActions` existe depuis le 23/11. Réécrit : direct par défaut, plan quand la règle l'exige, jamais de confirmation par message.
+
+**Leçon** : un mécanisme de sécurité doit être éprouvé au clic, pas au blocage. Un rig qui s'arrête à « l'action est bloquée » prouve la moitié de la chaîne.
+
+## 8f. Anomalies 22 et 23 : trouvées par un lancement de rig sans filtre (24/11, 01:09)
+
+22. **`getChannels` répondait « 0 salons » au rig.** Le filtre de visibilité ajouté pour l'anomalie 20 lisait les permissions de salon d'un membre. Le demandeur d'un rig est un webhook, qui n'est pas membre du serveur : sans membre, le filtre rendait une liste vide. Effet : le modèle ne trouvait plus aucun salon et inventait des identifiants. Hier : « 54 salons ». Correctif : `ChannelVisibilityPolicy.visibleWithoutMember`, tout ou rien selon `Administrator`, et un test qui fixe la régression. **Leçon** : un filtre fondé sur un membre doit dire ce qu'il fait quand l'auteur n'en est pas un.
+23. **Un rig lancé sans `E2E_ONLY`.** J'ai voulu tester un scénario et lancé toute la suite (voir `06` §12). Elle s'est arrêtée au huitième scénario sur une erreur réseau du rig, sans rien laisser derrière elle. C'est la seule raison pour laquelle l'anomalie 22 a été vue avant la livraison. **Leçon** : écrire le filtre dans la commande elle-même (`E2E_ONLY=nom,...`), et lire la première ligne du journal du rig, qui imprime le filtre retenu.
+
 ## 9. Limites connues
 
 1. **Blueprints et collections** : traité le 23/11 au soir. Le store `records.*` accepte désormais toute collection dynamique bien formée (`CollectionQuotaPolicy` : 50 collections et 10 000 enregistrements par serveur), vérifié en live par le scénario `records.dynamic`.

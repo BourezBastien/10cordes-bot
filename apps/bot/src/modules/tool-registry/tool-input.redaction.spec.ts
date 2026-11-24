@@ -48,8 +48,6 @@ describe('ToolRegistryService · audit d\u0027un tool à paramètre sensible', (
       {} as never,
       audit as never,
       { toolNode: { findMany: async () => [] } } as never,
-      {} as never,
-      {} as never,
     );
     let received: unknown;
     registry.register({

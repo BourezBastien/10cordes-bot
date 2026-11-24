@@ -13,7 +13,8 @@
  * 9. ingest.status     : état de l'ingestion historique (guild.ingestStatus)
  * 10. memory.forget    : opt-out mémoire (« oublie-moi ») + cleanup
  * 11. rule.confirm     : règle confirmDestructiveActions, une suppression demandée
- *                        à l'agent BLOQUÉE + surface ✅/❌ postée + salon intact
+ *                        à l'agent BLOQUÉE + UN plan d'action ✅/❌ posté en fin de
+ *                        réponse (rien exécuté sans clic) + salon intact
  * 12. records.dynamic  : une recette écrit dans une collection dynamique
  *                        (casino_balance), ligne vérifiée en base puis supprimée
  * 13. surface.blackjack: rejoue la demande « blackjack » de l'incident du 23/11
@@ -353,6 +354,7 @@ async function main() {
       body: JSON.stringify({ name: 'e2e-confirm-probe', type: 0 }),
     });
     let ruleOn = false;
+    let planRow = null;
     try {
       // a. Active la règle PAR LE BOT : son cache des règles est invalidé au passage.
       await sleep(COOLDOWN_MS);
@@ -371,14 +373,35 @@ async function main() {
       const blocked = attempts.length > 0 && attempts.every((e) => toolMeta(e).ok !== true && /bloquée par la règle/u.test(String(toolMeta(e).summary ?? '')));
       const shown = await prisma((p) => p.auditLog.count({ where: { guildId: GUILD_ID, action: 'rule.confirm.shown', createdAt: { gt: watermark } } }));
       const stillThere = await rest(`/channels/${probe.id}`).then(() => true).catch(() => false);
+      // c. Le plan d'action (transposé de discord-agent) : UN panneau regroupant l'action,
+      //    posté en fin de réponse, deux boutons, et rien d'exécuté sans clic.
+      for (let attempt = 0; attempt < 6 && !planRow; attempt += 1) {
+        planRow = await prisma((p) => p.interactiveSurface.findFirst({ where: { guildId: GUILD_ID, kind: { startsWith: 'action-plan' }, createdAt: { gt: watermark } }, orderBy: { createdAt: 'desc' } }));
+        if (!planRow) await sleep(3_000);
+      }
+      let planActions = [];
+      try {
+        planActions = planRow ? (JSON.parse(planRow.state).actions ?? []) : [];
+      } catch {
+        planActions = [];
+      }
+      const planHoldsDeletion = planActions.some((action) => action.tool === 'deleteChannel' && String(action.input?.channelId ?? '') === probe.id);
+      const planPosted = await prisma((p) => p.auditLog.count({ where: { guildId: GUILD_ID, action: 'plan.posted', createdAt: { gt: watermark } } }));
+      const planExecuted = await prisma((p) => p.auditLog.count({ where: { guildId: GUILD_ID, action: { in: ['plan.executed', 'plan.interrupted'] }, createdAt: { gt: watermark } } }));
+      const planButtons = planRow?.messageId
+        ? await rest(`/channels/${channelId}/messages/${planRow.messageId}`).then((message) => JSON.stringify(message.components ?? []).match(/plan:(?:apply|cancel)~p=[a-z0-9]+/g) ?? []).catch(() => [])
+        : [];
       const failures = failedTools(entries).filter((line) => !line.startsWith('deleteChannel (') && !line.startsWith('channel.remove ('));
       verdict(
         'rule.confirm',
-        ruleOn && blocked && shown > 0 && stillThere,
-        `règle ${ruleOn ? 'activée' : 'NON activée'} · ${attempts.length} tentative(s) ${blocked ? 'bloquée(s)' : 'NON bloquée(s)'} · confirmations affichées : ${shown} · salon ${stillThere ? 'intact' : 'SUPPRIMÉ'}${failures.length ? ` [tools en échec : ${failures.join(' ; ')}]` : ''}`,
+        ruleOn && blocked && shown > 0 && stillThere && planHoldsDeletion && planPosted > 0 && planButtons.length === 2 && planExecuted === 0,
+        `règle ${ruleOn ? 'activée' : 'NON activée'} · ${attempts.length} tentative(s) ${blocked ? 'bloquée(s)' : 'NON bloquée(s)'} · salon ${stillThere ? 'intact' : 'SUPPRIMÉ'} · plan ${planHoldsDeletion ? 'constitué' : 'ABSENT'} (${planActions.length} action(s)), ${planButtons.length}/2 bouton(s), exécutions : ${planExecuted}${failures.length ? ` [tools en échec : ${failures.join(' ; ')}]` : ''}`,
       );
     } finally {
       await rest(`/channels/${probe.id}`, { method: 'DELETE' }).catch(() => {});
+      // Le panneau du plan et sa ligne : sans cela, le plan expire avec ses boutons encore visibles.
+      if (planRow?.messageId) await rest(`/channels/${channelId}/messages/${planRow.messageId}`, { method: 'DELETE' }).catch(() => {});
+      if (planRow) await prisma((p) => p.interactiveSurface.deleteMany({ where: { id: planRow.id } })).catch(() => {});
       // c. Rétablit la règle : par le bot (cache cohérent), sinon en base + expiration du cache.
       const current = await prisma((p) => p.guildRule.findUnique({ where: { guildId: GUILD_ID } }));
       if (current?.confirmDestructiveActions === true) {

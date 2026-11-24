@@ -6,6 +6,7 @@ import type { AgentLoopService } from './agent-loop.service';
 import { archiveServerSnapshot, requiresServerSnapshot } from './agent-history';
 import type { ConversationContext } from './conversation-context';
 import { QUOTA_EXHAUSTED_MESSAGE, QuotaExhaustedError } from './llm.errors';
+import { investigationPolicy } from './investigation.policy';
 import type { LlmService } from './llm.service';
 
 const log = new Logger('Assistant');
@@ -64,7 +65,10 @@ export class AgentReplyRunner {
             session.requestSilence();
             return { ok: true, summary: 'Compris : aucune réponse ne sera envoyée après les actions.' };
           }
-          await session.status.step(name);
+          // Investigation silencieuse : une lecture de recherche ne se raconte
+          // pas, la ligne de statut le dit une fois puis se tait.
+          if (investigationPolicy.narrates(name)) await session.status.step(name);
+          else await session.status.reading();
           // Premier tool structurel de la demande : instantané complet du
           // serveur en audit AVANT toute modification (rollback garanti).
           if (!snapshotTaken && requiresServerSnapshot(name)) {

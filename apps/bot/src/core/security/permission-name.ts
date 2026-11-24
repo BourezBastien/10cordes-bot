@@ -24,7 +24,17 @@ export function isAssignablePermissionName(name: string): name is PermissionName
   return Object.hasOwn(PermissionFlagsBits as Record<string, unknown>, name) && name !== 'Administrator';
 }
 
+/** Le nom désigne-t-il une permission Discord (Administrator compris) ? Un nom inconnu n'accorde jamais rien. */
+export function isPermissionName(name: string): name is PermissionName {
+  return Object.hasOwn(PermissionFlagsBits as Record<string, unknown>, name);
+}
+
 /** Lecture sûre des permissions d'un membre (membre absent du cache = aucune). */
 export function permissionsOf(member: { permissions?: { toArray(): string[] } } | null | undefined): string[] {
   return member?.permissions?.toArray() ?? [];
+}
+
+/** Identifiants des rôles d'un membre (pour les nœuds de permission allow/deny) ; membre absent = aucun. */
+export function roleIdsOf(member: { roles?: { cache?: { keys(): Iterable<string> } } } | null | undefined): string[] {
+  return [...(member?.roles?.cache?.keys() ?? [])];
 }

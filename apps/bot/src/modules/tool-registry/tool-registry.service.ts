@@ -1,15 +1,12 @@
-import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
-import { Client } from 'discord.js';
+import { Injectable } from '@spraxium/common';
 import type { BotTool, ToolResult, ToolRunContext } from '@10cordes/shared';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import { ModuleManagerService } from '../module-manager/module-manager.service';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
-import { CacheStoreService } from '../../shared/cache/cache-store.service';
 import { fileLog } from '../logging/file-log.service';
 import { permissionNamesPolicy } from '../../core/security/permission-names.policy';
 import { redactToolInput } from './tool-input.redaction';
-import { getSurfaceRuntime } from '../surface/surface.runtime';
 import { buildBuiltinTools } from './tool-registry.builtin';
 import { DestructiveConfirmationGate } from './tool-registry.confirm';
 import {
@@ -34,8 +31,15 @@ export { bindRegistryRuntimeDeps, getToolRegistry };
  * échoue devient un refus explicite `{ ok: false, summary }` que le modèle
  * reformule : il ne lève JAMAIS dans la boucle LLM.
  */
+
+/** Options d'exécution d'un tool : décidées par le serveur, jamais par le modèle. */
+export interface RunOptions {
+  /** Identifiant du plan d'action approuvé dont cette exécution fait partie. */
+  approvedBy?: string;
+}
+
 @Injectable()
-export class ToolRegistryService implements SpraxiumOnBoot {
+export class ToolRegistryService {
   private readonly tools = new Map<string, BotTool>();
   private readonly nodes: ToolNodePolicy;
   private readonly confirmation: DestructiveConfirmationGate;
@@ -45,8 +49,6 @@ export class ToolRegistryService implements SpraxiumOnBoot {
     private readonly configService: GuildConfigService,
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
-    private readonly client: Client,
-    private readonly cache: CacheStoreService,
   ) {
     bindRegistryInstance(this);
     this.nodes = new ToolNodePolicy(prisma);
@@ -55,28 +57,15 @@ export class ToolRegistryService implements SpraxiumOnBoot {
   }
 
   /**
-   * Dépendances runtime de la confirmation destructive. Liées ICI (provider)
-   * et non dans ToolRegistryModule : le framework n'instancie pas les modules.
-   * Les règles sont liées par GuildRulesService.onBoot, le rendu par
-   * SurfaceService.onBoot.
+   * Auto-diagnostic : la dépendance runtime de la confirmation destructive
+   * (les règles serveur) est-elle liée ? Liée par GuildRulesService.onBoot.
    */
-  onBoot(): void {
-    bindRegistryRuntimeDeps({
-      prisma: this.prisma,
-      client: this.client,
-      cache: this.cache,
-      renderSurface: async (surfaceId: string) => {
-        const runtime = getSurfaceRuntime();
-        if (!runtime) throw new Error('SurfaceService non initialisé.');
-        await runtime.render(surfaceId);
-      },
-    });
-  }
-
-  /** Auto-diagnostic : dépendances runtime effectivement liées (logs de boot, rigs). */
-  static runtimeDepsReady(): { cache: boolean; prisma: boolean; renderSurface: boolean; rules: boolean } {
+  static runtimeDepsReady(): { rules: boolean } {
     return registryRuntimeDepsReady();
   }
+
+  /** Options d'exécution d'un tool, décidées par le serveur et jamais par le modèle. */
+  private static readonly NO_OPTIONS: RunOptions = {};
 
   register(tool: BotTool): void {
     this.tools.set(tool.name, tool);
@@ -101,7 +90,12 @@ export class ToolRegistryService implements SpraxiumOnBoot {
     return this.list().filter((tool) => tool.requiredModules.every((id) => active.has(id)));
   }
 
-  async run(name: string, input: unknown, ctx: ToolRunContext): Promise<ToolResult> {
+  /**
+   * Exécute un tool. `options.approvedBy` désigne un plan d'action approuvé
+   * par un clic : ses actions traversent la porte de confirmation, la Policy
+   * les ayant revérifiées à l'instant du clic. Seul le serveur le passe.
+   */
+  async run(name: string, input: unknown, ctx: ToolRunContext, options: RunOptions = ToolRegistryService.NO_OPTIONS): Promise<ToolResult> {
     const tool = this.tools.get(name);
     if (!tool) return { ok: false, summary: `Unknown tool \`${name}\`.` };
 
@@ -117,7 +111,7 @@ export class ToolRegistryService implements SpraxiumOnBoot {
         actorId: ctx.userId,
         metadata: deniedPermission
           ? { missing: deniedPermission }
-          : { ok: result.ok, input: redactToolInput(input, tool.sensitiveInputs) },
+          : { ok: result.ok, input: redactToolInput(input, tool.sensitiveInputs), ...(options.approvedBy ? { approvedBy: options.approvedBy } : {}) },
       });
       return result;
     };
@@ -167,7 +161,7 @@ export class ToolRegistryService implements SpraxiumOnBoot {
     }
 
     if (tool.destructive) {
-      const refusal = await this.confirmation.refuseUnlessApproved(name, parsed.data, ctx);
+      const refusal = await this.confirmation.refuseUnlessApproved(name, parsed.data as Record<string, unknown>, ctx, options.approvedBy);
       if (refusal) return finish(refusal);
     }
 
