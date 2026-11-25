@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Prisma } from '../../../generated/prisma/client';
+import type { Prisma } from '../../../generated/prisma/client.mts';
 import { createDatabaseClient } from '../database/database-client';
 import { UsageSummarySchema } from '@10cordes/shared';
 import { UsageReaderService } from './usage-reader.service';

@@ -1,4 +1,4 @@
-import { Prisma } from '../../../generated/prisma/client';
+import { Prisma } from '../../../generated/prisma/client.mts';
 import type { ToolResult } from '@10cordes/shared';
 import type { PrismaService } from '../database/prisma.service';
 import { describeCoverage } from './activity-coverage';

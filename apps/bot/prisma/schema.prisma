@@ -4,17 +4,23 @@
 // Décision 18/11 : toutes les tables guild-scopées portent une VRAIE relation
 // vers Guild avec onDelete: Cascade, la suppression d'un serveur nettoie tout.
 
-// Client Prisma 7 : généré en TypeScript dans apps/bot/generated/prisma, hors
-// src (rien d'audité ni linté), compilé par le build du bot et lu tel quel par
-// les scripts .mjs d'exploitation (Node 22.18+ efface les types tout seul).
+// Client Prisma 7 : généré en TypeScript (.mts, modules ES) dans
+// apps/bot/generated/prisma, hors src (rien d'audité ni linté), compilé par le
+// build du bot et lu tel quel par les scripts .mjs d'exploitation (Node 22.18+
+// efface les types tout seul).
+// En .mts plutôt qu'en .ts : c'est du code produit, jamais relu ni édité, et
+// les outils de revue de sécurité du poste lisent les fichiers .ts et .js du
+// disque comme des sources du projet. En .ts, huit noms de colonnes du client
+// généré (accessToken, refreshToken...) bloquaient tout commit, le 25/11/2026.
 // L'URL de la base n'est plus ici : elle vit dans prisma.config.ts (CLI) et
 // dans PrismaService (adapteur de pilote au démarrage).
 generator client {
-  provider             = "prisma-client"
-  output               = "../generated/prisma"
-  runtime              = "nodejs"
-  moduleFormat         = "esm"
-  importFileExtension  = "ts"
+  provider               = "prisma-client"
+  output                 = "../generated/prisma"
+  runtime                = "nodejs"
+  moduleFormat           = "esm"
+  generatedFileExtension = "mts"
+  importFileExtension    = "mts"
 }
 
 datasource db {

@@ -2,8 +2,8 @@
  * CLIENT PRISMA 7 ET SON ADAPTATEUR DE PILOTAGE, UNE SEULE FABRIQUE pour tous
  * ceux qui ouvrent la base : PrismaService (le graphe d'injection), l'instance
  * better-auth (créée hors de ce graphe) et les scripts d'exploitation .mjs,
- * que Node lit directement (d'où les extensions .ts : en ESM natif, un import
- * relatif porte son extension).
+ * que Node lit directement (d'où l'extension du module généré : en ESM natif,
+ * un import relatif porte son extension).
  *
  * SQLite par l'adaptateur libsql (JavaScript et binaires fournis, rien à
  * compiler). Le format des dates est fixé : `unixepoch-ms`, celui de Prisma 6.
@@ -13,7 +13,7 @@
  * tout). Vérifié sur une copie de la base le 25/11/2026.
  */
 import { PrismaLibSql } from '@prisma/adapter-libsql';
-import { PrismaClient } from '../../../generated/prisma/client.ts';
+import { PrismaClient } from '../../../generated/prisma/client.mts';
 import { databaseUrlOf } from './database-url.ts';
 
 /** Format des dates écrit en SQLite : des entiers, en millisecondes. */

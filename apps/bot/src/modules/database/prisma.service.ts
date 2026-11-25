@@ -4,7 +4,7 @@ import { AppEnv } from '../../app.env';
 import { awaitShutdownDrained } from '../health/shutdown.runtime';
 import { databaseAdapterOf } from './database-client';
 import { databaseUrlOf, sqliteFileOf } from './database-url';
-import { PrismaClient } from '../../../generated/prisma/client';
+import { PrismaClient } from '../../../generated/prisma/client.mts';
 
 /**
  * Client Prisma unique : injectable partout, connecté au boot, déconnecté au
