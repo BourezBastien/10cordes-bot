@@ -23,9 +23,11 @@ COPY --from=build /app/apps/bot/package.json apps/bot/package.json
 COPY --from=build /app/apps/bot/.spraxium/dist apps/bot/.spraxium/dist
 COPY --from=build /app/apps/bot/prisma apps/bot/prisma
 # La CLI Prisma 7 lit l'adresse de la base dans prisma.config.ts, qui importe
-# la règle d'adresse du projet : les deux vont avec les migrations.
+# la règle d'adresse du projet et le chargement des fichiers d'environnement :
+# les trois vont avec les migrations.
 COPY --from=build /app/apps/bot/prisma.config.ts apps/bot/prisma.config.ts
 COPY --from=build /app/apps/bot/src/modules/database/database-url.ts apps/bot/src/modules/database/database-url.ts
+COPY --from=build /app/apps/bot/src/env-files.ts apps/bot/src/env-files.ts
 
 EXPOSE 3000
 WORKDIR /app/apps/bot

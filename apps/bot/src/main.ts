@@ -6,6 +6,7 @@ import { EnvValidator } from '@spraxium/env';
 import { Logger } from '@spraxium/logger';
 import { AppEnv } from './app.env';
 import { AppModule } from './app.module';
+import { loadEnvFiles } from './env-files';
 
 async function main(): Promise<void> {
   const logger = new Logger('Main');
@@ -36,6 +37,11 @@ async function main(): Promise<void> {
   } catch {
     /* miroir indisponible : tant pis, on tourne sans */
   }
+
+  // Les fichiers d'environnement, avant toute lecture de l'environnement :
+  // rien d'autre ne les charge (ils l'étaient par un effet de bord du client
+  // Prisma 6, jusqu'au 25/11/2026). Voir env-files.ts.
+  loadEnvFiles();
 
   const environment = EnvValidator.validate(AppEnv);
 

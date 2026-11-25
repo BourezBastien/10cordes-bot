@@ -175,3 +175,26 @@ describe('AppModule · contrôleurs HTTP', () => {
     expect(checked).toEqual(expect.arrayContaining(['DashboardEventsService', 'UsageLogService', 'WebhookEndpointService', 'ProviderHealthService']));
   });
 });
+
+describe('démarrage', () => {
+  // Rien d'autre ne charge les fichiers d'environnement : jusqu'au 25/11/2026, `.env` l'était par un
+  // effet de bord du client Prisma 6, et Prisma 7 a laissé le bot sans token, sur un build à CI verte.
+  // Aucune spec ne démarre main() : ces invariants lisent le texte, comme celui de la CSP.
+  const textOf = (path: string): string => readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8');
+
+  it('main.ts charge les fichiers d’environnement avant de valider l’environnement', () => {
+    const main = textOf('./main.ts');
+    const load = main.indexOf('loadEnvFiles();');
+    expect(load).toBeGreaterThan(-1);
+    expect(main.indexOf('EnvValidator.validate(AppEnv)')).toBeGreaterThan(load);
+  });
+
+  it('la CLI Prisma applique la même règle, avant de lire l’adresse de la base ; et le chargeur du framework n’est jamais appelé sans chemin', () => {
+    const config = textOf('../prisma.config.ts');
+    const load = config.indexOf('loadEnvFiles();');
+    expect(load).toBeGreaterThan(-1);
+    expect(config.indexOf('process.env.DATABASE_URL')).toBeGreaterThan(load);
+    // Sans chemin, `loadEnv` ne lit que le premier fichier trouvé : `.env` serait ignoré.
+    expect(textOf('./env-files.ts')).not.toMatch(/loadEnv\(\)/u);
+  });
+});
