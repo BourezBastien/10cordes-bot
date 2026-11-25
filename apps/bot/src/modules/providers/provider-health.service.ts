@@ -16,10 +16,15 @@ import { ProviderError, type ProviderErrorKind } from './provider.types';
  *   pas tout seul : seul un succès (un appel, un contrôle) l'efface ;
  * - `cooldown` : limite de débit, panne, délai, réseau. Au bout du
  *   refroidissement l'état de fond reprend, sans nouvel appel.
+ *
+ * Le refroidissement montré est celui des MODÈLES du fournisseur
+ * (model-cooldown.policy : il décide si un modèle est appelé) ; quand
+ * l'appelant n'en dit rien, la fin par défaut. Un fournisseur reste en
+ * refroidissement tant qu'un de ses modèles y est.
  * Tout se perd au redémarrage.
  */
 
-/** Durée d'un refroidissement (limite de débit, panne, délai, réseau). */
+/** Durée par défaut d'un refroidissement montré quand l'appelant n'en dit pas (limite de débit, panne, délai, réseau). */
 export const COOLDOWN_MS = 60_000;
 /** Longueur gardée d'un message d'erreur : la borne du contrat du panel. */
 const ERROR_MAX = 300;
@@ -34,11 +39,15 @@ const PASSING_KINDS: ReadonlySet<ProviderErrorKind> = new Set<ProviderErrorKind>
  *   une autre erreur se lit sur `transient`, ce qu'en sait l'appelant (le
  *   client LLM sait si elle invite la bascule sur le repli) ;
  * - `secret` : la clé du fournisseur. Un message d'erreur qui la recopie est
- *   masqué avant d'être retenu.
+ *   masqué avant d'être retenu ;
+ * - `cooldownUntil` : la fin du refroidissement du fournisseur (ms), quand
+ *   l'appelant la connaît. Sur un succès : celle des modèles qui refroidissent
+ *   encore, rien s'il n'y en a pas. Sur une panne passagère sans cette
+ *   indication, la fin par défaut.
  */
 export type ProviderOutcome =
-  | { ok: true }
-  | { ok: false; error: unknown; transient?: boolean; secret?: string | null };
+  | { ok: true; cooldownUntil?: number | null }
+  | { ok: false; error: unknown; transient?: boolean; secret?: string | null; cooldownUntil?: number };
 
 type Base = 'unknown' | 'active' | 'error';
 
@@ -98,7 +107,7 @@ export class ProviderHealthService {
     const guild = this.entries.get(guildId) ?? new Map<string, HealthEntry>();
     this.entries.set(guildId, guild);
     if (outcome.ok) {
-      guild.set(providerId, { base: 'active', cooldownUntil: null, lastError: null, lastHttpStatus: null, lastCheckedAt: checkedAt });
+      guild.set(providerId, { base: 'active', cooldownUntil: outcome.cooldownUntil ?? null, lastError: null, lastHttpStatus: null, lastCheckedAt: checkedAt });
       return;
     }
     const passing = passingOf(outcome.error, outcome.transient);
@@ -106,10 +115,18 @@ export class ProviderHealthService {
     // Masqué AVANT la troncature : une coupe au milieu de la clé en laisserait un morceau.
     const lastError = redactSecret(messageOf(outcome.error), outcome.secret ?? null).slice(0, ERROR_MAX) || null;
     const lastHttpStatus = httpStatusOf(outcome.error);
+    const running = guild.get(providerId)?.cooldownUntil ?? null;
     guild.set(
       providerId,
       passing
-        ? { base: guild.get(providerId)?.base ?? 'unknown', cooldownUntil: now + COOLDOWN_MS, lastError, lastHttpStatus, lastCheckedAt: checkedAt }
+        ? {
+            base: guild.get(providerId)?.base ?? 'unknown',
+            // Un second modèle qui échoue n'allonge pas ce qui est déjà annoncé, et ne le raccourcit pas non plus.
+            cooldownUntil: Math.max(outcome.cooldownUntil ?? now + COOLDOWN_MS, running !== null && running > now ? running : 0),
+            lastError,
+            lastHttpStatus,
+            lastCheckedAt: checkedAt,
+          }
         : { base: 'error', cooldownUntil: null, lastError, lastHttpStatus, lastCheckedAt: checkedAt },
     );
   }

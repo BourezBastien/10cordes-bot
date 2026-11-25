@@ -45,11 +45,12 @@ export class EventsController {
   }
 
   /**
-   * Contenu du flux, jusqu'à ce que le client parte : un événement
-   * d'ouverture, les événements du serveur, un signe de vie régulier (derrière
-   * un proxy, un flux muet plus de 30 s est coupé). À la fermeture, le
-   * battement s'arrête et l'abonnement se retire.
-   */  private async hold(stream: SSEStreamingApi, guildId: string): Promise<void> {
+   * Contenu du flux, jusqu'à ce que le client parte ou que le bot s'éteigne :
+   * un événement d'ouverture, les événements du serveur, un signe de vie
+   * régulier (derrière un proxy, un flux muet plus de 30 s est coupé). À la
+   * fermeture, le battement s'arrête et l'abonnement se retire.
+   */
+  private async hold(stream: SSEStreamingApi, guildId: string): Promise<void> {
     let heartbeat: ReturnType<typeof setInterval> | undefined;
     let unsubscribe: (() => void) | undefined;
     try {
@@ -62,7 +63,8 @@ export class EventsController {
       });
       heartbeat = setInterval(() => void stream.writeSSE({ event: 'ping', data: '' }).catch(() => undefined), SSE_PING_INTERVAL_MS);
       heartbeat.unref?.();
-      await new Promise<void>((resolve) => stream.onAbort(resolve));
+      // À l'extinction, le flux finit : le panel se reconnectera au démarrage suivant.
+      await Promise.race([new Promise<void>((resolve) => stream.onAbort(resolve)), this.bus.whenStreamsClose()]);
     } catch (error) {
       this.log.warn(`flux temps réel du serveur ${guildId} interrompu : ${error instanceof Error ? error.message.slice(0, 120) : 'cause inconnue'}`);
     } finally {

@@ -99,6 +99,32 @@ describe('EventsController', () => {
       vi.useRealTimers();
     }
   });
+
+  it('à l\u0027extinction, le flux se ferme de lui-même : le corps se termine, l\u0027abonnement se retire', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      const { service } = bus();
+      const app = new Hono<{ Variables: { guildAccess: { guildId: string } } }>();
+      app.get('/api/v1/guilds/:guildId/events', async (ctx) => {
+        ctx.set('guildAccess', { guildId: ctx.req.param('guildId') });
+        return new EventsController(service).events(ctx);
+      });
+      const response = await app.request(`http://localhost/api/v1/guilds/${GUILD}/events`);
+      await settle();
+      expect(service.subscriberCount(GUILD)).toBe(1);
+
+      // Sans cela, un flux ne finit jamais seul : le serveur HTTP attendrait sa réponse indéfiniment.
+      expect(service.closeAll()).toBe(1);
+
+      const text = await new Response(response.body).text();
+      expect(text).toContain('event: open');
+      await settle();
+      expect(service.subscriberCount(GUILD)).toBe(0);
+      expect(await service.whenStreamsClose()).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('PanelController', () => {

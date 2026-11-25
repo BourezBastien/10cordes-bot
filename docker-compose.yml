@@ -2,6 +2,12 @@ services:
   bot:
     build: .
     restart: unless-stopped
+    # tini en PID 1 : SIGTERM arrive jusqu'à node, et les processus fils (ffmpeg,
+    # moteurs Prisma) sont recolectés au lieu de rester zombies.
+    init: true
+    # Plus long que le délai de grâce du bot (SHUTDOWN_GRACE_MS, 20 s) : une
+    # demande en cours a le temps de finir avant que Docker tue le conteneur.
+    stop_grace_period: 30s
     # Le .env réel vit dans apps/bot/ (celui de la racine n'existe pas).
     env_file:
       - path: ./apps/bot/.env

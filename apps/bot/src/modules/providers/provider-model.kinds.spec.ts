@@ -104,6 +104,15 @@ describe('assertModelServes', () => {
     expect(() => assertModelServes([{ id: 'sans-famille' }], 'sans-famille', 'music.generate', 'autre')).not.toThrow();
   });
 
+  it('la recherche web est une capacité native : le modèle doit la servir, seuls les siens sont nommés', () => {
+    expect(() => assertModelServes(KIE, 'z-image', 'web.search', 'kie-ai')).toThrow(
+      '« z-image » ne sert pas recherche web (familles détectées : image). Modèles de kie-ai qui la servent : aucun dans le catalogue',
+    );
+    const searcher: ProviderModel[] = [...KIE, { id: 'sonar', kind: 'chat', kinds: ['chat', 'search'] }];
+    expect(() => assertModelServes(searcher, 'sonar', 'web.search', 'autre')).not.toThrow();
+    expect(() => assertModelServes(searcher, 'z-image', 'web.search', 'autre')).toThrow(/sonar\.$/u);
+  });
+
   it('la liste des modèles qui servent est bornée à huit', () => {
     const many: ProviderModel[] = [{ id: 'z-image', kind: 'image' }, ...Array.from({ length: 10 }, (_, index) => ({ id: `track-${index}`, kind: 'music' as const }))];
     expect(() => assertModelServes(many, 'z-image', 'music.generate', 'tags')).toThrow(/track-7\.$/u);

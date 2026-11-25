@@ -8,6 +8,7 @@ import { SessionGuard } from '../../auth/guards/session.guard';
 import { AuditService } from '../audit/audit.service';
 import { failureSummary, redactSecret } from '../providers/adapters/generic-http.errors';
 import { slugForProvider, uniqueSlug } from '../providers/handlers/provider-hub.slug';
+import { InMemoryModelCooldownStore } from '../providers/model-cooldown.store';
 import { ProviderAdapterRegistry } from '../providers/provider-adapter.registry';
 import { providerCreateInput, providerUpdateInput } from '../providers/provider-input.mapper';
 import { ProviderHealthService } from '../providers/provider-health.service';
@@ -53,6 +54,7 @@ export class ProvidersController {
     private readonly registry: ProviderAdapterRegistry,
     private readonly health: ProviderHealthService,
     private readonly audit: AuditService,
+    private readonly cooldowns: InMemoryModelCooldownStore,
   ) {}
 
   /** Fournisseurs du serveur, avec leur santé. */
@@ -111,7 +113,7 @@ export class ProvidersController {
     const provider = await this.requireProvider(guildId, providerId);
     let probe: ConnectionProbe;
     try {
-      probe = await probeConnection({ store: this.store, registry: this.registry }, provider);
+      probe = await probeConnection({ store: this.store, registry: this.registry, cooldowns: this.cooldowns }, provider);
     } catch (error) {
       // Seule une erreur de fournisseur est un contrôle qui échoue ; toute autre (base, bug) reste une erreur du serveur.
       if (!(error instanceof ProviderError)) throw error;

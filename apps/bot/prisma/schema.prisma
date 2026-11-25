@@ -42,6 +42,7 @@ model Guild {
   guildMemoryProfile   GuildMemoryProfile?
   memberMemories       MemberMemory[]
   memberMemoryProfiles MemberMemoryProfile[]
+  memoryCorrections    MemoryCorrection[]
   ingestionCursors     IngestionCursor[]
   agentSettings        GuildAgentSettings?
   providers            GuildProvider[]
@@ -243,25 +244,29 @@ model IntegrationConfig {
 // ── Mémoire persistante de l'agent IA (append-only) ─────────
 
 model GuildMemory {
-  id        String   @id @default(cuid())
-  guildId   String
-  kind      String   @default("fact") // fact | rule | presentation | preference
-  content   String
-  createdAt DateTime @default(now())
-  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  id           String    @id @default(cuid())
+  guildId      String
+  kind         String    @default("fact") // fact | rule | presentation | preference
+  content      String
+  createdAt    DateTime  @default(now())
+  /// Quand une correction a périmé cette entrée : elle reste (traçabilité) mais n'est plus lue ni injectée.
+  supersededAt DateTime?
+  guild        Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@index([guildId])
   @@map("guild_memories")
 }
 
 model MemberMemory {
-  id        String   @id @default(cuid())
-  guildId   String
-  userId    String
-  kind      String   @default("fact") // fact | preference | note
-  content   String
-  createdAt DateTime @default(now())
-  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  id           String    @id @default(cuid())
+  guildId      String
+  userId       String
+  kind         String    @default("fact") // fact | preference | note
+  content      String
+  createdAt    DateTime  @default(now())
+  /// Quand une correction a périmé cette entrée : elle reste (traçabilité) mais n'est plus lue ni injectée.
+  supersededAt DateTime?
+  guild        Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@index([guildId, userId])
   @@map("member_memories")
@@ -287,6 +292,33 @@ model GuildMemoryProfile {
   guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@map("guild_memory_profiles")
+}
+
+// ── Corrections de mémoire : un fait corrigé, qui prime sur tout le reste ──
+
+/// Un membre corrige un fait retenu sur lui ou sur le serveur. La correction
+/// est injectée telle quelle dans le prompt (elle prime sur la fiche et sur
+/// le journal), le conservateur la reçoit à chaque fusion, et les entrées du
+/// journal qui portent l'ancien fait sont marquées périmées (`supersededAt`),
+/// jamais supprimées.
+model MemoryCorrection {
+  id           String    @id @default(cuid())
+  guildId      String
+  /// Membre concerné ; null pour le serveur entier.
+  userId       String?
+  /// Le fait périmé, tel qu'il était retenu.
+  oldFact      String
+  /// Le fait qui le remplace.
+  newFact      String
+  /// Identifiant Discord de qui a demandé la correction.
+  createdBy    String
+  createdAt    DateTime  @default(now())
+  /// Quand une correction plus récente a remplacé celle-ci.
+  supersededAt DateTime?
+  guild        Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@index([guildId, userId])
+  @@map("memory_corrections")
 }
 
 // ── Ingestion historique (B1) : curseur de progression par salon ──
@@ -438,6 +470,53 @@ model LlmUsageRow {
 
   @@index([guildId, createdAt])
   @@map("llm_usage_rows")
+}
+
+// ── Journal des décisions de l'agent : une ligne par demande traitée par le modèle ──
+
+/// Ce que l'agent a fait d'une demande, et pourquoi : qui l'a émise, ce qui l'a
+/// fait classer action ou conversation, combien de tours, quelles étapes.
+/// Purge au bout de 14 jours (AgentDecisionJournal). Sans clé étrangère vers
+/// le serveur : une ligne s'écrit sans rien relire, et ne retient aucun
+/// contenu de message.
+model AgentDecision {
+  id               String   @id @default(cuid())
+  guildId          String
+  requestId        String
+  /// D'où vient la demande : discord ou web.
+  source           String
+  /// Identifiant Discord du demandeur.
+  actorId          String
+  channelId        String?
+  /// action ou conversation.
+  intent           String
+  /// Signal à l'origine de l'intention : skill, verb, tool, ou rien.
+  signal           String?
+  /// Ce que le signal a nommé (la recette, le verbe, l'outil), borné.
+  motif            String?
+  /// Le raisonnement a-t-il été demandé pour cette demande (décidé une fois, avant le premier tour).
+  reasoning        Boolean  @default(false)
+  /// Effort envoyé au modèle, quand l'endpoint l'accepte.
+  effort           String?
+  turns            Int      @default(0)
+  /// Nombre de tools exécutés.
+  tools            Int      @default(0)
+  /// Nombre de tools en échec.
+  failures         Int      @default(0)
+  /// replied, silent, cached, failed, ceiling, quota.
+  outcome          String
+  /// Étapes reçues de ctx.progress et résultats des tools (JSON borné).
+  stepsJson        String?
+  /// Nature de l'échec (jamais un contenu ni une clé), borné.
+  error            String?
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  durationMs       Int      @default(0)
+  createdAt        DateTime @default(now())
+
+  @@index([guildId, createdAt])
+  @@index([createdAt])
+  @@map("agent_decisions")
 }
 
 // ── Vie de serveur (birthdays, sticky, AFK, sanctions temporaires, activité) ──

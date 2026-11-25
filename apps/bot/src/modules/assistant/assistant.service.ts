@@ -32,6 +32,8 @@ import { isSilenceRequested, ReplySession } from './reply-session';
 import type { AgentRequest } from './queue/types';
 import { IntroContainer } from './v2.containers';
 import { TypingIndicator } from './typing-indicator';
+import { AgentDecisionJournal } from './agent-decision.journal';
+import { outcomeOf } from './agent-decision.recorder';
 
 const log = new Logger('Assistant');
 
@@ -81,6 +83,7 @@ export class AssistantService {
     private readonly router: CapabilityRouterService,
     private readonly integrations: GuildIntegrationService,
     private readonly typing: TypingIndicator,
+    private readonly decisions: AgentDecisionJournal,
   ) {
     this.contextBuilder = new ConversationContextBuilder({
       client: this.client,
@@ -257,12 +260,29 @@ export class AssistantService {
 
   private async converse(channel: TextChannel, guild: Guild, request: AgentRequest, requestId: string): Promise<void> {
     const session = new ReplySession(isSilenceRequested(request.content));
+    // Journal des décisions : qui demande, pourquoi la demande est classée ainsi, ce que l'agent a fait.
+    const decision = this.decisions.begin({ guildId: guild.id, requestId, source: 'discord', actorId: request.userId, channelId: channel.id });
     let locale = 'fr';
     try {
-      const conversation = await this.contextBuilder.build(channel, guild, request, requestId, session);
+      const conversation = await this.contextBuilder.build(channel, guild, request, requestId, session, decision.note);
       locale = conversation.locale;
-      if (await this.delivery.deliverCached(conversation)) return;
-      const outcome = await this.runner.run(conversation);
+      if (await this.delivery.deliverCached(conversation)) {
+        void this.decisions.record(guild.id, decision.cached(conversation.intent));
+        return;
+      }
+      const outcome = await this.runner.run(conversation, decision);
+      void this.decisions.record(
+        guild.id,
+        decision.finish({
+          intent: conversation.intent,
+          reasoning: outcome.reasoning,
+          effort: outcome.effort,
+          turns: outcome.turns,
+          usage: outcome.usage,
+          outcome: outcomeOf({ finalText: outcome.finalText, error: outcome.error, quotaExhausted: outcome.quotaExhausted, forcedSummary: outcome.forcedSummary }),
+          error: outcome.error ?? undefined,
+        }),
+      );
       await this.delivery.deliver(conversation, outcome);
     } finally {
       // GARANTIE ANTI-BLOCAGE : quoi qu'il arrive (contexte, boucle ou livraison

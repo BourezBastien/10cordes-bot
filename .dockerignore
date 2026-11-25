@@ -9,6 +9,10 @@ data
 .git
 .env
 .env.*
+# Secrets et état local : jamais dans le contexte de build.
+.mcp.json
+.zcode
+*.bak
 *.log
 docs
 reference-bots

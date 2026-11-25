@@ -8,6 +8,7 @@ import { PROVIDER_AUTH_TYPES, PROVIDER_PROTOCOLS, ProviderError, isCapability, t
 import { assertProviderUrl } from './provider-http';
 import { CONVERSATION_FOLLOWERS, CONVERSATION_LINK_HEAD, sameTarget, type RouteTarget } from './provider-route.links';
 import { assertModelServes } from './provider-model.kinds';
+import { InMemoryModelCooldownStore } from './model-cooldown.store';
 import { ProviderCatalogStore } from './provider-store.catalog';
 import { MODEL_ID_MAX, providerFromRow, providerSecrets } from './provider-store.codec';
 import { hasKeys, parseModels, parseRecord, reservedKeys } from './provider-store.json';
@@ -69,6 +70,7 @@ export class GuildProviderService implements SpraxiumOnBoot {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly env: AppEnv,
+    private readonly cooldowns: InMemoryModelCooldownStore,
   ) {
     this.catalog = new ProviderCatalogStore(prisma, audit, (guildId) => this.invalidate(guildId));
   }
@@ -148,6 +150,8 @@ export class GuildProviderService implements SpraxiumOnBoot {
       actorId,
       metadata: { providerId: row.id, slug: row.slug, protocol: row.protocol, host: new URL(baseUrl).host, keyChanged: input.apiKey !== undefined, enabled: row.enabled },
     });
+    // Une clé changée, une adresse changée : ce qui refroidissait sur ce fournisseur n'a plus de raison d'être.
+    await this.cooldowns.clearProvider(guildId, row.id);
     this.invalidate(guildId);
     return providerFromRow(row, providerSecrets(this.env));
   }

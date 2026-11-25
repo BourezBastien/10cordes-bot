@@ -5,6 +5,7 @@ import { fakeDb } from '../../test/fake-db';
 import { INSTANCE_SOURCES } from './instance-defaults';
 import { ProviderLegacyMigration } from './provider-legacy.migration';
 import { GuildProviderService } from './provider-store.service';
+import { InMemoryModelCooldownStore } from './model-cooldown.store';
 import { ProviderError } from './provider.types';
 
 /**
@@ -37,7 +38,7 @@ function harness(options: { integrations?: Integrations; guilds?: string[]; mark
     marked.has(`${args.where?.guildId}:${args.where?.action}`) ? { id: 'marker' } : null,
   );
   const audit = { record: vi.fn() };
-  const store = new GuildProviderService(db as never, audit as never, SECRETS);
+  const store = new GuildProviderService(db as never, audit as never, SECRETS, new InMemoryModelCooldownStore());
   const integrations = { get: vi.fn(async (id: string): Promise<Resolved> => options.integrations?.[id] ?? { id, config: {}, source: 'none' }) };
   bindIntegrations(integrations as unknown as IntegrationService);
   const migration = new ProviderLegacyMigration(db as never, audit as never, store);

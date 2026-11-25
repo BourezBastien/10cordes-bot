@@ -31,6 +31,11 @@ export class AppEnv extends SpraxiumBaseEnv {
   @IsString()
   HTTP_HOST!: string;
 
+  /** Délai de grâce de l'extinction (SIGTERM, SIGINT), en millisecondes : temps laissé aux demandes en cours avant de couper. Docker doit en laisser davantage (stop_grace_period). */
+  @Env('SHUTDOWN_GRACE_MS', { default: '20000', secret: false })
+  @IsString()
+  SHUTDOWN_GRACE_MS!: string;
+
   /** Origine(s) du dashboard autorisées : CORS, login et contrôle d'origine. Plusieurs adresses séparées par des virgules. */
   @Env('DASHBOARD_ORIGIN', { default: 'http://localhost:5173', secret: false })
   @IsString()

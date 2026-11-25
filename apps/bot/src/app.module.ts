@@ -35,6 +35,7 @@ import { LegalController } from './modules/api/legal.controller';
 import { MetaController } from './modules/api/meta.controller';
 import { HealthController } from './modules/health/health.controller';
 import { HealthMonitor } from './modules/health/health.monitor';
+import { ShutdownService } from './modules/health/shutdown.service';
 import { ToolRegistryModule } from './modules/tool-registry/tool-registry.module';
 import { ActionPlanModule } from './modules/action-plan/action-plan.module';
 // Ordre d'importation obligatoire : ces deux modules globaux sont chargés par
@@ -131,6 +132,8 @@ import { UtilityModule } from './modules/utility/utility.module';
     UsageController,
     WebhooksController,
     HealthMonitor,
+    // Extinction propre : vidange des demandes en cours au crochet d'extinction du framework.
+    ShutdownService,
   ],
 })
 export class AppModule {}

@@ -1,9 +1,11 @@
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import { HttpCtx, HttpController, HttpGet, NotFoundError } from '@spraxium/http';
 import type { Context } from 'hono';
 import { AppEnv } from '../../app.env';
 import { cspOf } from './api-policy.middleware';
+import { resolveDashboardDir } from './panel-dist';
 
 const MIME: Readonly<Record<string, string>> = {
   '.html': 'text/html; charset=utf-8',
@@ -33,7 +35,7 @@ const RESERVED: readonly string[] = ['/api', '/healthz'];
  * le panel compilé (`apps/dashboard/dist`) sur son propre serveur HTTP. Même
  * origine pour le panel et l'API : la session tient sans cross-site.
  *
- * - un fichier existant est servi tel quel ; ceux de `/assets/` portent un
+ * - un fichier existant est servi tel quel ; ceux de `/assets/` portent une
  *   empreinte dans leur nom et se cachent un an ;
  * - tout autre chemin rend `index.html` (le routeur du panel lit l'adresse),
  *   sans cache : une nouvelle version est vue dès qu'elle est servie ;
@@ -48,7 +50,8 @@ export class PanelController {
   private readonly dist: string | null;
 
   constructor(env: AppEnv) {
-    this.dist = env.DASHBOARD_DIST_DIR?.trim() ? resolve(env.DASHBOARD_DIST_DIR.trim()) : null;
+    // Le dossier s'écrit depuis apps/bot (`../dashboard/dist`) ou depuis la racine du dépôt (`apps/dashboard/dist`).
+    this.dist = resolveDashboardDir(env.DASHBOARD_DIST_DIR, process.cwd(), (candidate) => existsSync(candidate));
   }
 
   @HttpGet('/*')

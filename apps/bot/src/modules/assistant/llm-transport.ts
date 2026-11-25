@@ -102,7 +102,7 @@ export class ChatTransport {
     const response = await safeFetch(endpoint.url, { timeoutMs, method: 'POST', headers: endpoint.headers, body: JSON.stringify(body) }).catch((error: unknown) => {
       throw transportFailure(error);
     });
-    if (!response.ok) throwProviderError(response.status, await response.text().catch(() => ''));
+    if (!response.ok) throwProviderError(response.status, await response.text().catch(() => ''), response);
     return parseChatCompletion(await response.json(), (leak) => this.deps.onLeak(cause, leak));
   }
 
@@ -125,7 +125,7 @@ export class ChatTransport {
       }).catch((error: unknown) => {
         throw transportFailure(error);
       });
-      if (!response.ok) throwProviderError(response.status, await response.text().catch(() => ''));
+      if (!response.ok) throwProviderError(response.status, await response.text().catch(() => ''), response);
       if (!response.body) throw new Error('Streaming non supporté par le fournisseur (body absent).');
       return await readChatStream(response.body, { onDelta: callbacks.onDelta, onActivity: rearm }).catch((error: unknown) => {
         throw transportFailure(error);

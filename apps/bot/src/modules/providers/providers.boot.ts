@@ -14,6 +14,7 @@ import { buildHubTool } from './hub.tool';
 import { buildProviderTools } from './provider.tools';
 import { GuildProviderService } from './provider-store.service';
 import { bindProvidersRuntime } from './providers.runtime';
+import { InMemoryModelCooldownStore } from './model-cooldown.store';
 
 /**
  * Démarrage du moteur multi-fournisseurs. C'est un PROVIDER (avec `onBoot`),
@@ -34,13 +35,14 @@ export class ProvidersBoot implements SpraxiumOnBoot {
     private readonly tools: ToolRegistryService,
     private readonly client: Client,
     private readonly configThread: ConfigThreadService,
+    private readonly cooldowns: InMemoryModelCooldownStore,
   ) {}
 
   async onBoot(): Promise<void> {
     for (const adapter of [new OpenAiCompatibleAdapter(), new AnthropicMessagesAdapter(), new KieUnifiedAdapter(), new GenericHttpAdapter()]) {
       this.adapters.register(adapter);
     }
-    const hubDeps = { store: this.store, registry: this.adapters };
+    const hubDeps = { store: this.store, registry: this.adapters, cooldowns: this.cooldowns };
     for (const tool of [
       ...buildProviderTools(hubDeps),
       ...buildCapabilityTools({ store: this.store }),

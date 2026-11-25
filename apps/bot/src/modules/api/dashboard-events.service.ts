@@ -52,6 +52,8 @@ export class DashboardEventsService implements SpraxiumOnBoot {
   private readonly log = new Logger('DashboardEvents');
   private readonly subscriptions: Subscription[] = [];
   private unsubscribeAudit: (() => void) | null = null;
+  private streamsClosing: Promise<void> | null = null;
+  private resolveStreamsClosing: (() => void) | null = null;
 
   constructor(private readonly audit: AuditService) {}
 
@@ -77,6 +79,26 @@ export class DashboardEventsService implements SpraxiumOnBoot {
   /** Flux ouverts d'un serveur (diagnostic). */
   subscriberCount(guildId: string): number {
     return this.subscriptions.filter((subscription) => subscription.guildId === guildId).length;
+  }
+
+  /**
+   * Promesse tenue à l'extinction : un flux ouvert l'attend en même temps
+   * que le départ de son client, pour finir au lieu de rester ouvert (le
+   * serveur HTTP attend ses réponses en cours avant de se fermer).
+   */
+  whenStreamsClose(): Promise<void> {
+    this.streamsClosing ??= new Promise<void>((resolve) => {
+      this.resolveStreamsClosing = resolve;
+    });
+    return this.streamsClosing;
+  }
+
+  /** Extinction : chaque flux ouvert reçoit l'ordre de finir. Rend le nombre de flux ouverts. */
+  closeAll(): number {
+    const open = this.subscriptions.length;
+    void this.whenStreamsClose();
+    this.resolveStreamsClosing?.();
+    return open;
   }
 
   private publish(guildId: string, event: DashboardEvent): void {

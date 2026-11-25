@@ -16,8 +16,9 @@ Realisé et validé en production interne :
 - Dashboard : bouton "Panneau de configuration" sur le portail de l'agent (staff) -> panneau V2 éphémère par catégories.
 - Dashboard web (livré le 25/11/2026) : fournisseurs IA et modèles, intégrations et connecteurs HTTP sortants, règles, modules, configuration, journal, mémoires, consommation, conversation avec l'agent (étapes en direct). Login Discord, français et anglais, servi par le bot quand `DASHBOARD_DIST_DIR` est réglé.
 - Depuis le 24/11 : toute action qui modifie attend un clic quand la règle du serveur l'exige ; chaque requête sortante passe par une garde (hôtes privés refusés, redirections revérifiées).
+- Ingénierie (livrée le 25/11/2026) : refroidissement par modèle (429, 402, délai, 5xx : le modèle mis de côté, la demande part sur le repli), journal des décisions de l'agent (`agent_decisions`, 14 jours), corrections de mémoire qui tiennent (outil `memory.correct`, page Mémoires), extinction propre (vidange dans un délai de grâce, sonde `/healthz` branchée sur l'image), CI durcie (gitleaks sur tout l'historique, Dependabot hebdomadaire, plancher de couverture de 80 % sur `packages/shared`). Non vérifié en conditions réelles : la vidange d'une demande en vol à l'arrêt du conteneur.
 
-Prochaine phase : ingénierie (CI, journal des décisions, refroidissement par modèle), feeds, jeux temps réel.
+Prochaine phase : PostgreSQL 16 et TimescaleDB (Prisma 7, hypertables, agrégats continus), état distribué par Redis (événements, refroidissement, verrous de démarrage), compose de production et recette ; puis feeds, jeux temps réel.
 
 1. **Zéro commande, 100 % conversationnel** - ni slash commands ni préfixes : l'agent (gate + permissions re-vérifiées en code à chaque action) est l'unique surface.
 2. **Tout est module** - activable/désactivable en live (global + par serveur), avec **dépendances obligatoires** : désactiver `economy` désactive `shop` **sauf si `shop` est requis par un autre module actif** ; l'activation tire ses dépendances.

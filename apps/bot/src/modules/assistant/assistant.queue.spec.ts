@@ -175,3 +175,40 @@ describe('AssistantQueue · une demande refusée n\u0027affiche rien', () => {
     expect(processor).not.toHaveBeenCalled();
   });
 });
+
+describe('AssistantQueue · extinction', () => {
+  it('à la fermeture : le traitement en cours finit et est attendu, les demandes en attente sont abandonnées, plus rien n\u0027est accepté', async () => {
+    const { queue, typing } = harness();
+    const { processor, pending, drain } = deferredProcessor();
+    queue.setProcessor(processor);
+    await queue.enqueue(message('1', 'c1'));
+    await queue.enqueue(message('2', 'c1'));
+    await queue.enqueue(message('3', 'c1'));
+    expect(queue.activeCount()).toBe(1);
+    const late = message('4', 'c1');
+
+    let closed = false;
+    const closing = queue.close().then(() => {
+      closed = true;
+    });
+    await Promise.resolve();
+    expect(queue.isClosing()).toBe(true);
+    // Le traitement en cours n'est pas coupé : la fermeture l'attend.
+    expect(closed).toBe(false);
+    expect(processor).toHaveBeenCalledTimes(1);
+    await settled(typing, []);
+
+    expect(await queue.enqueue(late)).toBe(false);
+    // Une notice Components V2 : le texte est dans son affichage de texte.
+    const refused = vi.mocked(late.reply).mock.calls[0]?.[0] as { components: Array<{ toJSON(): unknown }> };
+    expect(JSON.stringify(refused.components[0]?.toJSON())).toContain('redémarre');
+
+    drain();
+    await closing;
+    expect(closed).toBe(true);
+    expect(queue.activeCount()).toBe(0);
+    // Les deux demandes en attente n'ont pas été prises (la mémoire les perd).
+    expect(pending).toHaveLength(1);
+    expect(processor).toHaveBeenCalledTimes(1);
+  });
+});

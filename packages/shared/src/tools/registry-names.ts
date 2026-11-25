@@ -101,6 +101,7 @@ export const REGISTERED_TOOL_NAMES = [
   'member.trust',
   'members.export',
   'members.pickRandom',
+  'memory.correct',
   'memory.forget',
   'message.crosspost',
   'message.pin',

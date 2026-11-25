@@ -140,4 +140,16 @@ describe('ProviderHealthService', () => {
     health.record(GUILD, undefined, { ok: true });
     expect(health.statusOf(GUILD, PROVIDER).state).toBe('active');
   });
+
+  it('la fin annoncée par le refroidissement du modèle est celle montrée ; un second échec ne la raccourcit pas, un succès sur un autre modèle la garde', () => {
+    health.record(GUILD, PROVIDER, { ok: false, error: new ProviderError('HTTP 429', 'rate-limit', 429), transient: true, cooldownUntil: T0 + 120_000 });
+    expect(health.statusOf(GUILD, PROVIDER)).toMatchObject({ state: 'cooldown', cooldownUntil: at(120_000) });
+    health.record(GUILD, PROVIDER, { ok: false, error: new ProviderError('HTTP 503', 'unavailable', 503), transient: true });
+    expect(health.statusOf(GUILD, PROVIDER)).toMatchObject({ state: 'cooldown', cooldownUntil: at(120_000) });
+    // Un succès sur un autre modèle du fournisseur : l'erreur s'efface, le repos dure tant qu'un modèle y est encore.
+    health.record(GUILD, PROVIDER, { ok: true, cooldownUntil: T0 + 30_000 });
+    expect(health.statusOf(GUILD, PROVIDER)).toMatchObject({ state: 'cooldown', cooldownUntil: at(30_000), lastError: null });
+    health.record(GUILD, PROVIDER, { ok: true, cooldownUntil: null });
+    expect(health.statusOf(GUILD, PROVIDER)).toMatchObject({ state: 'active', cooldownUntil: null });
+  });
 });

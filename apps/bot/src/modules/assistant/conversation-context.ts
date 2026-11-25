@@ -71,7 +71,15 @@ interface MemoryContext {
 export class ConversationContextBuilder {
   constructor(private readonly deps: ConversationContextDeps) {}
 
-  async build(channel: TextChannel, guild: Guild, request: AgentRequest, requestId: string, session: ReplySession): Promise<ConversationContext> {
+  /** `progress` reçoit chaque ligne de progression d'un tool long (journal des décisions) ; elle va de toute façon au journal. */
+  async build(
+    channel: TextChannel,
+    guild: Guild,
+    request: AgentRequest,
+    requestId: string,
+    session: ReplySession,
+    progress?: (text: string) => void,
+  ): Promise<ConversationContext> {
     const { prisma, guildRules } = this.deps;
     const locale = detectLocale(request.content);
     const member = await guild.members.fetch(request.userId).catch(() => null);
@@ -128,7 +136,7 @@ export class ConversationContextBuilder {
       permissions,
       session,
       toolset,
-      runContext: this.buildRunContext(channel, guild, request, member, locale, permissions, session, requestId),
+      runContext: this.buildRunContext(channel, guild, request, member, locale, permissions, session, requestId, progress),
       messages,
       intent: detectRequestIntent(request.content, routed, skillTriggers),
     };
@@ -208,16 +216,29 @@ export class ConversationContextBuilder {
     const mentionedProfiles = await Promise.all(
       mentionedIds.map(async (id) => ({ id, text: await memory.getMemberProfile(guild.id, id).catch(() => null) })),
     );
-    const [guildProfile, memberProfile] = await Promise.all([
+    const [guildProfile, memberProfile, corrections] = await Promise.all([
       memory.getGuildProfile(guild.id).catch(() => null),
       memory.getMemberProfile(guild.id, request.userId).catch(() => null),
+      memory.correctionLines(guild.id, [request.userId, ...mentionedIds]).catch(() => null),
     ]);
     const memberMemories = memberProfile ? [`Fiche du membre (consolidée) : ${memberProfile}`] : [];
     for (const mentioned of mentionedProfiles) {
       if (mentioned.text) memberMemories.push(`Fiche de <@${mentioned.id}> (consolidée) : ${mentioned.text}`);
     }
+    // Les corrections priment sur les fiches : l'agent ne doit plus dire un fait corrigé.
+    if (corrections) {
+      const own = corrections.members.get(request.userId) ?? [];
+      if (own.length > 0) memberMemories.push(`Faits corrigés sur le demandeur (ils priment sur sa fiche) :\n${own.join('\n')}`);
+      for (const id of mentionedIds) {
+        const lines = corrections.members.get(id) ?? [];
+        if (lines.length > 0) memberMemories.push(`Faits corrigés sur <@${id}> (ils priment sur sa fiche) :\n${lines.join('\n')}`);
+      }
+    }
     return {
-      guildMemories: guildProfile ? [`Fiche serveur consolidée : ${guildProfile}`] : [],
+      guildMemories: [
+        ...(guildProfile ? [`Fiche serveur consolidée : ${guildProfile}`] : []),
+        ...(corrections && corrections.guild.length > 0 ? [`Faits corrigés sur le serveur (ils priment sur sa fiche) :\n${corrections.guild.join('\n')}`] : []),
+      ],
       memberMemories,
     };
   }
@@ -232,6 +253,7 @@ export class ConversationContextBuilder {
     permissions: string[],
     session: ReplySession,
     requestId: string,
+    progress?: (text: string) => void,
   ): ToolRunContext {
     const { client } = this.deps;
     return {
@@ -244,9 +266,11 @@ export class ConversationContextBuilder {
       permissions,
       roleIds: member ? [...member.roles.cache.keys()] : [],
       // Rien ne s'affiche pendant le traitement : la progression d'un tool long
-      // (analyse, ingestion, génération) part dans le journal, pas dans le salon.
+      // (analyse, ingestion, génération) part dans le journal, et dans le
+      // journal des décisions de la demande, jamais dans le salon.
       progress: async (text) => {
         fileLog()?.event('info', 'tool', 'progress', { requestId, guildId: guild.id, text: String(text).slice(0, 200) });
+        progress?.(String(text));
       },
       reply: async (replyText) => {
         await channel.send({ content: massMentionPolicy.guard(replyText, toolRequesterContext({ userId: request.userId, permissions }, guild)) }).catch(() => {});

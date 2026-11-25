@@ -1,0 +1,36 @@
+# Dépendances : une passe par semaine, le lundi matin. `develop` est la
+# branche par défaut du dépôt, les PR de version et les mises à jour de
+# sécurité y vont d'office. Ne pas définir `target-branch` : dès qu'il est
+# défini, les options de ce fichier ne s'appliquent plus aux mises à jour de
+# sécurité (elles suivraient leur calendrier par défaut).
+#
+# Les versions mineures et correctives des paquets npm arrivent groupées dans
+# une seule PR ; les majeures restent une par dépendance, à regarder une à une.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Paris
+    groups:
+      minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Paris
+    groups:
+      actions:
+        patterns:
+          - "*"

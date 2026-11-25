@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { GuildProviderService } from './provider-store.service';
+import { InMemoryModelCooldownStore } from './model-cooldown.store';
 import { hasKeys, parseRecord, reservedKeys, visibleOptions } from './provider-store.json';
 import { sameTarget } from './provider-route.links';
 
@@ -73,7 +74,7 @@ function harness(rows: RouteRow[]) {
     },
   };
   const audit = { record: vi.fn() };
-  const store = new GuildProviderService(prisma as never, audit as never, { token: 'x', ENCRYPTION_SECRET: KEY } as never);
+  const store = new GuildProviderService(prisma as never, audit as never, { token: 'x', ENCRYPTION_SECRET: KEY } as never, new InMemoryModelCooldownStore());
   return { store, prisma, audit, route: (capability: string) => table.get(capability) };
 }
 
@@ -144,7 +145,7 @@ describe('GuildProviderService · lier une route', () => {
     h.prisma.guildProvider.findFirst.mockResolvedValue({ id: MAIN, slug: 'kie-ai', cachedModelsJson: JSON.stringify([{ id: 'V6_MINI', kind: 'music' }, { id: 'z-image', kind: 'image' }]) });
     await expect(h.store.bindRoute(GUILD, 'music.generate', { providerId: MAIN, modelId: 'z-image' }, 'system')).rejects.toThrow('Modèles de kie-ai qui la servent : V6_MINI');
     expect(h.prisma.capabilityRoute.upsert).not.toHaveBeenCalled();
-    // Le modèle qui sert la capacité passe ; un identifiant saisi à la main passe aussi (on ne sait pas, on ne l\u0027interdit pas).
+    // Le modèle qui sert la capacité passe ; un identifiant saisi à la main passe aussi (on ne sait pas, on ne l'interdit pas).
     await h.store.bindRoute(GUILD, 'image.generate', { providerId: MAIN, modelId: 'z-image' }, 'system');
     await h.store.bindRoute(GUILD, 'tts.speak', { providerId: MAIN, modelId: 'ma-voix' }, 'system');
     expect(h.route('image.generate')).toMatchObject({ providerId: MAIN, modelId: 'z-image' });
@@ -212,7 +213,7 @@ describe('GuildProviderService · clé et options d\u0027un fournisseur', () => 
         }),
       },
     };
-    const store = new GuildProviderService(prisma as never, { record: vi.fn() } as never, { token: 'x', ENCRYPTION_SECRET: KEY } as never);
+    const store = new GuildProviderService(prisma as never, { record: vi.fn() } as never, { token: 'x', ENCRYPTION_SECRET: KEY } as never, new InMemoryModelCooldownStore());
     const last = () => writes.at(-1)?.update ?? {};
     return { store, last };
   }

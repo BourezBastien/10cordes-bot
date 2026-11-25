@@ -48,8 +48,27 @@ export const CapabilitySchema = z
   );
 export type Capability = NativeCapability | `custom.${string}`;
 
-/** Famille d'une capacité. */
+/**
+ * Famille de chaque capacité native. Une table, pas la tête du nom :
+ * `web.search` est une recherche, et sa tête disait « custom », ce qui sautait
+ * le contrôle du modèle et listait tout le catalogue. Le compilateur réclame
+ * la ligne d'une capacité native nouvelle.
+ */
+const NATIVE_CAPABILITY_KINDS: Readonly<Record<NativeCapability, CapabilityKind>> = {
+  'chat.default': 'chat',
+  'chat.reasoning': 'chat',
+  'chat.ingestion': 'chat',
+  'image.generate': 'image',
+  'image.edit': 'image',
+  'music.generate': 'music',
+  'tts.speak': 'tts',
+  'video.generate': 'video',
+  'web.search': 'search',
+};
+
+/** Famille d'une capacité : sa table si elle est native, sinon celle de sa tête, sinon `custom`. */
 export function capabilityKind(capability: string): CapabilityKind {
+  if ((NATIVE_CAPABILITIES as readonly string[]).includes(capability)) return NATIVE_CAPABILITY_KINDS[capability as NativeCapability];
   const head = capability.split('.')[0] ?? '';
   return (CAPABILITY_KINDS as readonly string[]).includes(head) ? (head as CapabilityKind) : 'custom';
 }

@@ -9,6 +9,8 @@ export class BullMqDriver implements QueueDriver {
   private readonly connection: Redis;
   private readonly queue: Queue<AgentJobData>;
   private worker: Worker<AgentJobData> | null = null;
+  /** Demandes en traitement par CE processus (BullMQ compte aussi celles des autres workers). */
+  private active = 0;
 
   constructor(
     redisUrl: string,
@@ -30,11 +32,20 @@ export class BullMqDriver implements QueueDriver {
     await this.queue.add('agent-request', job);
   }
 
+  activeCount(): number {
+    return this.active;
+  }
+
   async process(handler: (job: AgentJobData) => Promise<void>): Promise<void> {
     this.worker = new Worker<AgentJobData>(
       QUEUE_NAME,
       async (job) => {
-        await handler(job.data);
+        this.active += 1;
+        try {
+          await handler(job.data);
+        } finally {
+          this.active -= 1;
+        }
       },
       {
         connection: this.connection,
@@ -59,6 +70,12 @@ export class BullMqDriver implements QueueDriver {
     };
   }
 
+  /**
+   * Extinction, dans l'ordre que recommande BullMQ : le worker d'abord (il
+   * attend, sans délai propre, les traitements en cours ; l'appelant en met
+   * un), la file ensuite, la connexion enfin. Les demandes en attente restent
+   * dans Redis, pour le démarrage suivant.
+   */
   async close(): Promise<void> {
     await this.worker?.close();
     await this.queue.close();

@@ -98,6 +98,12 @@ export const guildEn = {
     entries_other: '{{count}} cards',
     kinds: { fact: 'Fact', rule: 'Rule', presentation: 'Presentation', preference: 'Preference', note: 'Note' },
     caption: 'Memory cards',
+    superseded: 'Superseded',
+    corrections: 'Corrections',
+    correctionsHint: 'A fact a member corrected. It overrides everything else: the bot never repeats the old fact.',
+    correctionsEmpty: 'No correction.',
+    corrected: 'Corrected',
+    replaces: 'replaces',
   },
   system: {
     title: 'System',

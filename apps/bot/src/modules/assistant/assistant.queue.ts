@@ -34,6 +34,8 @@ export class AssistantQueue {
   private readonly perUserPending = new Map<string, number>();
   /** Relâche de l'indicateur de chaque demande en file ou en cours. */
   private readonly typingReleases = new Map<string, () => void>();
+  /** Vrai dès que l'extinction a commencé. */
+  private closing = false;
 
   constructor(
     private readonly env: AppEnv,
@@ -104,6 +106,12 @@ export class AssistantQueue {
       return false;
     }
 
+    // Extinction en cours : la demande serait perdue (mémoire) ou attendre le redémarrage sans prévenir.
+    if (this.closing) {
+      void message.reply(notice('Le bot redémarre, réessaie dans un instant.', true)).catch(() => {});
+      return false;
+    }
+
     const pendingForUser = this.perUserPending.get(key) ?? 0;
     if (pendingForUser >= MAX_PER_USER) {
       void message
@@ -141,6 +149,29 @@ export class AssistantQueue {
 
   async counts(): Promise<QueueCounts> {
     return this.driver.counts();
+  }
+
+  /** Demandes en traitement par ce processus, tout de suite. */
+  activeCount(): number {
+    return this.driver.activeCount();
+  }
+
+  /** L'extinction a commencé : plus aucune demande n'est acceptée. */
+  isClosing(): boolean {
+    return this.closing;
+  }
+
+  /**
+   * Extinction : plus aucune demande n'est prise ni acceptée ; les indicateurs
+   * « écrit… » des demandes en attente s'éteignent, et celles en traitement
+   * finissent (le pilote les attend). Les demandes en attente restent au
+   * pilote : BullMQ les garde pour le démarrage suivant, la mémoire les perd.
+   */
+  close(): Promise<void> {
+    this.closing = true;
+    for (const release of this.typingReleases.values()) release();
+    this.typingReleases.clear();
+    return this.driver.close();
   }
 
   /** Nom du driver ('bullmq' ou 'memory'), exposé par /healthz pour le diagnostic à distance. */

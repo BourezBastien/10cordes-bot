@@ -4,11 +4,17 @@ import type { QueueDriver } from './queue-driver';
 /**
  * Fallback sans Redis : file en mémoire, séquentielle (1 job à la fois).
  * Utilisé uniquement quand REDIS_URL est injoignable (dev sans Docker).
+ *
+ * À la fermeture (extinction) : plus rien n'est pris, le traitement en cours
+ * est attendu, et les demandes en attente sont abandonnées (elles ne vivent
+ * que dans cette mémoire).
  */
 export class MemoryDriver implements QueueDriver {
   readonly name = 'memory' as const;
   private readonly queue: AgentJobData[] = [];
   private running = false;
+  private closing = false;
+  private current: Promise<void> | null = null;
   private handler: ((job: AgentJobData) => Promise<void>) | null = null;
   private completed = 0;
   private failed = 0;
@@ -23,17 +29,28 @@ export class MemoryDriver implements QueueDriver {
   }
 
   enqueue(job: AgentJobData): void {
+    if (this.closing) return;
     this.queue.push(job);
     this.pump();
   }
 
+  activeCount(): number {
+    return this.running ? 1 : 0;
+  }
+
+  async close(): Promise<void> {
+    this.closing = true;
+    this.queue.length = 0;
+    if (this.current) await this.current;
+  }
+
   private pump(): void {
-    if (this.running || !this.handler) return;
+    if (this.running || !this.handler || this.closing) return;
     const handler = this.handler;
     const next = this.queue.shift();
     if (!next) return;
     this.running = true;
-    void (async () => {
+    this.current = (async () => {
       try {
         await handler(next);
         this.completed++;
@@ -43,6 +60,7 @@ export class MemoryDriver implements QueueDriver {
         this.onFailed(next, message);
       } finally {
         this.running = false;
+        this.current = null;
         this.pump();
       }
     })();
@@ -51,6 +69,4 @@ export class MemoryDriver implements QueueDriver {
   async counts(): Promise<QueueCounts> {
     return { waiting: this.queue.length, active: this.running ? 1 : 0, completed: this.completed, failed: this.failed };
   }
-
-  async close(): Promise<void> {}
 }

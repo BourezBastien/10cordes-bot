@@ -98,11 +98,27 @@ const MemoryEntrySchema = z.object({
   kind: z.string(),
   content: z.string(),
   createdAt: InstantSchema,
+  /** Une correction a périmé cette entrée : le journal la garde, l'agent ne la lit plus. */
+  supersededAt: InstantSchema.nullish(),
+});
+
+/** Une correction : le fait corrigé remplace l'ancien, et prime sur tout le reste de la mémoire. */
+export const MemoryCorrectionSchema = z.object({
+  id: z.string(),
+  /** Membre concerné ; null pour le serveur entier. */
+  userId: z.string().nullable(),
+  oldFact: z.string(),
+  newFact: z.string(),
+  createdAt: InstantSchema,
+  /** Une correction plus récente a remplacé celle-ci. */
+  supersededAt: InstantSchema.nullish(),
 });
 
 export const MemoriesSchema = z.object({
   guild: z.array(MemoryEntrySchema),
   members: z.array(MemoryEntrySchema.extend({ userId: z.string() })),
+  // Facultatif : un bot d'une version antérieure ne le renvoie pas.
+  corrections: z.array(MemoryCorrectionSchema).optional().default([]),
 });
 
 export const StatsSchema = z.object({

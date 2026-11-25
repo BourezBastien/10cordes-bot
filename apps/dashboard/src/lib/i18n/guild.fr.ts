@@ -104,6 +104,12 @@ export const guildFr = {
     entries_other: '{{count}} fiches',
     kinds: { fact: 'Fait', rule: 'Règle', presentation: 'Présentation', preference: 'Préférence', note: 'Note' },
     caption: 'Fiches de mémoire',
+    superseded: 'Périmée',
+    corrections: 'Corrections',
+    correctionsHint: 'Un fait qu’un membre a corrigé. Il prime sur tout le reste : le bot ne redit jamais l’ancien fait.',
+    correctionsEmpty: 'Aucune correction.',
+    corrected: 'Corrigé',
+    replaces: 'remplace',
   },
   system: {
     title: 'Système',

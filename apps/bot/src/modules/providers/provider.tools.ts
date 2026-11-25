@@ -1,6 +1,7 @@
 import { defineTool, type BotTool, type ToolResult } from '@10cordes/shared';
 import { z } from 'zod';
 import type { ProviderAdapterRegistry } from './provider-adapter.registry';
+import type { ModelCooldownStore } from './model-cooldown.store';
 import type { GuildProviderService } from './provider-store.service';
 import { PROVIDER_AUTH_TYPES, PROVIDER_PROTOCOLS, ProviderError, type ProviderConfig, type ProviderModel } from './provider.types';
 import { probeConnection } from './provider-probe';
@@ -15,6 +16,8 @@ import { describeProvider } from './provider-views';
 export interface ProviderToolsDeps {
   readonly store: GuildProviderService;
   readonly registry: ProviderAdapterRegistry;
+  /** Un contrôle qui passe lève le refroidissement des modèles du fournisseur. */
+  readonly cooldowns?: Pick<ModelCooldownStore, 'clearProvider'>;
 }
 
 const GUILD_REQUIRED = 'Contexte de serveur requis.';

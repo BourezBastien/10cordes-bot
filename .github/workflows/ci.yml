@@ -51,3 +51,53 @@ jobs:
 
       - name: Build (all workspaces)
         run: pnpm build
+
+  secrets:
+    # Secrets dans tout l'historique Git, toutes branches comprises. Journal
+    # et rapport sont rédigés : une valeur détectée ne s'y affiche jamais, seuls
+    # sa règle, son fichier, son commit et son empreinte. Ce job n'est pas
+    # exigé par la protection des branches tant que l'administrateur ne l'y
+    # ajoute pas.
+    name: Secrets · tout l'historique
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks (version épinglée, empreinte contrôlée)
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/gitleaks.tar.gz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz"
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+          sudo install "$RUNNER_TEMP/gitleaks" /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Scan the whole history (redacted report)
+        run: |
+          gitleaks git --log-opts="--all" --redact --no-banner --no-color --verbose \
+            --report-format json --report-path "$RUNNER_TEMP/gitleaks-report.json" .
+
+  dependencies:
+    # Une mise à jour automatique de dépendances ne touche jamais la politique
+    # de chaîne d'approvisionnement de pnpm (builds autorisés, exceptions d'âge
+    # minimum). pnpm peut l'écrire en résolvant une version trop récente : la
+    # PR est alors refusée, il faut la rouvrir après le délai.
+    if: github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'
+    name: Dépendances · politique pnpm intacte
+    runs-on: ubuntu-latest
+    env:
+      BASE_REF: ${{ github.base_ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: pnpm-workspace.yaml is not part of the update
+        run: |
+          if git diff --name-only "origin/$BASE_REF"...HEAD | grep -qx "pnpm-workspace.yaml"; then
+            echo "::error title=Politique pnpm modifiée::Cette mise à jour de dépendances modifie pnpm-workspace.yaml. La politique de chaîne d'approvisionnement n'est jamais écrite par une mise à jour automatique."
+            exit 1
+          fi
+          echo "pnpm-workspace.yaml intact."

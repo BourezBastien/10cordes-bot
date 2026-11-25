@@ -79,15 +79,26 @@ async function main(): Promise<void> {
   });
 
   // Qui appelle process.exit ? Les morts silencieuses (exit 1 sans trace) de
-  // 2026-11-16 demandent l'appelant exact.
+  // 2026-11-16 demandent l'appelant exact. Une sortie sans erreur reste
+  // inhabituelle (l'extinction propre du framework en appelle une) : elle se
+  // dit, sans passer pour une panne.
   const originalExit = process.exit.bind(process);
   process.exit = ((code?: number) => {
-    logger.error(`process.exit(${code ?? 0}) appelé\n${new Error('exit caller').stack}`);
+    const caller = new Error('exit caller').stack;
+    if (code === 0 || code === undefined) logger.info(`process.exit(0) appelé\n${caller}`);
+    else logger.error(`process.exit(${code}) appelé\n${caller}`);
     return originalExit(code);
   }) as typeof process.exit;
 
+  // SIGTERM et SIGINT sont l'arrêt demandé (docker stop, Ctrl+C) : le
+  // framework éteint proprement, la vidange se dit de son côté. Les autres
+  // signaux restent une anomalie, avec l'appelant.
   for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGBREAK'] as const) {
     process.on(signal, () => {
+      if (signal === 'SIGTERM' || signal === 'SIGINT') {
+        logger.warn(`Signal ${signal} reçu : extinction`);
+        return;
+      }
       logger.error(`Signal ${signal} reçu\n${new Error('signal caller').stack}`);
     });
   }
@@ -97,7 +108,7 @@ async function main(): Promise<void> {
 
   // R1c : PURGE des slash commands résiduelles. Le framework n'inscrit rien
   // avec 0 commande mais ne purge JAMAIS les anciennes inscrites côté
-  // Discord — on vide explicitement (global + chaque guild), idempotent.
+  // Discord : on vide explicitement (global + chaque guild), idempotent.
   const client = (app as unknown as { state?: { client?: import('discord.js').Client } }).state?.client;
   if (client?.application) {
     try {

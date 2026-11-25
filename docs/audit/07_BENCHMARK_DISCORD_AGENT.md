@@ -6,6 +6,8 @@
 
 **Limites** : `node_modules` y est absent. Le comportement interne du SDK (AI SDK v7, discord.js 14.28.1) n'a pas été lu dans les sources installées ; trois points ont été recoupés dans la documentation en ligne et sont signalés. Les comptes d'outils viennent d'un recoupement des tables de règles par recherche textuelle, pas d'une exécution.
 
+**Mise à jour du 25/11/2026** : le dépôt en est à `4fea724` (huit commits plus loin : approbation de toute écriture Discord, résumé du plan écrit par le modèle). L'état de 10cordes-bot décrit ici est celui du Lot 1. Deux points ont changé depuis, et sont corrigés dans le texte : l'investigation (silence total depuis le commit `200773c`) et le traitement des erreurs de fournisseur (refroidissement par modèle, voir l'audit 08).
+
 Chaque fait cite son fichier (`src/` implicite) et sa ligne.
 
 ## 1. Ce qu'est `discord-agent`
@@ -159,7 +161,7 @@ Trois tables sur cinq sont mortes, et quatre des cinq causes de l'énumération 
 | Retour arrière | aucun, arrêt au premier échec | instantané du serveur avant le premier tool structurel | instantané du serveur avant le plan entier |
 | Lecture des salons | filtrée à ce que le demandeur voit | `getChannels` rend tous les salons du bot | filtrée par `ChannelVisibilityPolicy` |
 | Hiérarchie des cibles | membres et rôles, pas la voix | non | membres et rôles, à la validation d'un plan |
-| Investigation | silencieuse par construction | chaque tool raconté dans la ligne de statut | les lectures de recherche se taisent, une ligne unique |
+| Investigation | silencieuse par construction | chaque tool raconté dans la ligne de statut | silence total depuis `200773c` : rien n'est publié entre l'acceptation et la réponse |
 | Sources | liens Markdown intégrés, jamais d'URL nue | sources non citées sauf demande | inchangé, avec la mise en forme quand elles sont demandées |
 | Mémoire, compétences | tables mortes | fiches consolidées, 135 recettes, apprentissage | inchangé |
 | Règles de serveur | aucune en code | `GuildRule` : zones, mention stricte, confirmation, salons muets | inchangé |
@@ -176,7 +178,7 @@ Trois tables sur cinq sont mortes, et quatre des cinq causes de l'énumération 
 4. **Porte fermée par défaut.** Règles du serveur illisibles : l'action destructrice reste bloquée. Avant, la porte s'ouvrait.
 5. **Visibilité des salons** (`ChannelVisibilityPolicy`). `getChannels` ne rend que les salons que le demandeur voit.
 6. **Hiérarchie** (`MemberPermissionPolicy`). Agir sur une cible, gérer un rôle, accorder une permission, permission dans un salon.
-7. **Investigation silencieuse** (`assistant/investigation.policy.ts`). Une ligne unique `[SOURCES]` à la première lecture de recherche, puis rien.
+7. **Investigation silencieuse.** Livré dans un premier temps comme une ligne `[SOURCES]` unique à la première lecture de recherche (`assistant/investigation.policy.ts`). Remplacé le 24/11 par le silence total (`200773c`) : ce fichier n'existe plus, l'indicateur « écrit » est la seule trace visible, et `ctx.progress` ne va que dans le journal.
 8. **Deux règles de prompt** : réponse de recherche dès la première phrase, sources en liens intégrés quand elles sont demandées ; approbation par plan sans confirmation par message.
 
 **Adapté plutôt que copié :**
@@ -190,7 +192,7 @@ Trois tables sur cinq sont mortes, et quatre des cinq causes de l'énumération 
 
 - Un outil par tour et une réponse par outil : notre boucle streame la réponse, l'utilisateur voit le texte venir.
 - `toolChoice: "required"` : chez nous, la synthèse forcée au plafond a causé l'incident de 20:09.
-- Le cron de quota : nous avons les erreurs typées par fournisseur et un fournisseur de repli.
+- Le cron de quota : nous avons les erreurs typées par fournisseur, un fournisseur de repli et, depuis le Lot 3, un refroidissement par modèle (audit 08).
 - La catégorie AGENTS sans restriction : elle n'est codée nulle part là-bas, et nos règles de serveur sont en code.
 - Le filtrage de tous les résultats de lecture : appliqué à `getChannels` seul dans ce chantier.
 
@@ -201,3 +203,5 @@ Trois tables sur cinq sont mortes, et quatre des cinq causes de l'énumération 
 - **Hiérarchie de la voix** : les outils vocaux ne vérifient pas la position de la cible, ni là-bas (`discord-permissions.ts:336-350`) ni ici.
 - **Plans en pause.** Un plan en attente n'est pas affiché tant que la demande n'est pas finie : une demande très longue retarde d'autant le panneau.
 - **Panels d'approbation expirés.** Les boutons restent visibles après 15 minutes, comme à l'origine. Le clic répond alors « expiré ».
+
+Les pratiques d'ingénierie (chaîne d'intégration, refroidissement des modèles, journal des décisions, corrections de mémoire, extinction) sont traitées dans l'audit 08.

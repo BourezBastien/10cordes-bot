@@ -5,6 +5,7 @@ import { ProviderViewSchema } from '@10cordes/shared';
 import { SessionGuard } from '../../auth/guards/session.guard';
 import { GuildAccessGuard } from '../../auth/guards/guild-access.guard';
 import { ProviderHealthService } from '../providers/provider-health.service';
+import { InMemoryModelCooldownStore, modelKey } from '../providers/model-cooldown.store';
 import type { ProviderInput } from '../providers/provider-store.service';
 import type { ProviderConfig, ProviderModel } from '../providers/provider.types';
 import { apiHarness, declaredRoutes, request } from './controller.test-support';
@@ -113,9 +114,10 @@ function mount(store = fakeStore()) {
   const health = new ProviderHealthService();
   const audit = { record: vi.fn() };
   const registry = { resolve: vi.fn(() => adapter) };
-  const controller = new ProvidersController(store as never, registry as never, health, audit as never);
+  const cooldowns = new InMemoryModelCooldownStore();
+  const controller = new ProvidersController(store as never, registry as never, health, audit as never, cooldowns);
   const app = apiHarness(new Map()).serve(controller);
-  return { app, store, health, audit, registry };
+  return { app, store, health, audit, registry, cooldowns };
 }
 
 beforeEach(() => {
@@ -127,7 +129,7 @@ beforeEach(() => {
 
 describe('ProvidersController · routes', () => {
   it('declare huit routes, chacune sous la session puis l\u0027accès au serveur', () => {
-    const routes = declaredRoutes(new ProvidersController(fakeStore() as never, { resolve: vi.fn() } as never, new ProviderHealthService(), { record: vi.fn() } as never), [SessionGuard, GuildAccessGuard]);
+    const routes = declaredRoutes(new ProvidersController(fakeStore() as never, { resolve: vi.fn() } as never, new ProviderHealthService(), { record: vi.fn() } as never, new InMemoryModelCooldownStore()), [SessionGuard, GuildAccessGuard]);
     expect(routes.map((route) => `${route.method} ${route.path}`)).toEqual([
       'GET /api/v1/guilds/:guildId/providers',
       'POST /api/v1/guilds/:guildId/providers',
@@ -263,12 +265,25 @@ describe('ProvidersController · contrôle de connexion', () => {
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'provider.tested', source: 'api', actorId: USER, metadata: { providerId: 'provider-1', slug: 'openrouter', ok: false, modelsFound: 0 } }));
   });
 
-  it('un contrôle réussi découvre le catalogue et passe la santé en actif', async () => {
+  it('un contrôle réussi découvre le catalogue, passe la santé en actif, et lève le refroidissement des modèles', async () => {
     adapter.testConnection.mockResolvedValue({ ok: true, summary: 'Connecté.', modelsFound: 1 });
     adapter.discoverModels.mockResolvedValue([MODEL]);
-    const { app, store } = mount();
+    const { app, store, cooldowns } = mount();
+    // Le modèle refroidit (un 429 reçu plus tôt) : le contrôle qui passe en est la preuve du contraire.
+    const key = modelKey(GUILD, 'provider-1', MODEL.id);
+    await cooldowns.set(key, { reason: 'no_credits', reroute: false, until: Date.now() + 60_000, error: new Error('Crédits épuisés.') });
     const reply = await request(app, 'POST', `${BASE}/providers/provider-1/test`);
-    expect(reply.body).toMatchObject({ ok: true, modelsFound: 1, status: { state: 'active' } });
+    expect(reply.body).toMatchObject({ ok: true, modelsFound: 1, status: { state: 'active', cooldownUntil: null } });
     expect(store.saveModels).toHaveBeenCalledWith(GUILD, 'provider-1', [MODEL]);
+    expect(await cooldowns.get(key)).toBeNull();
+  });
+
+  it('un contrôle qui échoue laisse le refroidissement des modèles tel quel', async () => {
+    adapter.testConnection.mockResolvedValue({ ok: false, summary: 'Clé refusée.' });
+    const { app, cooldowns } = mount();
+    const key = modelKey(GUILD, 'provider-1', MODEL.id);
+    await cooldowns.set(key, { reason: 'rate_limited', reroute: true, until: Date.now() + 60_000, error: new Error('LLM 429.') });
+    expect((await request(app, 'POST', `${BASE}/providers/provider-1/test`)).status).toBe(200);
+    expect(await cooldowns.get(key)).not.toBeNull();
   });
 });

@@ -50,6 +50,15 @@ describe('toolMatchScore', () => {
   it('sans mots-clés ni mot commun, le score est nul', () => {
     expect(toolMatchScore(panel, ['météo'])).toBe(0);
   });
+
+  it('un outil sans mots-clés se note par son nom et ses textes seulement', () => {
+    const bare = { ...panel, keywords: undefined };
+    expect(toolMatchScore(bare, ['panneaux'])).toBe(0);
+    expect(toolMatchScore(bare, ['build'])).toBe(3);
+    expect(toolMatchScore(bare, ['interface'])).toBe(1);
+    // Le nom et les textes se cumulent : `test.build` vaut son nom, plus sa catégorie.
+    expect(toolMatchScore(bare, ['test'])).toBe(4);
+  });
 });
 
 describe('rankTools', () => {

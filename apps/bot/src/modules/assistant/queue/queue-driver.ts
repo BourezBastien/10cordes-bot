@@ -15,5 +15,12 @@ export interface QueueDriver {
   process(handler: (job: AgentJobData) => Promise<void>): Promise<void>;
   /** Compteurs d'état pour l'observabilité. */
   counts(): Promise<QueueCounts>;
+  /** Demandes en traitement, tout de suite. */
+  activeCount(): number;
+  /**
+   * Extinction : plus aucun job n'est pris ; ceux en traitement finissent et
+   * sont attendus (sans délai propre : l'appelant en met un). BullMQ garde en
+   * Redis les jobs en attente, pour le démarrage suivant ; la mémoire les perd.
+   */
   close(): Promise<void>;
 }

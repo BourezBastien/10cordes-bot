@@ -73,8 +73,9 @@ pnpm start        # production run (from apps/bot)
 | `PORT` | no | `3000` | HTTP server port |
 | `HTTP_HOST` | no | `127.0.0.1` | Bind address. `0.0.0.0` in Docker |
 | `HTTP_API_KEY` | no | (none) | Key of the `/healthz` probe alone (header `x-api-key`). The dashboard API authenticates by session |
+| `SHUTDOWN_GRACE_MS` | no | `20000` | Time given to the requests in flight at shutdown (SIGTERM, `docker stop`), 5 min at most. Keep it below `stop_grace_period` of compose |
 | `DASHBOARD_ORIGIN` | no | `http://localhost:5173` | Origins allowed for the dashboard, comma separated (CORS, origin check of writes, login). The first one carries the Discord login callback |
-| `DASHBOARD_DIST_DIR` | no | (none) | Folder of the compiled dashboard (`../dashboard/dist`): the bot then serves it on its own origin |
+| `DASHBOARD_DIST_DIR` | no | (none) | Folder of the compiled dashboard (`apps/dashboard/dist`): the bot then serves it on its own origin. A relative path is resolved from the working directory, the repo root and `apps/bot` |
 | `BETTER_AUTH_SECRET` | no | (none) | Min 32 chars, required for the dashboard login. Also derives the master key of the database secrets |
 | `DISCORD_CLIENT_ID` | no | (none) | Discord OAuth client ID of the bot (dashboard login) |
 | `DISCORD_CLIENT_SECRET` | no | (none) | Discord OAuth client secret (dashboard login) |
@@ -107,13 +108,15 @@ apps/bot/src/
     assistant/               Agent: gate, AgentLoop (12 iter + synthesis),
                              SystemPromptBuilder (XML + SERVER_RULES),
                              streaming SSE, typing indicator,
-                             one final delivery (ReplyDelivery)
+                             one final delivery (ReplyDelivery),
+                             decision journal (one row per request)
     surface/                 Generic engine: renderer, surface:act/select/modal
                              handlers, triggers (BullMQ), event-router (10 events)
     rules/                   GuildRule store + tools (zones, confirmation, mute)
     integrations/            Instance configuration (AES-GCM) + Presenter + handlers
     providers/               Multi-provider engine: adapters (4 protocols), registry,
-                             store, CapabilityRouterService (fallback), hub panel,
+                             store, CapabilityRouterService (fallback, cooldown
+                             per model), hub panel,
                              tools provider.* / capability.* / providers.panel
     agent/                   Discord tools, 135 SkillBlueprint, skill service
     api/                     Dashboard API: providers, capabilities, integrations,
@@ -121,8 +124,9 @@ apps/bot/src/
                              common policy (cache, origin check, CSP)
     webhooks/                Outgoing HTTP connectors (tool webhook.call)
     usage/                   Model calls counted per server
+    health/                  /healthz probe, graceful shutdown (drain, then close)
     records/                 Typed store (Zod collections)
-    memory/                  Profiles + curator + opt-out + ingestion
+    memory/                  Profiles + curator + corrections that hold + opt-out
     moderation/ logging/ ... Technical modules
 packages/shared/             Zod schemas, BotTool<T>, SkillBlueprint types, dashboard contract
 apps/dashboard/              Web dashboard (React 19, Vite 8, TanStack Router, Tailwind 4)
@@ -140,6 +144,17 @@ apps/dashboard/              Web dashboard (React 19, Vite 8, TanStack Router, T
 Everything is logged to structured JSONL files:
 - `logs/bot-YYYY-MM-DD.jsonl`: every event (gate decisions, tool calls, surfaces, triggers, errors)
 - `logs/llm.jsonl`: every LLM call (cause, model, tokens, latency, success)
+
+The table `agent_decisions` holds one row per request the model handles, on Discord and from the dashboard: intent and what signalled it, whether it reasoned, turns, tools and failures, outcome, the steps and the summary of each tool result, tokens and duration. Never the message of the requester, never the input of a tool. Rows are purged after 14 days.
+
+## Tests and CI
+
+```bash
+pnpm test            # every workspace; packages/shared is measured and fails under 80 % coverage
+pnpm verify          # lint, typecheck, tests, build, module and tool registries, architecture audit
+```
+
+CI runs `verify`, then two more jobs: `secrets` scans the whole git history with gitleaks (pinned binary, digest checked, redacted report), and `dependencies` refuses a Dependabot pull request that touches `pnpm-workspace.yaml`, the supply-chain policy. Dependabot opens grouped minor and patch updates once a week on `develop`.
 
 ```bash
 node scripts/diagnose.mjs        # Today's summary: top errors, LLM p95, slowest tools
@@ -171,6 +186,8 @@ docker compose up -d
 ```
 
 The Dockerfile builds the Spraxium bundle, copies config, and runs the compiled bot. `HTTP_HOST=0.0.0.0` is set by compose.
+
+The image carries a `HEALTHCHECK` on `/healthz` (200 when everything is up, 503 as soon as a component is missing or a shutdown has begun; it reads `HTTP_API_KEY` from the environment of the container when one is set). On `docker stop` the bot drains instead of being cut: the probe turns to 503, the dashboard's live streams are closed, the queue stops taking requests and finishes the ones being processed, the database is closed last. `SHUTDOWN_GRACE_MS` (20 s) bounds the drain and stays below the 30 s `stop_grace_period` of compose.
 
 ## Monorepo structure
 

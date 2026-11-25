@@ -6,7 +6,7 @@ import type { IntegrationService } from '../integrations/integration.service';
 import type { ResolvedRoute } from '../providers/provider-store.service';
 import { ProviderError, type ProviderConfig } from '../providers/provider.types';
 import { NOT_CONFIGURED_MESSAGE } from './llm-endpoint';
-import { ProviderAuthError, isFallbackWorthy } from './llm.errors';
+import { ProviderAuthError, QuotaExhaustedError, isFallbackWorthy } from './llm.errors';
 import { LlmService } from './llm.service';
 import { detectRequestIntent } from './request-intent';
 
@@ -85,13 +85,16 @@ function bridge(run: (turn: { onDelta?: (text: string) => void }) => Promise<voi
   } as unknown as AbstractProviderAdapter & { chat: ReturnType<typeof vi.fn> };
 }
 
-/** Essais d'une route : fournisseur principal, puis repli. */
+/** Essais d'une route : fournisseur principal, puis repli. Aucun n'y refroidit, sauf réglage d'une épreuve. */
 function attemptsOf(target: ResolvedRoute | null, adapters: AbstractProviderAdapter[]) {
   return target
     ? [target.provider, ...(target.fallback ? [target.fallback.provider] : [])].map((candidate, index) => ({
         provider: candidate,
         modelId: index === 0 ? target.modelId : target.fallback?.modelId ?? '',
         adapter: adapters[index] ?? adapters[0] ?? ({} as AbstractProviderAdapter),
+        key: `${target.provider.guildId}:${candidate.id}:${index === 0 ? target.modelId : target.fallback?.modelId ?? ''}`,
+        backup: index > 0,
+        cooldown: null,
       }))
     : [];
 }
@@ -104,13 +107,23 @@ interface Instance {
 
 const INSTANCE: Instance = { config: { baseUrl: 'https://instance.example.test', apiKey: `${KEY}-instance`, model: 'instance-model' }, source: 'db' };
 
-function harness(options: { route?: ResolvedRoute | null; reasoning?: ResolvedRoute; adapters?: AbstractProviderAdapter[]; env?: Record<string, string>; mode?: 'adaptive' | 'always' | 'off'; instance?: Instance } = {}) {
+function harness(options: { route?: ResolvedRoute | null; reasoning?: ResolvedRoute; adapters?: AbstractProviderAdapter[]; env?: Record<string, string>; mode?: 'adaptive' | 'always' | 'off'; instance?: Instance; cooling?: 'primary' | 'backup' | 'both'; coolingError?: Error } = {}) {
   const active = options.route ?? null;
   const adapters = options.adapters ?? [];
   // Comme CapabilityRouterService : la requête qui raisonne prend la route chat.reasoning du serveur, sinon chat.default.
   const router = {
     chatEndpoint: vi.fn(async (_guildId: string | null, _cause: string, preferReasoning: boolean) => (preferReasoning ? options.reasoning : null) ?? active),
-    attemptsOf: vi.fn((target: ResolvedRoute | null = active) => attemptsOf(target, adapters)),
+    // Le routeur réel lit le refroidissement ; ici une tentative refroidit quand l'épreuve le demande (model-cooldown.policy décide de la règle).
+    attemptsOf: vi.fn(async (target: ResolvedRoute | null = active) => {
+      const failure = options.coolingError ?? new ProviderError('HTTP 429', 'rate-limit', 429);
+      return attemptsOf(target, adapters).map((attempt, index) =>
+        (options.cooling === 'both' || (options.cooling === 'primary' && index === 0) || (options.cooling === 'backup' && index > 0))
+          ? { ...attempt, cooldown: { reason: 'rate_limited', reroute: isFallbackWorthy(failure), until: Date.now() + 60_000, error: failure } }
+          : attempt,
+      );
+    }),
+    noteSuccess: vi.fn(async (_attempt: unknown) => undefined),
+    noteFailure: vi.fn(async (_attempt: unknown, _error: unknown, _transient?: boolean) => undefined),
     noteFallback: vi.fn(),
     reconcileInstance: vi.fn(async () => ({ checked: 0, updated: 0 })),
   };
@@ -121,10 +134,9 @@ function harness(options: { route?: ResolvedRoute | null; reasoning?: ResolvedRo
   };
   const registry = { register: vi.fn() };
   const settings = { get: vi.fn(async () => ({ thinkingMode: options.mode ?? 'adaptive' })) };
-  // Santé des fournisseurs : ce que le service en retient est lisible dans `health.record`.
-  const health = { record: vi.fn() };
-  const service = new LlmService(env, registry as never, {} as never, {} as never, integrations as unknown as IntegrationService, router as never, settings as never, health as never);
-  return { service, router, integrations, registry, settings, health };
+  // Santé et refroidissement d'un modèle : ce que le service en retient passe par le routeur (`noteSuccess`, `noteFailure`).
+  const service = new LlmService(env, registry as never, {} as never, {} as never, integrations as unknown as IntegrationService, router as never, settings as never);
+  return { service, router, integrations, registry, settings };
 }
 
 const chatOptions = (overrides: Record<string, unknown> = {}) => ({ userId: ACTOR, guildId: GUILD, cause: 'reply' as const, reasoningEffort: null, preferReasoning: false, ...overrides });
@@ -168,7 +180,7 @@ describe('LlmService · modèle et fournisseur du tour', () => {
   it('une route qu\u0027aucun protocole ne peut servir est refusée avant tout appel', async () => {
     const fetchMock = serveByHost({});
     const { service, router } = harness({ route: route(provider('routed')) });
-    router.attemptsOf.mockReturnValue([]);
+    router.attemptsOf.mockResolvedValue([]);
     await expect(service.chat(messages(), [], chatOptions())).rejects.toThrow('ne sert pas la conversation');
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -212,6 +224,38 @@ describe('LlmService · repli sur le fournisseur de secours', () => {
     expect(isFallbackWorthy(failure)).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(router.noteFallback).not.toHaveBeenCalled();
+  });
+
+  it('un modèle principal refroidi n\u0027est pas appelé : le tour part au repli, sans requête vers lui', async () => {
+    const fetchMock = serveByHost({});
+    const active = route(provider('primary'), provider('backup'));
+    const { service, router } = harness({ route: active, cooling: 'primary' });
+    const result = await service.chat(messages(), [], chatOptions());
+    expect(fetchMock.mock.calls.map(([url]) => new URL(String(url)).host)).toEqual(['backup.example.test']);
+    expect(result.served).toMatchObject({ provider: 'backup', fallback: true });
+    expect(router.noteFallback).toHaveBeenCalledWith(active, expect.objectContaining({ slug: 'backup' }), ACTOR);
+    expect(router.noteSuccess).toHaveBeenCalledTimes(1);
+    expect(router.noteSuccess.mock.calls[0]?.[0]).toMatchObject({ backup: true });
+  });
+
+  it('un modèle refroidi pour un crédit épuisé échoue aussitôt, sans appel et sans bascule', async () => {
+    const fetchMock = serveByHost({});
+    const quota = new QuotaExhaustedError();
+    const { service, router } = harness({ route: route(provider('primary'), provider('backup')), cooling: 'primary', coolingError: quota });
+    await expect(service.chat(messages(), [], chatOptions())).rejects.toBe(quota);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(router.noteFallback).not.toHaveBeenCalled();
+  });
+
+  it('l\u0027issue d\u0027un appel réel revient au routeur : l\u0027échec avec sa lecture de panne passagère, puis le succès du repli', async () => {
+    serveByHost({ 'primary.example.test': 429 });
+    const { service, router } = harness({ route: route(provider('primary'), provider('backup')) });
+    await service.chat(messages(), [], chatOptions());
+    expect(router.noteFailure).toHaveBeenCalledTimes(1);
+    expect(router.noteFailure.mock.calls[0]?.[0]).toMatchObject({ backup: false, modelId: 'primary-model' });
+    expect(router.noteFailure.mock.calls[0]?.[2]).toBe(true);
+    expect(router.noteSuccess).toHaveBeenCalledTimes(1);
+    expect(router.noteSuccess.mock.calls[0]?.[0]).toMatchObject({ backup: true, modelId: 'backup-model' });
   });
 
   it('pas de bascule une fois du texte publié : la réponse ne serait plus cohérente', async () => {

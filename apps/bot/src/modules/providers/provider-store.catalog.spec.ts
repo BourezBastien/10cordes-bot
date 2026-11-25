@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fakeDb } from '../../test/fake-db';
 import { mergeCatalog } from './provider-store.json';
 import { GuildProviderService } from './provider-store.service';
+import { InMemoryModelCooldownStore } from './model-cooldown.store';
 import { ProviderError } from './provider.types';
 import type { ProviderModel } from './provider.types';
 
@@ -21,7 +22,7 @@ const SECRETS = { token: 'x', ENCRYPTION_SECRET: KEY } as never;
 function harness() {
   const db = fakeDb();
   const audit = { record: vi.fn() };
-  const store = new GuildProviderService(db as never, audit as never, SECRETS);
+  const store = new GuildProviderService(db as never, audit as never, SECRETS, new InMemoryModelCooldownStore());
   return { db, audit, store, catalog: store.catalog };
 }
 

@@ -45,6 +45,7 @@ describe('servingModels', () => {
     models: [
       { id: 'chat-1', name: null, kinds: ['chat'], contextWindow: null, maxOutput: null, origin: 'discovered' },
       { id: 'image-1', name: null, kinds: ['image'], contextWindow: null, maxOutput: null, origin: 'discovered' },
+      { id: 'search-1', name: null, kinds: ['search'], contextWindow: null, maxOutput: null, origin: 'discovered' },
     ],
   });
 
@@ -53,8 +54,12 @@ describe('servingModels', () => {
     expect(servingModels(provider.models, 'chat.default').map((model) => model.id)).toEqual(['chat-1']);
   });
 
+  it('la recherche web est une capacité native : seuls les modèles de recherche la servent', () => {
+    expect(servingModels(provider.models, 'web.search').map((model) => model.id)).toEqual(['search-1']);
+  });
+
   it('rend tout pour une capacité custom, la route décide', () => {
-    expect(servingModels(provider.models, 'custom.traduction')).toHaveLength(2);
+    expect(servingModels(provider.models, 'custom.traduction')).toHaveLength(3);
   });
 });
 

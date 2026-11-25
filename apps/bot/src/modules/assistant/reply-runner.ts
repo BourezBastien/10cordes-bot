@@ -4,6 +4,7 @@ import type { AuditService } from '../audit/audit.service';
 import type { CacheStoreService } from '../../shared/cache/cache-store.service';
 import { describeError, stackExcerpt } from '../../shared/utils/error-stack';
 import { fileLog } from '../logging/file-log.service';
+import type { AgentDecisionRecorder } from './agent-decision.recorder';
 import type { AgentLoopService } from './agent-loop.service';
 import { archiveServerSnapshot, requiresServerSnapshot } from './agent-history';
 import type { ConversationContext } from './conversation-context';
@@ -22,6 +23,13 @@ export interface ReplyRunOutcome {
   /** Nombre d'appels LLM de la demande. */
   turns: number;
   error: Error | null;
+  /** Le raisonnement a-t-il été demandé pour cette demande (décidé une fois), et avec quel effort. */
+  reasoning: boolean;
+  effort: string | null;
+  /** Vrai si les crédits du fournisseur étaient épuisés (402). */
+  quotaExhausted: boolean;
+  /** Vrai si le tour final de conclusion a servi (plafond d'itérations atteint). */
+  forcedSummary: boolean;
 }
 
 export interface ReplyRunnerDeps {
@@ -35,13 +43,14 @@ export interface ReplyRunnerDeps {
 /**
  * Exécute la boucle LLM + tools d'une demande et OBSERVE son déroulement :
  * instantané avant le premier tool structurel, audit de chaque tool (ok: true
- * est le seul succès), apprentissage des patterns. Rien ne s'affiche pendant
- * le traitement. Ne décide jamais de ce qui est livré au salon.
+ * est le seul succès), apprentissage des patterns, et résultats des tools
+ * portés au journal des décisions quand un enregistreur est donné. Rien ne
+ * s'affiche pendant le traitement. Ne décide jamais de ce qui est livré au salon.
  */
 export class AgentReplyRunner {
   constructor(private readonly deps: ReplyRunnerDeps) {}
 
-  async run(conversation: ConversationContext): Promise<ReplyRunOutcome> {
+  async run(conversation: ConversationContext, decision?: Pick<AgentDecisionRecorder, 'step'>): Promise<ReplyRunOutcome> {
     const { guild, request, requestId, session, toolset, runContext, messages } = conversation;
     const { loop, llm, audit, patterns, cacheStore } = this.deps;
     const outcome: ReplyRunOutcome = {
@@ -50,12 +59,18 @@ export class AgentReplyRunner {
       usage: { promptTokens: 0, completionTokens: 0 },
       turns: 0,
       error: null,
+      reasoning: false,
+      effort: null,
+      quotaExhausted: false,
+      forcedSummary: false,
     };
     let snapshotTaken = false;
 
     // THINKING STABLE : l'effort et le modèle (capacité de conversation) se
     // décident ICI, une seule fois, et restent identiques sur tous les tours.
     const plan = await llm.planRequest({ userId: request.userId, guildId: guild.id, cause: 'reply' }, conversation.intent.action);
+    outcome.reasoning = plan.preferReasoning;
+    outcome.effort = plan.reasoningEffort;
 
     const loopOutcome = await loop
       .run(messages, toolset, runContext, { userId: request.userId, guildId: guild.id, requestId, ...plan }, {
@@ -79,6 +94,7 @@ export class AgentReplyRunner {
         },
         onToolResult: (name, result) => {
           const resultData = result.data as { preState?: Record<string, unknown> } | undefined;
+          decision?.step(name, result);
           audit.record({
             guildId: guild.id,
             source: 'agent',
@@ -120,6 +136,8 @@ export class AgentReplyRunner {
       outcome.usage.promptTokens += loopOutcome.usage.promptTokens;
       outcome.usage.completionTokens += loopOutcome.usage.completionTokens;
       outcome.turns = loopOutcome.turns;
+      outcome.quotaExhausted = Boolean(loopOutcome.quotaExhausted);
+      outcome.forcedSummary = Boolean(loopOutcome.forcedSummary);
       if (loopOutcome.quotaExhausted) {
         outcome.error = new QuotaExhaustedError();
       }

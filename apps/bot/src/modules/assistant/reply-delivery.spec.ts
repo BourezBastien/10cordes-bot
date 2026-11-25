@@ -42,7 +42,7 @@ function harness() {
   return { audit, responseCache, delivery };
 }
 
-const run = (overrides: Partial<ReplyRunOutcome> = {}): ReplyRunOutcome => ({ finalText: 'Voilà.', executed: [], usage: { promptTokens: 3, completionTokens: 2 }, turns: 1, error: null, ...overrides });
+const run = (overrides: Partial<ReplyRunOutcome> = {}): ReplyRunOutcome => ({ finalText: 'Voilà.', executed: [], usage: { promptTokens: 3, completionTokens: 2 }, turns: 1, error: null, reasoning: false, effort: null, quotaExhausted: false, forcedSummary: false, ...overrides });
 
 const addressed = { reply: { messageReference: MESSAGE, failIfNotExists: false } };
 

@@ -5,6 +5,7 @@ import { PrismaService } from '../database/prisma.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { permissionNamesPolicy } from '../../core/security/permission-names.policy';
 import { MemoryCuratorService, type ConsolidationResult } from './memory-curator.service';
+import { CORRECTIONS_MAX, correctionLine } from './memory-correction.matcher';
 
 const MAX_ENTRIES = 200;
 
@@ -35,9 +36,10 @@ export class MemoryService implements SpraxiumOnBoot {
     return row !== null;
   }
 
-  /** R0.5 : purge complète + opt-out. Retourne le décompte supprimé. */
+  /** R0.5 : purge complète + opt-out. Retourne le décompte supprimé (les corrections du membre partent aussi). */
   async forgetMember(guildId: string, userId: string): Promise<{ entries: number; profiles: number }> {
     const entries = await this.prisma.memberMemory.deleteMany({ where: { guildId, userId } });
+    const corrections = await this.prisma.memoryCorrection.deleteMany({ where: { guildId, userId } }).catch(() => ({ count: 0 }));
     const profiles = await this.prisma.memberMemoryProfile.deleteMany({ where: { guildId, userId } }).catch(() => ({ count: 0 }));
     await this.prisma.memoryOptOut.upsert({
       where: { userId_guildId: { userId, guildId } },
@@ -46,7 +48,7 @@ export class MemoryService implements SpraxiumOnBoot {
     }).catch(() => {
       /* contrainte composite éventuelle : id simple */
     });
-    return { entries: entries.count, profiles: profiles.count };
+    return { entries: entries.count + corrections.count, profiles: profiles.count };
   }
 
   private forgetTool(): BotTool {
@@ -119,9 +121,10 @@ export class MemoryService implements SpraxiumOnBoot {
     return this.curator.getMemberProfile(guildId, userId);
   }
 
+  /** Entrées du journal encore lisibles : celles qu'une correction n'a pas périmées. */
   async listGuild(guildId: string, limit = 25): Promise<string[]> {
     const rows = await this.prisma.guildMemory.findMany({
-      where: { guildId },
+      where: { guildId, supersededAt: null },
       orderBy: { createdAt: 'desc' },
       take: Math.min(limit, 100),
     });
@@ -130,11 +133,25 @@ export class MemoryService implements SpraxiumOnBoot {
 
   async listMember(guildId: string, userId: string, limit = 15): Promise<string[]> {
     const rows = await this.prisma.memberMemory.findMany({
-      where: { guildId, userId },
+      where: { guildId, userId, supersededAt: null },
       orderBy: { createdAt: 'desc' },
       take: Math.min(limit, 50),
     });
     return rows.map((row) => `[${row.kind}] ${row.content}`);
+  }
+
+  /** Les corrections actives d'une fiche (le serveur, ou un membre), mises en forme : elles priment sur le journal et sur la fiche. */
+  async correctionsOf(guildId: string, userId: string | null): Promise<string[]> {
+    const rows = await this.prisma.memoryCorrection
+      .findMany({ where: { guildId, userId, supersededAt: null }, orderBy: { createdAt: 'desc' }, take: CORRECTIONS_MAX })
+      .catch(() => []);
+    return rows.map(correctionLine);
+  }
+
+  /** Les corrections à injecter dans le prompt : celles du serveur, et celles des membres lus. */
+  async correctionLines(guildId: string, memberIds: readonly string[]): Promise<{ guild: string[]; members: Map<string, string[]> }> {
+    const [guild, ...members] = await Promise.all([this.correctionsOf(guildId, null), ...memberIds.map((id) => this.correctionsOf(guildId, id))]);
+    return { guild, members: new Map(memberIds.map((id, index) => [id, members[index] ?? []])) };
   }
 
   private buildTools(): BotTool[] {
@@ -165,7 +182,7 @@ export class MemoryService implements SpraxiumOnBoot {
         permissions: ['ManageGuild'],
         destructive: false,
         systemPrompt:
-          'Sauvegarde spontanément les infos durables apprises sur le serveur (hiérarchie, règles, habitudes, projets, style). Une correction = un NOUVEL ajout, jamais une suppression.',
+          'Sauvegarde spontanément les infos durables apprises sur le serveur (hiérarchie, règles, habitudes, projets, style). Si le fait en CORRIGE un autre, appelle memory.correct (scope server) : un simple ajout laisserait l\u0027ancien fait.',
         handler: async (input, ctx) => {
           if (!guildOnly(ctx)) return { ok: false, summary: 'Contexte de serveur requis.' };
           const { content, kind } = input as { content: string; kind?: string };
@@ -191,15 +208,15 @@ export class MemoryService implements SpraxiumOnBoot {
         handler: async (input, ctx) => {
           if (!guildOnly(ctx)) return { ok: false, summary: 'Contexte de serveur requis.' };
           const { limit } = input as { limit?: number };
-          const profile = await this.getGuildProfile(ctx.guildId);
-          const memories = await this.listGuild(ctx.guildId, limit ?? 20);
+          const [profile, memories, corrections] = await Promise.all([this.getGuildProfile(ctx.guildId), this.listGuild(ctx.guildId, limit ?? 20), this.correctionsOf(ctx.guildId, null)]);
           const parts: string[] = [];
+          if (corrections.length > 0) parts.push(`Faits corrigés (ils priment) : ${corrections.join(' | ')}`);
           if (profile) parts.push(`Fiche consolidée : ${profile}`);
           parts.push(memories.length > 0 ? memories.join(' | ') : 'Aucun souvenir brut.');
           return {
             ok: true,
             summary: parts.join('\n'),
-            data: { profile, memories },
+            data: { profile, memories, corrections },
           };
         },
       },
@@ -216,7 +233,7 @@ export class MemoryService implements SpraxiumOnBoot {
         permissions: ['ManageGuild'],
         destructive: false,
         systemPrompt:
-          'Enregistre spontanément les infos personnelles durables que les membres partagent (préférences, projets, in-jokes).',
+          'Enregistre spontanément les infos personnelles durables que les membres partagent (préférences, projets, in-jokes). Si le fait en CORRIGE un autre sur ce membre, appelle memory.correct : un simple ajout laisserait l\u0027ancien fait.',
         handler: async (input, ctx) => {
           if (!guildOnly(ctx)) return { ok: false, summary: 'Contexte de serveur requis.' };
           const { userId, content, kind } = input as { userId: string; content: string; kind?: string };
@@ -245,15 +262,19 @@ export class MemoryService implements SpraxiumOnBoot {
         handler: async (input, ctx) => {
           if (!guildOnly(ctx)) return { ok: false, summary: 'Contexte de serveur requis.' };
           const { userId, limit } = input as { userId: string; limit?: number };
-          const profile = await this.getMemberProfile(ctx.guildId, userId);
-          const memories = await this.listMember(ctx.guildId, userId, limit ?? 10);
+          const [profile, memories, corrections] = await Promise.all([
+            this.getMemberProfile(ctx.guildId, userId),
+            this.listMember(ctx.guildId, userId, limit ?? 10),
+            this.correctionsOf(ctx.guildId, userId),
+          ]);
           const parts: string[] = [`<@${userId}> :`];
+          if (corrections.length > 0) parts.push(`Faits corrigés (ils priment) : ${corrections.join(' | ')}`);
           if (profile) parts.push(`Fiche consolidée : ${profile}`);
           parts.push(memories.length > 0 ? memories.join(' | ') : 'Aucun souvenir brut.');
           return {
             ok: true,
             summary: parts.join('\n'),
-            data: { profile, memories },
+            data: { profile, memories, corrections },
           };
         },
       },

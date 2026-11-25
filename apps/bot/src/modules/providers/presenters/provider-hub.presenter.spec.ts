@@ -174,13 +174,16 @@ describe('ProviderHubPresenter · menu des modèles', () => {
     const multimodal: ProviderModel[] = [
       { id: 'vendor/painter', kind: 'chat', kinds: ['chat', 'image'] },
       { id: 'gpt-4o', kind: 'chat' },
+      { id: 'sonar', kind: 'chat', kinds: ['chat', 'search'] },
     ];
     const models = (selectedCapability: ProviderHubView['selectedCapability']) =>
-      menu(render(view({ providers: [provider({ catalog: multimodal, models: 2 })], selectedCapability })), PROVIDER_HUB_IDS.model).options?.map((option) => option.value);
+      menu(render(view({ providers: [provider({ catalog: multimodal, models: 3 })], selectedCapability })), PROVIDER_HUB_IDS.model).options?.map((option) => option.value);
     // Dans l'ordre du catalogue.
     expect(models('image.generate')).toEqual(['vendor/painter']);
-    expect(models('chat.default')).toEqual(['vendor/painter', 'gpt-4o']);
-    expect(models('custom.kie-image')).toEqual(['vendor/painter', 'gpt-4o']);
+    expect(models('chat.default')).toEqual(['vendor/painter', 'gpt-4o', 'sonar']);
+    // La recherche web est une capacité native, pas une capacité libre : seuls les modèles qui la servent.
+    expect(models('web.search')).toEqual(['sonar']);
+    expect(models('custom.kie-image')).toEqual(['vendor/painter', 'gpt-4o', 'sonar']);
   });
 
   it('le modèle de la route courante est présélectionné, avec sa famille et sa fenêtre de contexte', () => {

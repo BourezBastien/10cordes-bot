@@ -205,15 +205,16 @@ export class GuildsController {
     return { entries, page, pageSize: AUDIT_PAGE_SIZE, total, pages: Math.max(1, Math.ceil(total / AUDIT_PAGE_SIZE)) };
   }
 
-  /** Mémoires persistantes : serveur + membres. */
+  /** Mémoires persistantes : serveur + membres, et les corrections (elles priment ; le journal garde ses entrées périmées, marquées). */
   @HttpGet('/:guildId/memories')
   @HttpGuards(SessionGuard, GuildAccessGuard)
   async listMemories(@HttpParam('guildId') guildId: string): Promise<unknown> {
-    const [guild, members] = await Promise.all([
+    const [guild, members, corrections] = await Promise.all([
       this.prisma.guildMemory.findMany({ where: { guildId }, orderBy: { createdAt: 'desc' } }),
       this.prisma.memberMemory.findMany({ where: { guildId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.memoryCorrection.findMany({ where: { guildId }, orderBy: { createdAt: 'desc' } }),
     ]);
-    return { guild, members };
+    return { guild, members, corrections };
   }
 
   /** Statistiques : audit par jour, top XP, cases modération par action. */

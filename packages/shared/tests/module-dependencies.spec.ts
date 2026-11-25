@@ -7,12 +7,12 @@ import {
 } from '../src/index.js';
 
 const catalog: ModuleDescriptor[] = [
-  { id: 'economy', label: 'Economy', description: '', commands: [], dependsOn: [] },
-  { id: 'shop', label: 'Shop', description: '', commands: [], dependsOn: ['economy'] },
-  { id: 'scoreboard', label: 'Scoreboard', description: '', commands: [], dependsOn: ['economy'] },
-  { id: 'levels', label: 'Levels', description: '', commands: [], dependsOn: [] },
-  { id: 'role-rewards', label: 'Role rewards', description: '', commands: [], dependsOn: ['levels'] },
-  { id: 'gear', label: 'Gear', description: '', commands: [], dependsOn: ['shop', 'levels'] },
+  { id: 'economy', label: 'Economy', description: '', dependsOn: [] },
+  { id: 'shop', label: 'Shop', description: '', dependsOn: ['economy'] },
+  { id: 'scoreboard', label: 'Scoreboard', description: '', dependsOn: ['economy'] },
+  { id: 'levels', label: 'Levels', description: '', dependsOn: [] },
+  { id: 'role-rewards', label: 'Role rewards', description: '', dependsOn: ['levels'] },
+  { id: 'gear', label: 'Gear', description: '', dependsOn: ['shop', 'levels'] },
 ];
 
 describe('missingDependencies', () => {
@@ -50,7 +50,7 @@ describe('analyzeDisableCascade', () => {
   it('keeps the whole protected chain required by another active module', () => {
     const catalogWithStats: ModuleDescriptor[] = [
       ...catalog,
-      { id: 'stats', label: 'Stats', description: '', commands: [], dependsOn: ['gear'] },
+      { id: 'stats', label: 'Stats', description: '', dependsOn: ['gear'] },
     ];
     const active = new Set(['economy', 'shop', 'scoreboard', 'levels', 'gear', 'stats']);
     const cascade = analyzeDisableCascade(catalogWithStats, active, 'economy');
@@ -71,5 +71,46 @@ describe('analyzeDisableCascade', () => {
     const cascade = analyzeDisableCascade(catalog, new Set(['levels', 'role-rewards']), 'role-rewards');
     expect(cascade.toDisable).toEqual([]);
     expect(cascade.kept).toEqual([]);
+  });
+});
+
+describe('cas limites', () => {
+  const diamond: ModuleDescriptor[] = [
+    { id: 'top', label: 'Top', description: '', dependsOn: ['left', 'right'] },
+    { id: 'left', label: 'Left', description: '', dependsOn: ['base'] },
+    { id: 'right', label: 'Right', description: '', dependsOn: ['base'] },
+    { id: 'base', label: 'Base', description: '', dependsOn: [] },
+  ];
+
+  it('un module absent du catalogue n\u0027a rien à activer', () => {
+    expect(missingDependencies(catalog, new Set(), 'ghost')).toEqual([]);
+    expect(dependenciesToEnable(catalog, new Set(), 'ghost')).toEqual([]);
+  });
+
+  it('une dépendance absente du catalogue n\u0027arrête pas le parcours', () => {
+    const orphan: ModuleDescriptor[] = [
+      { id: 'orphan', label: 'Orphan', description: '', dependsOn: ['phantom'] },
+      { id: 'child', label: 'Child', description: '', dependsOn: ['orphan'] },
+    ];
+    // État actuel, pas une garantie : la dépendance inconnue figure dans la liste.
+    expect(dependenciesToEnable(orphan, new Set(), 'child')).toEqual(['phantom', 'orphan']);
+    expect(missingDependencies(orphan, new Set(['orphan', 'phantom']), 'child')).toEqual([]);
+  });
+
+  it('une dépendance commune à deux branches n\u0027est activée qu\u0027une fois, au fond', () => {
+    expect(dependenciesToEnable(diamond, new Set(), 'top')).toEqual(['base', 'left', 'right']);
+  });
+
+  it('un cycle entre deux modules s\u0027arrête, sans doublon', () => {
+    const cycle: ModuleDescriptor[] = [
+      { id: 'yin', label: 'Yin', description: '', dependsOn: ['yang'] },
+      { id: 'yang', label: 'Yang', description: '', dependsOn: ['yin'] },
+    ];
+    expect(dependenciesToEnable(cycle, new Set(), 'yin')).toEqual(['yang']);
+  });
+
+  it('les modules actifs absents du catalogue sont ignorés, et la cible n\u0027est jamais conservée', () => {
+    const cascade = analyzeDisableCascade(catalog, new Set(['economy', 'shop', 'ghost']), 'economy');
+    expect(cascade).toEqual({ target: 'economy', toDisable: ['shop'], kept: [] });
   });
 });

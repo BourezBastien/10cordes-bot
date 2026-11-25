@@ -8,7 +8,6 @@ import { GuildConfigService } from '../guild-config/guild-config.service';
 import { AgentSettingsService } from '../guild-config/agent-settings.service';
 import { IntegrationService } from '../integrations/integration.service';
 import { CapabilityRouterService } from '../providers/capability-router.service';
-import { ProviderHealthService } from '../providers/provider-health.service';
 import { ProviderError } from '../providers/provider.types';
 import { setLlmAccessor } from './llm.accessor';
 import { isFallbackWorthy, LlmFormatLeakError } from './llm.errors';
@@ -75,7 +74,6 @@ export class LlmService implements SpraxiumOnBoot {
     private readonly integrations: IntegrationService,
     private readonly router: CapabilityRouterService,
     agentSettings: AgentSettingsService,
-    private readonly health: ProviderHealthService,
   ) {
     this.effortPlanner = new ReasoningEffortPlanner({ env, agentSettings, baseUrl: () => this.baseUrl });
     this.endpoints = new ChatEndpointPlanner({ router, legacy: () => ({ baseUrl: this.baseUrl, apiKey: this.apiKey, model: this.model }) });
@@ -233,7 +231,9 @@ export class LlmService implements SpraxiumOnBoot {
   /**
    * Un tour de conversation : le fournisseur principal de la route, puis son
    * repli si l'erreur y invite (429, 5xx, délai) et qu'aucun texte n'a été
-   * publié. Sans route (configuration d'instance), une seule tentative.
+   * publié. Sans route (configuration d'instance), une seule tentative. Un
+   * modèle refroidi n'est pas appelé : l'issue est celle de l'appel qui l'a
+   * refroidi, et le repli suit la même règle.
    */
   private async runTurn(
     messages: ChatMessage[],
@@ -248,22 +248,26 @@ export class LlmService implements SpraxiumOnBoot {
       const result = await this.transport.send(planned, { ...turn, messages, tools, options }, callbacks);
       return { ...result, served: { provider: 'instance', model: planned.model, fallback: false, capability: options.cause } };
     }
-    const attempts = this.router.attemptsOf(planned.route);
+    const attempts = await this.router.attemptsOf(planned.route);
     if (attempts.length === 0) {
       throw new ProviderError(`${planned.route.provider.slug} (${planned.route.provider.protocol}) ne sert pas la conversation.`, 'unsupported');
     }
+    const lastAttempt = attempts.length - 1;
     for (const [index, attempt] of attempts.entries()) {
+      const last = index === lastAttempt;
+      if (attempt.cooldown) {
+        if (last || published() || !isFallbackWorthy(attempt.cooldown.error)) throw attempt.cooldown.error;
+        continue;
+      }
       const endpoint = this.endpoints.forProvider(attempt.provider, attempt.modelId, planned.route, attempt.adapter);
-      const onBackup = index > 0;
       try {
         const result = await this.transport.send(endpoint, { ...turn, messages, tools, options }, callbacks);
-        this.health.record(attempt.provider.guildId, attempt.provider.id, { ok: true });
-        if (onBackup) this.router.noteFallback(planned.route, attempt.provider, options.userId);
-        return { ...result, served: { provider: attempt.provider.slug, model: endpoint.model, fallback: onBackup, capability: planned.route?.capability } };
+        await this.router.noteSuccess(attempt);
+        if (attempt.backup) this.router.noteFallback(planned.route, attempt.provider, options.userId);
+        return { ...result, served: { provider: attempt.provider.slug, model: endpoint.model, fallback: attempt.backup, capability: planned.route?.capability } };
       } catch (error) {
-        // Santé du fournisseur : l'erreur du tour dit si la panne est passagère (même lecture que la bascule sur le repli).
-        this.health.record(attempt.provider.guildId, attempt.provider.id, { ok: false, error, transient: isFallbackWorthy(error), secret: attempt.provider.apiKey });
-        const last = index === attempts.length - 1;
+        // Santé et refroidissement du modèle : l'erreur du tour dit si la panne est passagère (même lecture que la bascule sur le repli).
+        await this.router.noteFailure(attempt, error, isFallbackWorthy(error));
         if (last || published() || !isFallbackWorthy(error)) throw error;
         log.warn(`fournisseur principal en échec pour « ${planned.route.capability} » (${attempt.provider.slug}) : bascule sur le repli`);
       }

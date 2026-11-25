@@ -25,6 +25,9 @@ import { GuildIntegrationService } from '../integrations/guild-integration.servi
 import { imageEnginesLine } from '../providers/image-engines';
 import { CapabilityRouterService } from '../providers/capability-router.service';
 import { RequestProgressService } from './request-progress.service';
+import { AgentDecisionJournal } from './agent-decision.journal';
+import { outcomeOf } from './agent-decision.recorder';
+import { ShutdownService } from '../health/shutdown.service';
 
 const RATE_LIMIT_MS = 4_000;
 const MAX_MESSAGE_LENGTH = 2_000;
@@ -62,6 +65,8 @@ export class WebAgentService {
     private readonly router: CapabilityRouterService,
     private readonly integrations: GuildIntegrationService,
     private readonly progress: RequestProgressService,
+    private readonly decisions: AgentDecisionJournal,
+    private readonly shutdown: ShutdownService,
   ) {}
 
   /**
@@ -69,8 +74,15 @@ export class WebAgentService {
    * le panel a choisi pour suivre les étapes de SA demande pendant qu'elle
    * tourne (lecture par `agent/requests/:requestId`) ; sans lui, la demande
    * garde un identifiant interne et rien n'est suivi.
+   *
+   * Une conversation commencée est suivie : l'extinction l'attend, dans son
+   * délai de grâce, au lieu de la couper.
    */
   async chat(guildId: string, discordUserId: string, message: string, clientRequestId?: string): Promise<WebChatResult> {
+    return this.shutdown.track(this.converse(guildId, discordUserId, message, clientRequestId));
+  }
+
+  private async converse(guildId: string, discordUserId: string, message: string, clientRequestId?: string): Promise<WebChatResult> {
     const trimmed = message.trim();
     if (trimmed.length === 0) throw new Error('Message vide.');
     if (trimmed.length > MAX_MESSAGE_LENGTH) throw new Error('Message trop long (2000 caractères max).');
@@ -99,6 +111,8 @@ export class WebAgentService {
       : null;
 
     const locale = 'fr';
+    // Journal des décisions : même enregistrement que sur Discord.
+    const decision = this.decisions.begin({ guildId, requestId, source: 'web', actorId: discordUserId, channelId: channel?.id ?? null });
     const tools = await this.registry.listForGuild(guildId);
     // Même routing que Discord : noyau + pertinents, catalogue joignable via
     // search_tools (expansion dynamique dans AgentLoop).
@@ -107,7 +121,7 @@ export class WebAgentService {
     const openAiTools: OpenAiTool[] = relevant.map((tool) => byName.get(tool.name)!);
     const toolset = { active: openAiTools, byName };
 
-    const [guildProfile, memberProfile, recentActions, skillTriggers, serverRules] = await Promise.all([
+    const [guildProfile, memberProfile, recentActions, skillTriggers, serverRules, corrections] = await Promise.all([
       this.memory.getGuildProfile(guildId).catch(() => null),
       this.memory.getMemberProfile(guildId, discordUserId).catch(() => null),
       fetchRecentActions(this.prisma, guildId, 12).catch(() => [] as string[]),
@@ -115,9 +129,18 @@ export class WebAgentService {
         .then((skills) => skills.map((skill) => `${skill.id} | ${skill.trigger}`))
         .catch(() => [] as string[]),
       this.guildRules.describeForPrompt(guildId).catch(() => [] as string[]),
+      this.memory.correctionLines(guildId, [discordUserId]).catch(() => null),
     ]);
-    const guildMemories = guildProfile ? [`Fiche serveur consolidée : ${guildProfile}`] : [];
-    const memberMemories = memberProfile ? [`Fiche du membre (consolidée) : ${memberProfile}`] : [];
+    // Les corrections priment sur les fiches : l'agent ne doit plus dire un fait corrigé.
+    const ownCorrections = corrections?.members.get(discordUserId) ?? [];
+    const guildMemories = [
+      ...(guildProfile ? [`Fiche serveur consolidée : ${guildProfile}`] : []),
+      ...(corrections && corrections.guild.length > 0 ? [`Faits corrigés sur le serveur (ils priment sur sa fiche) :\n${corrections.guild.join('\n')}`] : []),
+    ];
+    const memberMemories = [
+      ...(memberProfile ? [`Fiche du membre (consolidée) : ${memberProfile}`] : []),
+      ...(ownCorrections.length > 0 ? [`Faits corrigés sur le demandeur (ils priment sur sa fiche) :\n${ownCorrections.join('\n')}`] : []),
+    ];
 
     const transcript = channel
       ? await channel.messages
@@ -166,19 +189,20 @@ export class WebAgentService {
       reply: async () => {
         /* Le web collecte lui-même : pas d'envoi Discord pour ctx.reply. */
       },
+      progress: async (text) => decision.note(text),
     };
 
     const executed: WebChatResult['tools'] = [];
     const note = (name: string, result: { ok: boolean; summary: string }): void => {
       const summary = result.summary.slice(0, TOOL_SUMMARY_MAX);
       executed.push({ name, ok: result.ok, summary });
+      decision.step(name, { ok: result.ok, summary });
       if (tracked) this.progress.record(guildId, requestId, { name, ok: result.ok, summary });
     };
     // THINKING STABLE : l'effort et le modèle se décident une fois, avant le premier tour.
-    const plan = await this.llm.planRequest(
-      { userId: discordUserId, guildId, cause: 'web' },
-      detectRequestIntent(trimmed, relevant, skillTriggers).action,
-    );
+    const intent = detectRequestIntent(trimmed, relevant, skillTriggers);
+    const plan = await this.llm.planRequest({ userId: discordUserId, guildId, cause: 'web' }, intent.action);
+    let loopFailure: unknown = null;
     const outcome = await this.loop
       .run(messages, toolset, ctx, { userId: discordUserId, guildId, requestId, ...plan }, {
         cause: 'web',
@@ -186,10 +210,23 @@ export class WebAgentService {
         onToolResult: note,
       })
       .catch((error: unknown) => {
+        loopFailure = error;
         this.log.warn(`chat web erreur : ${error instanceof Error ? error.message : String(error)}`);
         fileLog()?.event('error', 'loop', 'loop.error', { requestId, guildId, error: describeError(error), stack: stackExcerpt(error) });
         return null;
       });
+    void this.decisions.record(
+      guildId,
+      decision.finish({
+        intent,
+        reasoning: plan.preferReasoning,
+        effort: plan.reasoningEffort,
+        turns: outcome?.turns ?? 0,
+        usage: outcome?.usage ?? { promptTokens: 0, completionTokens: 0 },
+        outcome: outcome ? outcomeOf({ finalText: outcome.finalText, error: outcome.error, quotaExhausted: outcome.quotaExhausted, forcedSummary: outcome.forcedSummary }) : 'failed',
+        error: outcome ? outcome.error : loopFailure,
+      }),
+    );
     // La demande est finie pour le panel : réussie, ou en échec si la boucle n'a pas abouti.
     if (tracked) this.progress.finish(guildId, requestId, outcome ? 'done' : 'failed');
     // Fin de demande, comme sur Discord : les actions qui modifient, restées en attente,

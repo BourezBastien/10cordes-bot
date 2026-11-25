@@ -42,6 +42,8 @@ export class ProviderHttpError extends Error {
   constructor(
     public readonly status: number,
     detail: string,
+    /** En-têtes de la réponse : ils disent au refroidissement du modèle quand réessayer (`Retry-After`). */
+    public readonly headers?: Headers,
   ) {
     super(`LLM ${status}: ${detail.slice(0, 200)}`);
     this.name = 'ProviderHttpError';
@@ -64,8 +66,9 @@ export const QUOTA_EXHAUSTED_MESSAGE = 'IA désactivée : les crédits du fourni
 /**
  * Convertit une réponse HTTP en erreur du fournisseur. À appeler uniquement
  * sur un statut d'échec (le détail est tronqué : jamais de clé dans un log).
+ * La réponse entière peut être donnée : ses en-têtes accompagnent alors l'erreur.
  */
-export function throwProviderError(status: number, detail: string): never {
+export function throwProviderError(status: number, detail: string, response?: Response): never {
   if (status === 402 || detail.includes('insufficient_balance')) {
     throw new QuotaExhaustedError();
   }
@@ -75,7 +78,7 @@ export function throwProviderError(status: number, detail: string): never {
   if (status >= 500) {
     throw new ProviderUnavailableError();
   }
-  throw new ProviderHttpError(status, detail);
+  throw new ProviderHttpError(status, detail, response?.headers);
 }
 
 /**

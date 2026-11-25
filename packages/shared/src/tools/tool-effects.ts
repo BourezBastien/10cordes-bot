@@ -117,6 +117,7 @@ export const TOOL_EFFECTS = {
   'member.trust': 'read',
   'members.export': 'read',
   'members.pickRandom': 'read',
+  'memory.correct': 'write',
   'memory.forget': 'write',
   'message.crosspost': 'write',
   'message.pin': 'write',
