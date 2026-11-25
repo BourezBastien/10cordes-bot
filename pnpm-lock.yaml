@@ -206,8 +206,8 @@ importers:
         specifier: ^0.9.0
         version: 0.9.0(@spraxium/common@0.9.0(discord.js@14.28.1))(@spraxium/core@0.9.0(discord.js@14.28.1))(@spraxium/logger@0.9.0)(discord.js@14.28.1)
       '@spraxium/i18n':
-        specifier: ^0.9.0
-        version: 0.9.0(@spraxium/common@0.9.0(discord.js@14.28.1))(@spraxium/components@0.9.0(@spraxium/common@0.9.0(discord.js@14.28.1))(@spraxium/core@0.9.0(discord.js@14.28.1))(ioredis@6.0.0))(@spraxium/core@0.9.0(discord.js@14.28.1))(@spraxium/logger@0.9.0)
+        specifier: ^2.0.2
+        version: 2.0.2(@spraxium/common@0.9.0(discord.js@14.28.1))(@spraxium/components@0.9.0(@spraxium/common@0.9.0(discord.js@14.28.1))(@spraxium/core@0.9.0(discord.js@14.28.1))(ioredis@6.0.0))(@spraxium/core@0.9.0(discord.js@14.28.1))(@spraxium/logger@0.9.0)
       '@spraxium/logger':
         specifier: ^0.9.0
         version: 0.9.0
@@ -1703,14 +1703,14 @@ packages:
       '@spraxium/logger': '*'
       discord.js: ^14.27.0
 
-  '@spraxium/i18n@0.9.0':
-    resolution: {integrity: sha512-HolE5k85tEWWUQXJaT8qqZIK3l+8SoG2aKEvcsKASroiE42eUl+WHgm9fMJViJ8mMyDf8DRk2hwN6sDSlC8Uzg==}
+  '@spraxium/i18n@2.0.2':
+    resolution: {integrity: sha512-8GznoBmmaTbKmx4Ua7InrlE8Ru1mY9RmFzn+XpfaUzF1MTOjJKaUAN7Ww1mZ6ex3JoJ4AF5Cr5cTwqYtqnRVhQ==}
     engines: {node: ^22.23.4 || ^24.22.1 || ^26.12.1}
     peerDependencies:
-      '@spraxium/common': 0.9.0
-      '@spraxium/components': 0.9.0
-      '@spraxium/core': 0.9.0
-      '@spraxium/logger': 0.9.0
+      '@spraxium/common': 0.3.2
+      '@spraxium/components': 1.0.2
+      '@spraxium/core': 0.3.2
+      '@spraxium/logger': 0.3.2
     peerDependenciesMeta:
       '@spraxium/components':
         optional: true
@@ -5963,7 +5963,7 @@ snapshots:
       reflect-metadata: 0.2.2
       zod: 4.6.7
 
-  '@spraxium/i18n@0.9.0(@spraxium/common@0.9.0(discord.js@14.28.1))(@spraxium/components@0.9.0(@spraxium/common@0.9.0(discord.js@14.28.1))(@spraxium/core@0.9.0(discord.js@14.28.1))(ioredis@6.0.0))(@spraxium/core@0.9.0(discord.js@14.28.1))(@spraxium/logger@0.9.0)':
+  '@spraxium/i18n@2.0.2(@spraxium/common@0.9.0(discord.js@14.28.1))(@spraxium/components@0.9.0(@spraxium/common@0.9.0(discord.js@14.28.1))(@spraxium/core@0.9.0(discord.js@14.28.1))(ioredis@6.0.0))(@spraxium/core@0.9.0(discord.js@14.28.1))(@spraxium/logger@0.9.0)':
     dependencies:
       '@spraxium/common': 0.9.0(discord.js@14.28.1)
       '@spraxium/core': 0.9.0(discord.js@14.28.1)
