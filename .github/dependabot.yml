@@ -23,14 +23,12 @@ updates:
           - minor
           - patch
     ignore:
-      # Le framework a aligné sa numérotation sur 0.9.x le 9 novembre 2026 : ses 1.0.x et
-      # 2.0.x sont PLUS ANCIENS que 0.9.x, et attendent @spraxium/logger@0.3.x (une seconde
-      # copie du logger à côté de celle du projet). Les PR #4 et #6 du 25/11/2026 étaient
-      # ces régressions, à CI verte. À retirer quand une vraie 1.x sortira.
-      - dependency-name: "@spraxium/components"
-        update-types:
-          - version-update:semver-major
-      - dependency-name: "@spraxium/i18n"
+      # Le framework a aligné sa numérotation sur 0.9.x le 9 novembre 2026 : ses 1.0.x
+      # et 2.0.x sont PLUS ANCIENS que 0.9.x, et attendent @spraxium/logger@0.3.x (une
+      # seconde copie du logger à côté de celle du projet). Les PR #4, #6 et #10 du
+      # 25/11/2026 étaient ces régressions, à CI verte. Les versions mineures et
+      # correctives (0.9.1) restent proposées. À retirer quand une vraie 1.x sortira.
+      - dependency-name: "@spraxium/*"
         update-types:
           - version-update:semver-major
 
