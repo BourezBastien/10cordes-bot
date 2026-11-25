@@ -18,7 +18,7 @@
     "@10cordes/shared": "workspace:*",
     "@discordjs/voice": "^0.19.2",
     "@napi-rs/canvas": "^1.2.0",
-    "@prisma/client": "^6.19.3",
+    "@prisma/client": "^7.10.1",
     "@spraxium/common": "^0.9.0",
     "@spraxium/components": "^0.9.0",
     "@spraxium/core": "^0.9.0",
