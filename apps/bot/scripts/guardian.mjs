@@ -11,7 +11,7 @@
  *  3. Redis : `docker exec <container> redis-cli ping` (avertissement si KO,
  *     la queue bascule déjà en mémoire toute seule).
  *  4. Audit : erreurs assistant sur les 35 dernières minutes + fraîcheur.
- *  5. Sonde interne GET /healthz (DB, queue, gateway) — aucun message Discord :
+ *  5. Sonde interne GET /healthz (DB, queue, gateway), aucun message Discord :
  *     la surveillance est silencieuse, les incidents sont notifiés par
  *     HealthMonitor (alerte uniquement sur changement d'état).
  */
@@ -120,7 +120,8 @@ async function main() {
 
   // Prisma (audit + sonde) lit process.env : depuis .env ou la valeur par défaut du framework.
   const env = loadEnv();
-  process.env.DATABASE_URL ??= env.DATABASE_URL ?? 'file:../data/bot.db';
+  // L'adresse est relative à apps/bot (la règle du bot : src/modules/database/database-url.ts).
+  process.env.DATABASE_URL ??= env.DATABASE_URL ?? 'file:./data/bot.db';
 
   // 1-2. Process bot : vivant sinon relance.
   let alive = await botAlive();
@@ -147,8 +148,8 @@ async function main() {
   say('CHECK', `redis : ${await checkRedis()}`);
 
   // 4. Audit : erreurs récentes + fraîcheur des réponses.
-  const { PrismaClient } = await import('@prisma/client');
-  const prisma = new PrismaClient();
+  const { createDatabaseClient } = await import('../src/modules/database/database-client.ts');
+  const prisma = createDatabaseClient(process.env.DATABASE_URL);
   let lastReplyAt = null;
   try {
     const window = new Date(Date.now() - 35 * 60 * 1_000);
@@ -181,10 +182,10 @@ async function main() {
     await prisma.$disconnect();
   }
 
-  // 5. Sonde interne : GET /healthz — état DB, queue, gateway. AUCUN message
+  // 5. Sonde interne : GET /healthz (état DB, queue, gateway). AUCUN message
   // Discord : la surveillance ne spam pas le salon. Les incidents sont de
   // toute façon notifiés en continu par HealthMonitor (alerte sur changement).
-  // 5. Sonde interne : GET /healthz — état DB, queue, gateway. AUCUN message
+  // 5. Sonde interne : GET /healthz (état DB, queue, gateway). AUCUN message
   // Discord : la surveillance ne spam pas le salon. Les incidents sont de
   // toute façon notifiés en continu par HealthMonitor (alerte sur changement).
   // La sonde E2E (webhook -> réponse de l'agent) ne tourne que sur le serveur

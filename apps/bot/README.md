@@ -29,7 +29,7 @@ relit `spraxium.config.ts` et l'import ESM nu échoue.
 | Variable | Requise | Défaut | Description |
 |---|---|---|---|
 | `DISCORD_TOKEN` | **OUI** | (aucun) | Token du bot (portail développeur) |
-| `DATABASE_URL` | non | `file:../data/bot.db` | SQLite local ou PostgreSQL |
+| `DATABASE_URL` | non | `file:./data/bot.db` | Base SQLite, adresse relative à `apps/bot` (le bot refuse de démarrer sur un fichier absent : `pnpm exec prisma migrate deploy` la crée) |
 | `REDIS_URL` | non | (vide = mémoire) | Queue durable + cache temps réel. `redis://redis:6379` en prod |
 | `PORT` | non | `3000` | Port du serveur HTTP |
 | `HTTP_HOST` | non | `127.0.0.1` | Bind HTTP. `0.0.0.0` en Docker |

@@ -15,4 +15,6 @@ export default await eslintConfig(
   { ignores: ['apps/bot/scripts/**/*.mjs'] },
   // Rapports de couverture générés par vitest (gitignorés, jamais sources).
   { ignores: ['**/coverage/**'] },
+  // Client Prisma généré (prisma generate) et données locales du bot (base, journaux, sauvegardes).
+  { ignores: ['apps/bot/generated/**', 'apps/bot/data/**', 'apps/bot/logs/**'] },
 );

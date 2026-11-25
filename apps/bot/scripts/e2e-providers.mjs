@@ -55,7 +55,8 @@ if (!token) {
   console.error('[FAIL] DISCORD_TOKEN absent');
   process.exit(1);
 }
-process.env.DATABASE_URL ??= env.DATABASE_URL ?? 'file:../data/bot.db';
+// L'adresse est relative à apps/bot (la règle du bot : src/modules/database/database-url.ts).
+process.env.DATABASE_URL ??= env.DATABASE_URL ?? 'file:./data/bot.db';
 
 async function rest(path, init) {
   const res = await fetch(`${API}${path}`, {
@@ -240,8 +241,8 @@ async function main() {
   if (!guildId || !(await rest('/users/@me/guilds')).some((guild) => guild.id === guildId)) {
     throw new Error(`E2E_GUILD_ID=${guildId ?? '(absent)'} : bot absent du serveur`);
   }
-  const { PrismaClient } = await import('@prisma/client');
-  prisma = new PrismaClient();
+  const { createDatabaseClient } = await import('../src/modules/database/database-client.ts');
+  prisma = createDatabaseClient(process.env.DATABASE_URL);
 
   let original;
   try {

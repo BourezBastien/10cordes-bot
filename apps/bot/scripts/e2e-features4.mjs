@@ -38,7 +38,8 @@ if (!token) {
   console.error('[FAIL] DISCORD_TOKEN absent');
   process.exit(1);
 }
-process.env.DATABASE_URL ??= env.DATABASE_URL ?? 'file:../data/bot.db';
+// L'adresse est relative à apps/bot (la règle du bot : src/modules/database/database-url.ts).
+process.env.DATABASE_URL ??= env.DATABASE_URL ?? 'file:./data/bot.db';
 
 async function rest(path, init) {
   const res = await fetch(`${API}${path}`, {
@@ -53,8 +54,8 @@ async function rest(path, init) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function newAuditSince(since) {
-  const { PrismaClient } = await import('@prisma/client');
-  const prisma = new PrismaClient();
+  const { createDatabaseClient } = await import('../src/modules/database/database-client.ts');
+  const prisma = createDatabaseClient(process.env.DATABASE_URL);
   try {
     return await prisma.auditLog.findMany({
       where: { createdAt: { gt: since } },
@@ -93,8 +94,8 @@ async function main() {
   }
   const guildId = devGuild.id;
 
-  const { PrismaClient } = await import('@prisma/client');
-  const prisma = new PrismaClient();
+  const { createDatabaseClient } = await import('../src/modules/database/database-client.ts');
+  const prisma = createDatabaseClient(process.env.DATABASE_URL);
   let channelId;
   try {
     const g = await prisma.guild.findUnique({ where: { id: guildId }, select: { settings: true } });
@@ -171,7 +172,7 @@ async function main() {
       layoutMessageId = panel?.id ?? null;
       // La définition persistée (InteractiveSurface.definition) doit porter
       // le pipeline runTool : c'est ça qui survit aux redémarrages.
-      const p = new PrismaClient();
+      const p = createDatabaseClient(process.env.DATABASE_URL);
       try {
         const row = await p.interactiveSurface.findFirst({
           where: { guildId, channelId },
@@ -219,8 +220,8 @@ async function main() {
     } else {
       // 3b. Deux votes écrits directement en base (le clic exige une vraie
       // interaction Discord, non simulable en REST) avec le messageId EXACT.
-      const { PrismaClient } = await import('@prisma/client');
-      const prismaVote = new PrismaClient();
+      const { createDatabaseClient } = await import('../src/modules/database/database-client.ts');
+      const prismaVote = createDatabaseClient(process.env.DATABASE_URL);
       try {
         await prismaVote.agentRecord.createMany({
           data: [
@@ -255,8 +256,8 @@ async function main() {
       "Crée un enregistrement dans la collection counters : un compteur nommé « e2e-compteur » avec value 0, via records.create. Réponds juste fait.",
       ['records.create'],
       async () => {
-        const prismaCounter = (await import('@prisma/client')).PrismaClient;
-        const p = new prismaCounter();
+        const { createDatabaseClient } = await import('../src/modules/database/database-client.ts');
+        const p = createDatabaseClient(process.env.DATABASE_URL);
         try {
           const row = await p.agentRecord.findFirst({
             where: { guildId, collection: 'counters' },
@@ -285,8 +286,8 @@ async function main() {
     let deleted = false;
     for (let i = 0; i < 10 && (!created || !deleted); i++) {
       await sleep(3_000);
-      const { PrismaClient } = await import('@prisma/client');
-      const p = new PrismaClient();
+      const { createDatabaseClient } = await import('../src/modules/database/database-client.ts');
+      const p = createDatabaseClient(process.env.DATABASE_URL);
       try {
         if (!created) {
           created = (await p.auditLog.count({ where: { createdAt: { gt: before }, source: 'discord', action: 'channel.created' } })) > 0;

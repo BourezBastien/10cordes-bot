@@ -1,5 +1,5 @@
 /**
- * RIG PIVOT (Phase 2.4) — le cas démonstrateur du moteur générique :
+ * RIG PIVOT (Phase 2.4), le cas démonstrateur du moteur générique :
  * 1. surface.create par prompt : panel avec bouton « Relancer » ROUGE DISABLED
  * 2. trigger.schedule par prompt : once dans ~45s, condition state.claimedBy == null,
  *    step updateComponent → bouton VERT ACTIVÉ
@@ -39,7 +39,8 @@ if (env.E2E_ENABLED !== 'true') {
 }
 const token = env.DISCORD_TOKEN;
 if (!token) process.exit(1);
-process.env.DATABASE_URL ??= env.DATABASE_URL ?? 'file:../data/bot.db';
+// L'adresse est relative à apps/bot (la règle du bot : src/modules/database/database-url.ts).
+process.env.DATABASE_URL ??= env.DATABASE_URL ?? 'file:./data/bot.db';
 
 async function rest(path, init) {
   const res = await fetch(`${API}${path}`, {
@@ -54,8 +55,8 @@ async function rest(path, init) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function prisma(fn) {
-  const { PrismaClient } = await import('@prisma/client');
-  const p = new PrismaClient();
+  const { createDatabaseClient } = await import('../src/modules/database/database-client.ts');
+  const p = createDatabaseClient(process.env.DATABASE_URL);
   try {
     return await fn(p);
   } finally {
@@ -120,7 +121,7 @@ async function main() {
   const results = [];
   const verdict = (name, pass, note = '') => {
     results.push({ name, pass });
-    console.log(`[${pass ? 'PASS' : 'FAIL'}] ${name}${note ? ` — ${note}` : ''}`);
+    console.log(`[${pass ? 'PASS' : 'FAIL'}] ${name}${note ? ` : ${note}` : ''}`);
   };
 
   if (!only || only.includes('pivot.create')) {
@@ -170,12 +171,12 @@ async function main() {
     await sleep(3_000);
     // Le guardian relance le bot mais peut sortir non-zéro si son propre
     // healthz dépasse son délai interne (boot ~20-30 s) : son exit code n'est
-    // PAS le verdict — le vrai critère reste waitHealthz ci-dessous.
+    // PAS le verdict : le vrai critère reste waitHealthz ci-dessous.
     try {
       const guardian = execFileSync('node', ['scripts/guardian.mjs'], { cwd: BOT_DIR, detached: true, stdio: 'ignore' });
       void guardian;
     } catch {
-      console.log('[REBOOT] guardian sorti non-zéro, le bot a pu être relancé quand même — on attend healthz...');
+      console.log('[REBOOT] guardian sorti non-zéro, le bot a pu être relancé quand même : on attend healthz...');
     }
     const up = await waitHealthz();
     verdict('pivot.reboot', up, up ? 'bot de retour (healthz 200)' : 'healthz KO après reboot');

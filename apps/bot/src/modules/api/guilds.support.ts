@@ -1,5 +1,5 @@
 import { BadRequestError, TooManyRequestsError, ValidationError, type HttpError } from '@spraxium/http';
-import type { Prisma } from '@prisma/client';
+import type { Prisma } from '../../../generated/prisma/client';
 import { z } from 'zod';
 import { REQUEST_ID_PATTERN } from '../assistant/request-progress.service';
 

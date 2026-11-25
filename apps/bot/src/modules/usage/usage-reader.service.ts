@@ -8,8 +8,8 @@ const MODEL_TOP = 25;
 /** Étiquette d'un appel que ne dessert aucun modèle de la table (même mot que le journal des coûts). */
 const UNROUTED_MODEL = 'runtime';
 
-/** Un agrégat SQL : sur SQLite, COUNT et SUM reviennent en BigInt. */
-type Aggregate = bigint | number | null;
+/** Un agrégat SQL : avec Prisma 7 et l'adaptateur libsql, COUNT et SUM reviennent en nombres ; un BigInt reste admis. */
+type Aggregate = number | bigint | null;
 
 /** Un fournisseur et un modèle : ce qu'ils ont consommé sur la fenêtre. */
 interface ModelRow {
@@ -29,7 +29,7 @@ interface DayRow {
   tokens: Aggregate;
 }
 
-/** Nombre de la réponse : l'agrégat (souvent un BigInt) devient un nombre entier positif. */
+/** Nombre de la réponse : l'agrégat devient un nombre entier positif. */
 function toCount(value: Aggregate): number {
   const number = Number(value);
   return Number.isFinite(number) ? Math.max(0, Math.trunc(number)) : 0;

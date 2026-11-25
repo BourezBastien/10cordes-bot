@@ -10,6 +10,8 @@ output/
 .spraxium/
 data/
 *.tsbuildinfo
+# Client Prisma 7 généré (prisma generate), jamais commité.
+apps/bot/generated/
 
 # ── Environment & secrets (never commit) ─────────────────────
 .env

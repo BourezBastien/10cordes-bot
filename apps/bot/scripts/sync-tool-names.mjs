@@ -53,7 +53,9 @@ export type RegisteredToolName = (typeof REGISTERED_TOOL_NAMES)[number];
 `;
 
 if (process.argv.includes('--check')) {
-  const current = existsSync(SHARED_NAMES) ? readFileSync(SHARED_NAMES, 'utf8') : '';
+  // Un checkout peut rendre CRLF (`core.autocrlf`) : seules les lignes comptent,
+  // sinon le contrôle est rouge sur tout checkout frais sous Windows.
+  const current = existsSync(SHARED_NAMES) ? readFileSync(SHARED_NAMES, 'utf8').replace(/\r\n/g, '\n') : '';
   if (current !== body) {
     console.error(`[sync-tool-names] registry-names.ts est périmé (${sorted.length} tools détectés). Lance : node scripts/sync-tool-names.mjs`);
     process.exit(1);

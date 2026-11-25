@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PrismaService } from '../database/prisma.service';
 import { HealthController } from './health.controller';
 import { DEFAULT_SHUTDOWN_GRACE_MS, SHUTDOWN_GRACE_MAX_MS, ShutdownService, shutdownGraceMs } from './shutdown.service';
 import { awaitShutdownDrained, bindShutdown, trackForShutdown } from './shutdown.runtime';
@@ -8,9 +7,9 @@ import { awaitShutdownDrained, bindShutdown, trackForShutdown } from './shutdown
 /*
  * Extinction propre, et la sonde. Ce que fixent ces tests : la vidange ferme
  * les flux temps réel et la file, attend les travaux suivis dans un délai de
- * grâce, ne tourne qu'une fois ; la base attend la vidange avant de se
- * fermer ; la sonde rend 503 dès qu'un composant manque ou que l'extinction a
- * commencé.
+ * grâce, ne tourne qu'une fois ; la sonde rend 503 dès qu'un composant manque
+ * ou que l'extinction a commencé. La base (PrismaService) a sa propre spec,
+ * dans modules/database.
  */
 
 const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
@@ -114,27 +113,6 @@ describe('ShutdownService', () => {
     }) };
     const service = new ShutdownService({ SHUTDOWN_GRACE_MS: '200' } as never, queue as never, { closeAll: () => 0 } as never);
     await expect(service.onShutdown()).resolves.toBeUndefined();
-  });
-});
-
-describe('PrismaService · extinction', () => {
-  it('la base attend la fin de la vidange avant de se fermer', async () => {
-    const order: string[] = [];
-    bindShutdown({
-      isDraining: () => true,
-      track: (work) => work,
-      drained: async () => {
-        await tick();
-        order.push('vidange soldée');
-        return true;
-      },
-    });
-    const prisma = new PrismaService({ DATABASE_URL: 'file:../data/bot.db' } as never);
-    vi.spyOn(prisma, '$disconnect').mockImplementation(async () => {
-      order.push('base fermée');
-    });
-    await prisma.onShutdown();
-    expect(order).toEqual(['vidange soldée', 'base fermée']);
   });
 });
 
