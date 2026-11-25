@@ -35,12 +35,16 @@ import { LegalController } from './modules/api/legal.controller';
 import { MetaController } from './modules/api/meta.controller';
 import { HealthController } from './modules/health/health.controller';
 import { HealthMonitor } from './modules/health/health.monitor';
-import { ShutdownService } from './modules/health/shutdown.service';
+import { HealthModule } from './modules/health/health.module';
 import { ToolRegistryModule } from './modules/tool-registry/tool-registry.module';
 import { ActionPlanModule } from './modules/action-plan/action-plan.module';
 // Ordre d'importation obligatoire : ces deux modules globaux sont chargés par
 // ActionPlanModule et AssistantModule, qui injectent leurs services dès leur
 // chargement ; importés après eux, ils vaudraient « cannot resolve dependency ».
+// HealthModule, lui, vient EN DERNIER : son service d'extinction injecte la
+// file de l'assistant. Un service injecté par un contrôleur HTTP doit venir
+// d'un module global (le serveur construit les contrôleurs dans le conteneur
+// racine) : voir app.module.scopes.spec.ts.
 import { UsageModule } from './modules/usage/usage.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
 
@@ -115,6 +119,7 @@ import { UtilityModule } from './modules/utility/utility.module';
     GuildRulesModule,
     IntegrationModule,
     AssistantModule,
+    HealthModule,
   ],
   providers: [
     AuthController,
@@ -132,8 +137,6 @@ import { UtilityModule } from './modules/utility/utility.module';
     UsageController,
     WebhooksController,
     HealthMonitor,
-    // Extinction propre : vidange des demandes en cours au crochet d'extinction du framework.
-    ShutdownService,
   ],
 })
 export class AppModule {}
