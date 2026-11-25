@@ -83,8 +83,10 @@ jobs:
     # Une mise à jour automatique de dépendances ne touche jamais la politique
     # de chaîne d'approvisionnement de pnpm (builds autorisés, exceptions d'âge
     # minimum). pnpm peut l'écrire en résolvant une version trop récente : la
-    # PR est alors refusée, il faut la rouvrir après le délai.
-    if: github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'
+    # PR est alors refusée, il faut la rouvrir après le délai. Le job se
+    # déclenche sur l'AUTEUR de la PR : après une mise à jour de sa branche par
+    # un membre, l'acteur de l'événement n'est plus Dependabot.
+    if: github.event_name == 'pull_request' && (github.actor == 'dependabot[bot]' || github.event.pull_request.user.login == 'dependabot[bot]')
     name: Dépendances · politique pnpm intacte
     runs-on: ubuntu-latest
     env:
