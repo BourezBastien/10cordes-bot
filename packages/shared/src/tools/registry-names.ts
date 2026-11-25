@@ -175,6 +175,7 @@ export const REGISTERED_TOOL_NAMES = [
   'voice.skip',
   'voice.status',
   'voice.stop',
+  'webhook.call',
   'webhook.post',
 ] as const;
 

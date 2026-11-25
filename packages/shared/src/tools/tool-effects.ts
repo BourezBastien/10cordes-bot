@@ -191,6 +191,7 @@ export const TOOL_EFFECTS = {
   'voice.skip': 'write',
   'voice.status': 'read',
   'voice.stop': 'write',
+  'webhook.call': 'write',
   'webhook.post': 'write',
 } satisfies Record<RegisteredToolName, ToolEffect>;
 

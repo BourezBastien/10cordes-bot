@@ -1,73 +1,54 @@
-import { Link, Outlet, useMatchRoute, useParams } from '@tanstack/react-router';
-import { Home, Settings, Puzzle, ScrollText, Brain, BarChart3, MessageSquare, LogOut } from 'lucide-react';
+import { Link, Outlet, useParams } from '@tanstack/react-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Navigate } from '@tanstack/react-router';
-import { useSession, authClient } from '@/lib/auth';
-import { cn } from '@/lib/utils';
+import { Button } from '@/ds/button';
+import { Page } from '@/shell/page';
+import { EVENT_SCOPES, useGuildEvents } from '@/lib/events';
+import { ApiError } from '@/lib/api';
+import { useGuildSummary } from '@/shell/guild-summary';
+import { GuildProvider } from '@/shell/guild-context';
 
-const items = [
-  { to: '/g/$guildId', icon: Home, key: 'nav.home' },
-  { to: '/g/$guildId/config', icon: Settings, key: 'nav.config' },
-  { to: '/g/$guildId/modules', icon: Puzzle, key: 'nav.modules' },
-  { to: '/g/$guildId/audit', icon: ScrollText, key: 'nav.audit' },
-  { to: '/g/$guildId/memories', icon: Brain, key: 'nav.memories' },
-  { to: '/g/$guildId/stats', icon: BarChart3, key: 'nav.stats' },
-  { to: '/g/$guildId/agent', icon: MessageSquare, key: 'nav.agent' },
-] as const;
+/*
+ * COQUE D'UN SERVEUR. Elle lit la fiche du serveur, ouvre le flux temps réel
+ * (un événement relit la portée qu'il annonce) et fournit les deux à chaque
+ * page. Un serveur refusé (403) ou disparu (404) montre l'écran d'accès
+ * refusé plutôt qu'une page qui échoue.
+ */
+
+export function isAccessError(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 403 || error.status === 404);
+}
+
+export function ForbiddenPage() {
+  const { t } = useTranslation();
+  return (
+    <Page>
+      <div className="notched notch-danger bg-panel flex flex-col items-start gap-4 p-6">
+        <h1 className="text-xl">{t('forbidden.title')}</h1>
+        <p className="text-sm text-ink-soft">{t('forbidden.message')}</p>
+        <Link to="/guilds">
+          <Button size="sm">{t('forbidden.back')}</Button>
+        </Link>
+      </div>
+    </Page>
+  );
+}
 
 export function GuildLayout() {
-  const { t } = useTranslation();
-  const { data: session, isPending } = useSession();
-  const matchRoute = useMatchRoute();
-  const { guildId } = useParams({ from: '/g/$guildId' });
+  const { guildId } = useParams({ from: '/guilds/$guildId' });
+  const queryClient = useQueryClient();
+  const summary = useGuildSummary(guildId);
+  const live = useGuildEvents(guildId, (type) => {
+    void queryClient.invalidateQueries({ queryKey: ['guild', guildId, EVENT_SCOPES[type]] });
+    void queryClient.invalidateQueries({ queryKey: ['guild', guildId, 'home'] });
+  });
 
-  if (isPending) {
-    return <div className="grid h-full place-items-center text-ink-muted">{t('common.loading')}</div>;
-  }
-  if (!session) {
-    return <Navigate to="/login" />;
-  }
+  const data = summary.data;
+  const guild = data ? { id: guildId, name: data.name ?? guildId, icon: data.icon, memberCount: data.memberCount ?? 0 } : null;
 
   return (
-    <div className="flex h-full">
-      <aside className="flex w-56 flex-col border-r border-line bg-surface">
-        <div className="border-b border-line p-4">
-          <span className="text-lg font-bold text-accent">10cordes</span>
-        </div>
-        <nav className="flex-1 p-2">
-          {items.map((item) => {
-            const active = Boolean(matchRoute({ to: item.to, params: { guildId }, fuzzy: true }));
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.key}
-                to={item.to}
-                params={{ guildId }}
-                className={cn(
-                  'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
-                  active ? 'bg-surface-hover font-medium text-ink' : 'text-ink-muted hover:bg-surface-hover hover:text-ink',
-                )}
-              >
-                <Icon size={16} />
-                {t(item.key)}
-              </Link>
-            );
-          })}
-        </nav>
-        <div className="border-t border-line p-2">
-          <button
-            type="button"
-            onClick={() => authClient.signOut({ fetchOptions: { onSuccess: () => window.location.assign('/login') } })}
-            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink"
-          >
-            <LogOut size={16} />
-            {t('nav.logout')}
-          </button>
-        </div>
-      </aside>
-      <main className="flex-1 overflow-y-auto bg-canvas">
-        <Outlet />
-      </main>
-    </div>
+    <GuildProvider value={{ guildId, guild, live }}>
+      {summary.isError && isAccessError(summary.error) ? <ForbiddenPage /> : <Outlet />}
+    </GuildProvider>
   );
 }

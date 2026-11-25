@@ -41,3 +41,15 @@ export function parseModels(json: string | null): ProviderModel[] {
     return [];
   }
 }
+
+/**
+ * Catalogue après un rafraîchissement : les modèles découverts, puis les
+ * slugs saisis à la main que le fournisseur ne liste pas. Un slug saisi à la
+ * main que le fournisseur liste désormais garde sa marque : il reste retenu
+ * (et retirable) si le catalogue distant change de nouveau.
+ */
+export function mergeCatalog(discovered: readonly ProviderModel[], previous: readonly ProviderModel[]): ProviderModel[] {
+  const manual = new Set(previous.filter((model) => model.origin === 'manual').map((model) => model.id));
+  const listed = new Set(discovered.map((model) => model.id));
+  return [...discovered.map((model) => (manual.has(model.id) ? { ...model, origin: 'manual' as const } : model)), ...previous.filter((model) => model.origin === 'manual' && !listed.has(model.id))];
+}

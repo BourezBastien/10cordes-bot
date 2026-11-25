@@ -1,6 +1,8 @@
 import { Injectable } from '@spraxium/common';
 import { AppEnv } from '../../app.env';
+import { keyHintOf } from '../../shared/crypto/key-hint';
 import { decryptSecret, encryptSecret } from '../../shared/crypto/secret-box';
+import type { AuditEntry } from '../audit/audit.service';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { IntegrationService } from './integration.service';
@@ -15,6 +17,15 @@ import { IntegrationService } from './integration.service';
  */
 
 export type IntegrationOrigin = 'guild' | 'instance' | 'none';
+
+/** Origine d'une écriture, pour l'audit : l'agent (outils Discord) par défaut, l'API du dashboard sinon. */
+type AuditSource = NonNullable<AuditEntry['source']>;
+
+/** Ce que la ligne d'un serveur porte à elle : jamais la clé, seulement sa présence. */
+export interface OwnedIntegration {
+  hasApiKey: boolean;
+  baseUrl: string | null;
+}
 
 /** Une intégration telle qu'un serveur l'utilise. `config.apiKey` est DÉCHIFFRÉE : en mémoire seulement. */
 export interface GuildIntegration {
@@ -47,10 +58,8 @@ function parseRecord(json: string | null | undefined): Record<string, string> {
   }
 }
 
-/** Extrait d'une clé : de quoi la reconnaître, pas de quoi s'en servir. */
-export function keyHintOf(apiKey: string | null | undefined): string | null {
-  return apiKey ? `\u2022\u2022\u2022\u2022${apiKey.slice(-4)}` : null;
-}
+/** Indice d'une clé : le même, pour les intégrations, que pour les fournisseurs (règle unique). */
+export { keyHintOf } from '../../shared/crypto/key-hint';
 
 @Injectable()
 export class GuildIntegrationService {
@@ -88,14 +97,25 @@ export class GuildIntegrationService {
   }
 
   /**
+   * Ce que la ligne du serveur porte à elle (clé présente ou non, adresse), sans rien déchiffrer.
+   * Null sans ligne : une ligne désactivée porte encore sa clé, que `resolve` ne montre pas.
+   */
+  async owned(guildId: string, slug: string): Promise<OwnedIntegration | null> {
+    const row = await this.prisma.guildIntegration.findUnique({ where: { guildId_slug: { guildId, slug } } }).catch(() => null);
+    return row ? { hasApiKey: Boolean(row.encryptedApiKey), baseUrl: row.baseUrl ?? null } : null;
+  }
+
+  /**
    * Écrit la ligne du serveur. Clé absente (`undefined`) : celle du serveur
    * est conservée ; clé vide ou `null` : elle est retirée, celle d'instance reprend.
+   * `source` dit qui écrit : `agent` (outils Discord) par défaut, `api` depuis le dashboard.
    */
   async upsert(
     guildId: string,
     slug: string,
     fields: { apiKey?: string | null; baseUrl?: string | null; model?: string | null; enabled?: boolean },
     actorId: string,
+    source: AuditSource = 'agent',
   ): Promise<void> {
     if (!SLUG_RE.test(slug)) throw new Error('Intégration invalide : lettres minuscules, chiffres et tirets.');
     const existing = await this.prisma.guildIntegration.findUnique({ where: { guildId_slug: { guildId, slug } } }).catch(() => null);
@@ -116,7 +136,7 @@ export class GuildIntegrationService {
     });
     this.audit.record({
       guildId,
-      source: 'agent',
+      source,
       action: 'integration.updated',
       actorId,
       metadata: { slug, enabled: data.enabled, keyChanged: fields.apiKey !== undefined, fields: Object.keys(fields) },
@@ -124,9 +144,9 @@ export class GuildIntegrationService {
   }
 
   /** Retire la ligne du serveur : l'intégration d'instance reprend. */
-  async remove(guildId: string, slug: string, actorId: string): Promise<boolean> {
+  async remove(guildId: string, slug: string, actorId: string, source: AuditSource = 'agent'): Promise<boolean> {
     const deleted = await this.prisma.guildIntegration.deleteMany({ where: { guildId, slug } }).catch(() => ({ count: 0 }));
-    if (deleted.count > 0) this.audit.record({ guildId, source: 'agent', action: 'integration.removed', actorId, metadata: { slug } });
+    if (deleted.count > 0) this.audit.record({ guildId, source, action: 'integration.removed', actorId, metadata: { slug } });
     return deleted.count > 0;
   }
 

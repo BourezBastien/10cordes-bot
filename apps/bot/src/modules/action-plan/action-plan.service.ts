@@ -11,6 +11,7 @@ import { PrismaService } from '../database/prisma.service';
 import { SurfaceNoticePresenter } from '../surface/presenters/surface-notice.presenter';
 import { InteractionReply } from '../surface/surface-reply';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';
+import { UsageLogService } from '../usage/usage-log.service';
 import { ActionPlanPresenter } from './action-plan.presenter';
 import { bindActionPlans } from './action-plan.runtime';
 import { reviewPlanActions } from './action-plan.review';
@@ -40,15 +41,17 @@ export class ActionPlanService implements SpraxiumOnBoot {
   private readonly presenter = new ActionPlanPresenter();
   private readonly store: ActionPlanStore;
   private readonly staging = new PlanStaging();
-  private readonly summaries = new PlanSummaryWriter();
+  private readonly summaries: PlanSummaryWriter;
 
   constructor(
     prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly client: Client,
     private readonly registry: ToolRegistryService,
+    usage: UsageLogService,
   ) {
     this.store = new ActionPlanStore(prisma);
+    this.summaries = new PlanSummaryWriter(usage);
   }
 
   onBoot(): void {

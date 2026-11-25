@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { ProviderAdapterRegistry } from './provider-adapter.registry';
 import type { GuildProviderService } from './provider-store.service';
 import { PROVIDER_AUTH_TYPES, PROVIDER_PROTOCOLS, ProviderError, type ProviderConfig, type ProviderModel } from './provider.types';
+import { probeConnection } from './provider-probe';
 import { describeProvider } from './provider-views';
 
 /**
@@ -56,14 +57,11 @@ function asStringRecord(value: unknown): { ok: true; value: Record<string, strin
   return { ok: true, value: Object.fromEntries(entries) as Record<string, string> };
 }
 
-/** Contrôle la connexion puis rafraîchit le catalogue du fournisseur. */
+/** Contrôle la connexion puis rafraîchit le catalogue du fournisseur (le même chemin que le dashboard). */
 async function checkAndCatalog(deps: ProviderToolsDeps, config: ProviderConfig): Promise<ToolResult> {
-  const adapter = deps.registry.resolve(config.protocol);
-  const check = await adapter.testConnection(config);
-  if (!check.ok) return { ok: false, summary: `Fournisseur enregistré mais injoignable : ${check.summary}` };
-  const models = await adapter.discoverModels(config).catch(() => [] as ProviderModel[]);
-  if (models.length > 0) await deps.store.saveModels(config.guildId, config.id, models);
-  return { ok: true, summary: `${check.summary} Catalogue enregistré.`, data: { modelsFound: models.length } };
+  const probe = await probeConnection(deps, config);
+  if (!probe.ok) return { ok: false, summary: `Fournisseur enregistré mais injoignable : ${probe.summary}` };
+  return { ok: true, summary: `${probe.summary} Catalogue enregistré.`, data: { modelsFound: probe.modelsFound } };
 }
 
 /** Tools de gestion des fournisseurs (ordre d'enregistrement : list, upsert, delete, test, models). */

@@ -18,3 +18,4 @@ export type {
   ResolvedSkillExecution,
 } from './skills/blueprint.js';
 export * from './schemas/surface.js';
+export * from './schemas/dashboard.js';

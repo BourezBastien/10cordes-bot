@@ -4,6 +4,7 @@ import { getLlm } from '../assistant/llm.accessor';
 import { describeError } from '../../shared/utils/error-stack';
 import { describeAction } from './action-plan.presenter';
 import { PLAN_LIMITS, type PlanRequest } from './action-plan.types';
+import type { UsageLogService } from '../usage/usage-log.service';
 
 /** Le résumé ne doit pas retenir la réponse : au-delà, le panneau s'affiche sans lui. */
 const SUMMARY_TIMEOUT_MS = 12_000;
@@ -22,7 +23,7 @@ const INSTRUCTIONS = [
 /**
  * Nettoie un résumé écrit par le modèle : il est affiché, jamais exécuté.
  * Mention, lien, bloc de code et balise sont retirés (le texte du modèle ne
- * peut ni prévenir quelqu\u0027un ni l\u0027envoyer ailleurs), les blancs sont
+ * peut ni prévenir quelqu'un ni l'envoyer ailleurs), les blancs sont
  * resserrés, la longueur est plafonnée. Vide quand il ne reste rien.
  */
 export function cleanPlanSummary(text: string): string {
@@ -47,10 +48,13 @@ export function cleanPlanSummary(text: string): string {
  * sont celles du plan, jamais ce que le résumé raconte.
  */
 export class PlanSummaryWriter {
+  constructor(private readonly usage: UsageLogService) {}
+
   /**
    * Le résumé, ou null si le modèle ne répond pas à temps ou ne répond pas
    * en texte : le panneau s'affiche sans. L'appel est un appel LLM comme un
-   * autre : il entre dans le journal des coûts (cause `plan.summary`).
+   * autre : il entre dans le journal des coûts (cause `plan.summary`) et,
+   * avec les mêmes valeurs, dans la comptabilité du serveur.
    */
   async write(input: { guildId: string; userId: string; request: PlanRequest; actions: readonly PlanAction[] }): Promise<string | null> {
     if (input.actions.length === 0) return null;
@@ -74,22 +78,22 @@ export class PlanSummaryWriter {
           timer.unref?.();
         }),
       ]);
-      fileLog()?.llm({
-        cause: SUMMARY_CAUSE,
-        model: completion.served?.model ?? 'runtime',
-        provider: completion.served?.provider,
-        fallback: completion.served?.fallback,
-        capability: completion.served?.capability,
-        promptTokens: completion.usage?.promptTokens ?? 0,
-        completionTokens: completion.usage?.completionTokens ?? 0,
-        ms: Date.now() - startedAt,
-        ok: completion.toolCalls.length === 0,
-        guildId: input.guildId,
-      });
+      const model = completion.served?.model ?? 'runtime';
+      const provider = completion.served?.provider;
+      const fallback = completion.served?.fallback;
+      const capability = completion.served?.capability;
+      const promptTokens = completion.usage?.promptTokens ?? 0;
+      const completionTokens = completion.usage?.completionTokens ?? 0;
+      const ms = Date.now() - startedAt;
+      const ok = completion.toolCalls.length === 0;
+      fileLog()?.llm({ cause: SUMMARY_CAUSE, model, provider, fallback, capability, promptTokens, completionTokens, ms, ok, guildId: input.guildId });
+      this.usage.record({ guildId: input.guildId, cause: SUMMARY_CAUSE, capability: capability ?? null, provider: provider ?? null, model, fallback: fallback === true, promptTokens, completionTokens, ms, ok });
       if (completion.toolCalls.length > 0) return null;
       return cleanPlanSummary(completion.content ?? '') || null;
     } catch (error) {
-      fileLog()?.llm({ cause: SUMMARY_CAUSE, model: 'runtime', promptTokens: 0, completionTokens: 0, ms: Date.now() - startedAt, ok: false, error: describeError(error), guildId: input.guildId });
+      const ms = Date.now() - startedAt;
+      fileLog()?.llm({ cause: SUMMARY_CAUSE, model: 'runtime', promptTokens: 0, completionTokens: 0, ms, ok: false, error: describeError(error), guildId: input.guildId });
+      this.usage.record({ guildId: input.guildId, cause: SUMMARY_CAUSE, model: 'runtime', fallback: false, promptTokens: 0, completionTokens: 0, ms, ok: false });
       return null;
     } finally {
       clearTimeout(timer);

@@ -17,17 +17,41 @@ export interface AuditQuery {
   limit?: number;
 }
 
+/** Reçoit chaque entrée d'audit au moment où elle est journalisée (jamais son écriture en base). */
+export type AuditListener = (entry: AuditEntry) => void;
+
 /**
- * Journal d'audit global (0.11) — fire-and-forget : une erreur d'audit
+ * Journal d'audit global (0.11) : fire-and-forget, une erreur d'audit
  * n'échoue jamais l'action auditée, mais elle est LOGGÉE (jamais avalée).
+ *
+ * `onRecord` : un écouteur est prévenu de chaque entrée à l'instant où elle
+ * arrive (le temps réel du panel en tire ses événements). L'entrée ne porte
+ * jamais un secret : les émetteurs ne journalisent que des masques.
  */
 @Injectable()
 export class AuditService {
   private readonly log = new Logger('Audit');
+  private readonly listeners: AuditListener[] = [];
 
   constructor(private readonly prisma: PrismaService) {}
 
+  /** Abonne un écouteur ; rend la fonction qui le désabonne. */
+  onRecord(listener: AuditListener): () => void {
+    this.listeners.push(listener);
+    return () => {
+      const index = this.listeners.indexOf(listener);
+      if (index >= 0) this.listeners.splice(index, 1);
+    };
+  }
+
   record(entry: AuditEntry): void {
+    for (const listener of [...this.listeners]) {
+      try {
+        listener(entry);
+      } catch (error) {
+        this.log.warn(`écouteur d\u0027audit « ${entry.action} » en échec : ${(error as Error).message.slice(0, 140)}`);
+      }
+    }
     void (async () => {
       try {
         // AuditLog.guildId porte une FK réelle vers guilds : seule

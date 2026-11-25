@@ -89,7 +89,7 @@ function harness() {
   const otherChannel = fakeChannel();
   const client = { channels: { cache: new Map([[CHANNEL, channel], [OTHER_CHANNEL, otherChannel]]), fetch: vi.fn(async () => null) }, guilds: { cache: new Map() } };
   const audit = { record: vi.fn() };
-  const service = new ActionPlanService({ interactiveSurface: prisma } as never, audit as never, client as never, { get: vi.fn(), run: vi.fn() } as never);
+  const service = new ActionPlanService({ interactiveSurface: prisma } as never, audit as never, client as never, { get: vi.fn(), run: vi.fn() } as never, { record: vi.fn() } as never);
   return { prisma, channel, otherChannel, client, audit, service };
 }
 

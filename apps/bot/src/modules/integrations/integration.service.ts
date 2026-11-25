@@ -11,22 +11,20 @@ import { fileLog } from '../logging/file-log.service';
 import { bindIntegrations } from './integration.runtime';
 
 /**
- * IntegrationService (R2) : la configuration d'INSTANCE, commune à tous les
- * serveurs du bot (fournisseur IA, PixelLab, kie.ai), stockée en DB avec sa
- * clé API CHIFFRÉE (AES-256-GCM).
- *
- * La base a la priorité absolue : dès qu'elle connaît une intégration, les
- * variables d'environnement (LLM_*, KIE_API_KEY, PIXELLAB_API_KEY) sont
- * ignorées pour tout le catalogue. Elles ne servent qu'une fois, à l'amorçage
- * du bot, pour remplir une base vide (import unique, jamais une réécriture) :
- * un `.env` sans ses clés suffit ensuite à démarrer, la clé maître de
- * chiffrement (ENCRYPTION_SECRET ou BETTER_AUTH_SECRET) restant requise.
+ * IntegrationService (R2) : la configuration d'INSTANCE, commune à tous les serveurs du bot (fournisseur IA,
+ * PixelLab, kie.ai), stockée en DB avec sa clé API CHIFFRÉE (AES-256-GCM).
+ * La base a la priorité absolue : dès qu'elle connaît une intégration, les variables d'environnement (LLM_*,
+ * KIE_API_KEY, PIXELLAB_API_KEY) sont ignorées pour tout le catalogue. Elles ne servent qu'une fois, à l'amorçage
+ * du bot, pour remplir une base vide (import unique, jamais une réécriture) : un `.env` sans ses clés suffit
+ * ensuite à démarrer, la clé maître de chiffrement (ENCRYPTION_SECRET ou BETTER_AUTH_SECRET) restant requise.
  * Un serveur peut garder sa propre clé par intégration (GuildIntegrationService).
  */
 
 export interface IntegrationDef {
   readonly id: string;
   readonly kind: 'llm' | 'image' | 'music' | 'tool';
+  /** Outils du bot que l'intégration débloque (vide pour un fournisseur de modèles). */
+  readonly tools: readonly string[];
   readonly label: string;
   readonly description: string;
   readonly fields: ReadonlyArray<{
@@ -43,6 +41,7 @@ export const INTEGRATION_CATALOG: readonly IntegrationDef[] = [
   {
     id: 'llm',
     kind: 'llm',
+    tools: [],
     label: 'Fournisseur IA',
     description: 'N\u0027importe quel fournisseur compatible OpenAI (DeepSeek, OpenAI, OpenRouter, Groq, local...). Requis pour parler au bot.',
     fields: [
@@ -54,6 +53,7 @@ export const INTEGRATION_CATALOG: readonly IntegrationDef[] = [
   {
     id: 'pixellab',
     kind: 'image',
+    tools: ['image.icon', 'image.emoji'],
     label: 'PixelLab',
     description: 'Génération pixel art (icônes, émojis, sprites).',
     fields: [{ id: 'apiKey', label: 'Clé PixelLab', placeholder: 'pixl-...', required: true, secret: true }],
@@ -61,6 +61,7 @@ export const INTEGRATION_CATALOG: readonly IntegrationDef[] = [
   {
     id: 'kie',
     kind: 'music',
+    tools: [],
     label: 'kie.ai (Suno)',
     description: 'Génération musicale Suno via kie.ai.',
     fields: [

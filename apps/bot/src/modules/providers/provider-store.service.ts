@@ -8,7 +8,8 @@ import { PROVIDER_AUTH_TYPES, PROVIDER_PROTOCOLS, ProviderError, isCapability, t
 import { assertProviderUrl } from './provider-http';
 import { CONVERSATION_FOLLOWERS, CONVERSATION_LINK_HEAD, sameTarget, type RouteTarget } from './provider-route.links';
 import { assertModelServes } from './provider-model.kinds';
-import { MODEL_ID_MAX, boundedModels, providerFromRow, providerSecrets } from './provider-store.codec';
+import { ProviderCatalogStore } from './provider-store.catalog';
+import { MODEL_ID_MAX, providerFromRow, providerSecrets } from './provider-store.codec';
 import { hasKeys, parseModels, parseRecord, reservedKeys } from './provider-store.json';
 
 /**
@@ -21,17 +22,22 @@ import { hasKeys, parseModels, parseRecord, reservedKeys } from './provider-stor
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,47}$/u;
 const ROUTES_CACHE_TTL_MS = 30_000;
 
+/** Qui demande une écriture : les tools et le panneau Discord (agent), ou le dashboard (api). L'audit en garde la source. */
+export type ProviderWriteOrigin = 'agent' | 'api';
+
 export interface ProviderInput {
   slug: string;
   displayName?: string;
   protocol: ProviderProtocol;
   baseUrl: string;
-  /** Nouvelle clé en clair (chiffrée à l'écriture). Absente : la clé actuelle est conservée. */
+  /** Nouvelle clé en clair (chiffrée à l'écriture). Absente : la clé actuelle est conservée ; vide ou `null` : elle est retirée. */
   apiKey?: string | null;
   authType?: ProviderAuthType;
   authHeaderName?: string | null;
-  customHeaders?: Record<string, string>;
-  extraConfig?: Record<string, unknown>;
+  /** Absents ou vides : les actuels sont conservés ; `null` : tous retirés. */
+  customHeaders?: Record<string, string> | null;
+  /** Absentes ou vides : les actuelles sont conservées ; `null` : toutes retirées, sauf les clés réservées (`_source`, `_model`). */
+  extraConfig?: Record<string, unknown> | null;
   enabled?: boolean;
 }
 
@@ -56,12 +62,16 @@ export interface ResolvedRoute {
 @Injectable()
 export class GuildProviderService implements SpraxiumOnBoot {
   private readonly routesCache = new Map<string, { at: number; routes: Promise<ResolvedRoute[]> }>();
+  /** Catalogue des modèles : découverts, et slugs saisis à la main. */
+  readonly catalog: ProviderCatalogStore;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly env: AppEnv,
-  ) {}
+  ) {
+    this.catalog = new ProviderCatalogStore(prisma, audit, (guildId) => this.invalidate(guildId));
+  }
 
   /** Accesseur runtime pour les modules chargés avant celui-ci (panneau de configuration). */
   onBoot(): void {
@@ -84,7 +94,12 @@ export class GuildProviderService implements SpraxiumOnBoot {
     return row ? providerFromRow(row, providerSecrets(this.env)) : null;
   }
 
-  async upsert(guildId: string, input: ProviderInput, actorId: string): Promise<ProviderConfig> {
+  /** Identifiant et slug de chaque fournisseur d'un serveur : nommer la cible d'une route, déduire un slug libre, sans rien déchiffrer. */
+  async slugIndex(guildId: string): Promise<Array<{ id: string; slug: string }>> {
+    return this.prisma.guildProvider.findMany({ where: { guildId }, select: { id: true, slug: true }, orderBy: { createdAt: 'asc' } });
+  }
+
+  async upsert(guildId: string, input: ProviderInput, actorId: string, origin: ProviderWriteOrigin = 'agent'): Promise<ProviderConfig> {
     const slug = input.slug.trim().toLowerCase();
     if (!SLUG_RE.test(slug)) throw new ProviderError('Slug invalide : lettres minuscules, chiffres et tirets (2 à 48 caractères).', 'invalid');
     if (!(PROVIDER_PROTOCOLS as readonly string[]).includes(input.protocol)) throw new ProviderError(`Protocole inconnu : ${input.protocol}.`, 'invalid');
@@ -92,14 +107,13 @@ export class GuildProviderService implements SpraxiumOnBoot {
     if (!(PROVIDER_AUTH_TYPES as readonly string[]).includes(authType)) throw new ProviderError(`Type d\u0027authentification inconnu : ${authType}.`, 'invalid');
     const baseUrl = assertProviderUrl(input.baseUrl);
     const existing = await this.prisma.guildProvider.findUnique({ where: { guildId_slug: { guildId, slug } } });
-    // Pas de nouvelle clé : l'actuelle est conservée (une chaîne vide l'efface).
+    // Pas de nouvelle clé : l'actuelle est conservée (une chaîne vide, ou `null`, la retire).
     const apiKey = input.apiKey === undefined ? (existing?.encryptedApiKey ?? null) : input.apiKey ? encryptSecret(input.apiKey, providerSecrets(this.env)) : null;
-    // Options et en-têtes absents ou vides : les actuels sont conservés. Les clés
-    // réservées (`_source`, `_model`) marquent l'origine du fournisseur et ne se perdent pas.
-    const headersJson = hasKeys(input.customHeaders) ? JSON.stringify(input.customHeaders) : undefined;
-    const extraJson = hasKeys(input.extraConfig)
-      ? JSON.stringify({ ...reservedKeys(parseRecord(existing?.extraConfigJson ?? null)), ...input.extraConfig })
-      : undefined;
+    // Options et en-têtes absents ou vides : les actuels sont conservés ; `null` les retire tous.
+    // Les clés réservées (`_source`, `_model`) marquent l'origine du fournisseur : elles ne se perdent jamais.
+    const reserved = reservedKeys(parseRecord(existing?.extraConfigJson ?? null));
+    const headersJson = input.customHeaders === null ? null : hasKeys(input.customHeaders) ? JSON.stringify(input.customHeaders) : undefined;
+    const extraJson = input.extraConfig === null ? (hasKeys(reserved) ? JSON.stringify(reserved) : null) : hasKeys(input.extraConfig) ? JSON.stringify({ ...reserved, ...input.extraConfig }) : undefined;
     const row = await this.prisma.guildProvider.upsert({
       where: { guildId_slug: { guildId, slug } },
       create: {
@@ -129,7 +143,7 @@ export class GuildProviderService implements SpraxiumOnBoot {
     });
     this.audit.record({
       guildId,
-      source: 'agent',
+      source: origin,
       action: 'provider.upserted',
       actorId,
       metadata: { providerId: row.id, slug: row.slug, protocol: row.protocol, host: new URL(baseUrl).host, keyChanged: input.apiKey !== undefined, enabled: row.enabled },
@@ -138,11 +152,11 @@ export class GuildProviderService implements SpraxiumOnBoot {
     return providerFromRow(row, providerSecrets(this.env));
   }
 
-  async remove(guildId: string, idOrSlug: string, actorId: string): Promise<boolean> {
+  async remove(guildId: string, idOrSlug: string, actorId: string, origin: ProviderWriteOrigin = 'agent'): Promise<boolean> {
     const row = await this.prisma.guildProvider.findFirst({ where: { guildId, OR: [{ id: idOrSlug }, { slug: idOrSlug }] } });
     if (!row) return false;
     await this.prisma.guildProvider.delete({ where: { id: row.id } });
-    this.audit.record({ guildId, source: 'agent', action: 'provider.removed', actorId, metadata: { providerId: row.id, slug: row.slug } });
+    this.audit.record({ guildId, source: origin, action: 'provider.removed', actorId, metadata: { providerId: row.id, slug: row.slug } });
     this.invalidate(guildId);
     return true;
   }
@@ -160,10 +174,13 @@ export class GuildProviderService implements SpraxiumOnBoot {
     return true;
   }
 
-  /** Retient le catalogue découvert (ou saisi) d'un fournisseur. */
-  async saveModels(guildId: string, providerId: string, models: ProviderModel[]): Promise<void> {
-    await this.prisma.guildProvider.update({ where: { id: providerId }, data: { cachedModelsJson: JSON.stringify(boundedModels(models)) } });
-    this.invalidate(guildId);
+  /**
+   * Retient le catalogue découvert d'un fournisseur (les slugs ajoutés à la
+   * main restent). Les ajouts et retraits de slugs saisis à la main passent
+   * par `catalog`.
+   */
+  saveModels(guildId: string, providerId: string, models: ProviderModel[]): Promise<void> {
+    return this.catalog.save(guildId, providerId, models);
   }
 
   /**
@@ -171,7 +188,7 @@ export class GuildProviderService implements SpraxiumOnBoot {
    * changement (voir CONVERSATION_FOLLOWERS : les routes de conversation
    * qui partageaient exactement la cible précédente).
    */
-  async bindRoute(guildId: string, capability: string, input: RouteInput, actorId: string): Promise<{ followedBy: string[] }> {
+  async bindRoute(guildId: string, capability: string, input: RouteInput, actorId: string, origin: ProviderWriteOrigin = 'agent'): Promise<{ followedBy: string[] }> {
     if (!isCapability(capability)) throw new ProviderError(`Capacité invalide : ${capability} (native ou custom.*, en kebab-case).`, 'invalid');
     const provider = await this.prisma.guildProvider.findFirst({ where: { guildId, id: input.providerId } });
     if (!provider) throw new ProviderError('Fournisseur introuvable sur ce serveur.', 'invalid');
@@ -194,7 +211,7 @@ export class GuildProviderService implements SpraxiumOnBoot {
     this.invalidate(guildId);
     this.audit.record({
       guildId,
-      source: 'agent',
+      source: origin,
       action: 'capability.bound',
       actorId,
       metadata: { capability, providerId: provider.id, slug: provider.slug, modelId, fallbackProviderId, fallbackModelId, followedBy },
@@ -223,9 +240,9 @@ export class GuildProviderService implements SpraxiumOnBoot {
     return fallback.id;
   }
 
-  async removeRoute(guildId: string, capability: string, actorId: string): Promise<boolean> {
+  async removeRoute(guildId: string, capability: string, actorId: string, origin: ProviderWriteOrigin = 'agent'): Promise<boolean> {
     const result = await this.prisma.capabilityRoute.deleteMany({ where: { guildId, capability } });
-    if (result.count > 0) this.audit.record({ guildId, source: 'agent', action: 'capability.unbound', actorId, metadata: { capability } });
+    if (result.count > 0) this.audit.record({ guildId, source: origin, action: 'capability.unbound', actorId, metadata: { capability } });
     this.invalidate(guildId);
     return result.count > 0;
   }

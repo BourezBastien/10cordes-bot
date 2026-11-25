@@ -1,74 +1,77 @@
-import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { useParams } from '@tanstack/react-router';
-import { api } from '@/lib/api';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import type { Tone } from '@/ds/badge';
+import { Feed, type FeedItem } from '@/ds/feed';
+import { Panel } from '@/ds/frame';
+import { useGuild } from '@/shell/guild-context';
+import { GuildHeader } from '@/shell/guild-header';
+import { Page, QueryState } from '@/shell/page';
+import { useFormat } from '@/lib/format';
+import { useMemories } from '@/lib/queries';
 
-interface GuildMemoryEntry {
-  id: string;
-  kind: string;
-  content: string;
-  createdAt: string;
+/*
+ * MÉMOIRES. Les fiches consolidées que le bot garde du serveur, puis celles
+ * des membres (avec l'identifiant du membre). Une fiche : une nature, un
+ * texte, une date. Rien ne s'édite ici : le bot les tient à jour.
+ */
+
+type Kind = 'fact' | 'rule' | 'presentation' | 'preference' | 'note';
+type Card = { id: string; kind: string; content: string; createdAt: string | number; userId?: string };
+
+const TONE: Record<string, Tone> = {
+  fact: 'neutral',
+  rule: 'accent',
+  presentation: 'info',
+  preference: 'skill',
+  note: 'neutral',
+};
+
+function isKind(value: string): value is Kind {
+  return ['fact', 'rule', 'presentation', 'preference', 'note'].includes(value);
 }
 
-interface MemberMemoryEntry extends GuildMemoryEntry {
-  userId: string;
+export function memoryRows(cards: ReadonlyArray<Card>, date: (value: string | number) => string, label: (kind: string) => string): FeedItem[] {
+  return cards.map((card) => ({
+    key: card.id,
+    time: date(card.createdAt),
+    tone: TONE[card.kind] ?? 'neutral',
+    badge: label(isKind(card.kind) ? card.kind : 'fact'),
+    text: card.content,
+    meta: card.userId,
+  }));
 }
 
 export function MemoriesPage() {
   const { t } = useTranslation();
-  const { guildId } = useParams({ from: '/g/$guildId' });
-
-  const memoriesQuery = useQuery({
-    queryKey: ['guild', guildId, 'memories'],
-    queryFn: () =>
-      api.get<{ guild: GuildMemoryEntry[]; members: MemberMemoryEntry[] }>(`/api/v1/guilds/${guildId}/memories`),
-  });
-
-  const guild = memoriesQuery.data?.guild ?? [];
-  const members = memoriesQuery.data?.members ?? [];
+  const { guildId } = useGuild();
+  const format = useFormat();
+  const memories = useMemories(guildId);
+  const kindLabel = (kind: string) => t(`memories.kinds.${isKind(kind) ? kind : 'fact'}`);
 
   return (
-    <div className="mx-auto w-full max-w-4xl p-8">
-      <h1 className="mb-6 text-2xl font-semibold">{t('nav.memories')}</h1>
-
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>{t('memories.guild')} ({guild.length})</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2">
-          {guild.length === 0 ? <p className="text-sm text-ink-muted">{t('memories.empty')}</p> : null}
-          {guild.map((entry) => (
-            <div key={entry.id} className="rounded-md border border-line bg-canvas px-3 py-2">
-              <div className="flex items-center justify-between text-xs text-ink-muted">
-                <span className="font-mono">{entry.kind}</span>
-                <span>{new Date(entry.createdAt).toLocaleString()}</span>
-              </div>
-              <p className="mt-1 text-sm">{entry.content}</p>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('memories.members')} ({members.length})</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2">
-          {members.length === 0 ? <p className="text-sm text-ink-muted">{t('memories.empty')}</p> : null}
-          {members.map((entry) => (
-            <div key={entry.id} className="rounded-md border border-line bg-canvas px-3 py-2">
-              <div className="flex items-center justify-between text-xs text-ink-muted">
-                <span>
-                  <span className="font-mono">{entry.userId}</span> · {entry.kind}
-                </span>
-                <span>{new Date(entry.createdAt).toLocaleString()}</span>
-              </div>
-              <p className="mt-1 text-sm">{entry.content}</p>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-    </div>
+    <Page>
+      <GuildHeader title={t('memories.title')} description={t('memories.description')} />
+      <QueryState query={memories} label={t('common.loading')}>
+        {(data) => (
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <Panel title={t('memories.guild')} label={t('memories.entries', { count: data.guild.length })}>
+              <Feed
+                framed={false}
+                label={t('memories.caption')}
+                empty={t('memories.empty')}
+                items={memoryRows(data.guild, format.date, kindLabel)}
+              />
+            </Panel>
+            <Panel title={t('memories.members')} label={t('memories.entries', { count: data.members.length })}>
+              <Feed
+                framed={false}
+                label={t('memories.caption')}
+                empty={t('memories.empty')}
+                items={memoryRows(data.members, format.date, kindLabel)}
+              />
+            </Panel>
+          </div>
+        )}
+      </QueryState>
+    </Page>
   );
 }

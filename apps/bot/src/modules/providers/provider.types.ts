@@ -1,33 +1,20 @@
 import type { ChatCompletionResult, ChatMessage, ChatOptions, OpenAiTool } from '../../shared/llm/chat-contract';
+import { CapabilitySchema, capabilityKind as kindOfCapability, CAPABILITY_KINDS, MODEL_KINDS, NATIVE_CAPABILITIES, PROVIDER_AUTH_TYPES, PROVIDER_PROTOCOLS } from '@10cordes/shared';
+import type { CapabilityKind, ModelKind, NativeCapability, ProviderAuthType, ProviderProtocol } from '@10cordes/shared';
 
 /**
  * Moteur multi-fournisseurs : contrats. Un serveur connecte des fournisseurs
  * (API + clé chiffrée) et associe chaque capacité du bot au modèle d'un
  * fournisseur. Toute capacité `custom.*` est acceptée.
+ *
+ * Les protocoles, types d'authentification et capacités natives sont définis
+ * dans @10cordes/shared (contrat du panel) et réexportés ici : le bot et le
+ * dashboard lisent la même liste.
  */
 
-export const PROVIDER_PROTOCOLS = ['openai-chat', 'anthropic-messages', 'kie-unified', 'generic-http'] as const;
-export type ProviderProtocol = (typeof PROVIDER_PROTOCOLS)[number];
+export { CAPABILITY_KINDS, MODEL_KINDS, NATIVE_CAPABILITIES, PROVIDER_AUTH_TYPES, PROVIDER_PROTOCOLS };
+export type { CapabilityKind, ModelKind, NativeCapability, ProviderAuthType, ProviderProtocol };
 
-export const PROVIDER_AUTH_TYPES = ['bearer', 'header', 'query', 'none'] as const;
-export type ProviderAuthType = (typeof PROVIDER_AUTH_TYPES)[number];
-
-/** Familles de capacités : le type de modèle qu'il faut pour la servir. */
-export const CAPABILITY_KINDS = ['chat', 'image', 'music', 'tts', 'video', 'search', 'custom'] as const;
-export type CapabilityKind = (typeof CAPABILITY_KINDS)[number];
-
-export const NATIVE_CAPABILITIES = [
-  'chat.default',
-  'chat.reasoning',
-  'chat.ingestion',
-  'image.generate',
-  'image.edit',
-  'music.generate',
-  'tts.speak',
-  'video.generate',
-  'web.search',
-] as const;
-export type NativeCapability = (typeof NATIVE_CAPABILITIES)[number];
 export type Capability = NativeCapability | `custom.${string}`;
 
 export const CAPABILITY_LABELS: Record<NativeCapability, string> = {
@@ -42,23 +29,19 @@ export const CAPABILITY_LABELS: Record<NativeCapability, string> = {
   'web.search': 'Recherche web',
 };
 
-const CUSTOM_CAPABILITY_RE = /^[a-z0-9][a-z0-9_.-]{1,47}$/u;
-
 export function isCapability(value: string): value is Capability {
-  return (NATIVE_CAPABILITIES as readonly string[]).includes(value) || (value.startsWith('custom.') && CUSTOM_CAPABILITY_RE.test(value));
+  return CapabilitySchema.safeParse(value).success;
 }
 
 /** Famille d'une capacité : détermine quels modèles proposer. */
-export function capabilityKind(capability: string): CapabilityKind {
-  const head = capability.split('.')[0] ?? '';
-  return (CAPABILITY_KINDS as readonly string[]).includes(head) ? (head as CapabilityKind) : 'custom';
-}
+export const capabilityKind = kindOfCapability;
 
 export function capabilityLabel(capability: string): string {
   return (CAPABILITY_LABELS as Record<string, string>)[capability] ?? capability.slice('custom.'.length);
 }
 
-export type ModelKind = 'chat' | 'image' | 'music' | 'tts' | 'video' | 'search' | 'other';
+/** Origine d'un modèle du catalogue : lu chez le fournisseur, ou slug saisi à la main (il survit à un rafraîchissement du catalogue). */
+export type ModelOrigin = 'discovered' | 'manual';
 
 /** Un modèle que propose un fournisseur. */
 export interface ProviderModel {
@@ -70,6 +53,8 @@ export interface ProviderModel {
   kinds?: ModelKind[];
   contextWindow?: number;
   maxOutput?: number;
+  /** Absente : découvert (la forme historique du catalogue). */
+  origin?: ModelOrigin;
 }
 
 /** Un fournisseur, prêt à l'emploi. */

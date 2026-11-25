@@ -1,12 +1,14 @@
-import { HttpController, HttpGet } from '@spraxium/http';
+import { HttpController, HttpGet, HttpGuards } from '@spraxium/http';
 import { Client } from 'discord.js';
+import { ProbeKeyGuard } from '../../auth/guards/probe-key.guard';
 import { AssistantQueue } from '../assistant/assistant.queue';
 import { PrismaService } from '../database/prisma.service';
 
 /**
  * Sonde interne : le processus lui-même expose son état (DB, queue, gateway).
- * Utilisée par scripts/guardian.mjs — plus aucun message webhook ne part dans
- * le salon juste pour vérifier que le bot est vivant.
+ * Utilisée par scripts/guardian.mjs, avec la clé API quand elle est réglée
+ * (`ProbeKeyGuard`) ; plus aucun message webhook ne part dans le salon juste
+ * pour vérifier que le bot est vivant.
  */
 @HttpController('')
 export class HealthController {
@@ -17,6 +19,7 @@ export class HealthController {
   ) {}
 
   @HttpGet('/healthz')
+  @HttpGuards(ProbeKeyGuard)
   async health() {
     const db = await this.prisma
       .$queryRaw`SELECT 1`

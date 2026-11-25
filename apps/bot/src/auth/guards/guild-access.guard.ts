@@ -1,56 +1,62 @@
-import type { HttpGuard } from '@spraxium/http';
+import { ForbiddenError, type HttpGuard } from '@spraxium/http';
 import type { Context } from 'hono';
-import { Client } from 'discord.js';
+import { Client, type Guild, type GuildMember } from 'discord.js';
 import { guildAccessContext, guildManagerPolicy } from '../../core/security/access-policy';
-import { getValidatedEnv } from '../env.accessor';
-import { getAuth } from '../auth.instance';
+import { PrismaService } from '../../modules/database/prisma.service';
+import { discordIdOf } from '../discord-identity';
+import { sessionOf } from './session.guard';
 
-interface CacheEntry {
-  expiresAt: number;
-  allowed: boolean;
+/** Membres déjà lus, pour les handlers en aval : plus de relecture Discord. */
+export interface GuildAccess {
+  guildId: string;
+  discordUserId: string;
+  guild: Guild;
+  member: GuildMember;
 }
 
-const CACHE_TTL_MS = 5 * 60 * 1_000;
+const GUILD_KEY = 'guildAccess';
 
 /**
- * Vérifie que l'utilisateur de la session a `ManageGuild` ou `Administrator`
- * sur le serveur ciblé par le paramètre de route `guildId`. Résultat en cache 5 min.
- * Nécessite `SessionGuard` en amont (elle pose la session dans le contexte Hono).
+ * Vérifie, À CHAQUE requête, que l'utilisateur de la session est membre du
+ * serveur ciblé (paramètre de route `guildId`) et peut en gérer la
+ * configuration (décision de `GuildManagerPolicy` : Gérer le serveur,
+ * Administrateur ou propriétaire). Rien n'est mis en cache : un rôle retiré
+ * ou un membre parti ferme l'accès à la requête suivante.
+ *
+ * Nécessite `SessionGuard` en amont. Sans session : refus (401). Membre
+ * absent ou sans droit : `ForbiddenError` (403).
  */
 export class GuildAccessGuard implements HttpGuard {
-  private static readonly cache = new Map<string, CacheEntry>();
-
-  constructor(private readonly client: Client) {}
+  constructor(
+    private readonly client: Client,
+    private readonly prisma: PrismaService,
+  ) {}
 
   async canActivate(ctx: Context): Promise<boolean> {
-    const session = await this.resolveSession(ctx);
+    const session = await sessionOf(ctx);
     if (!session) return false;
-
     const guildId = ctx.req.param('guildId');
     if (!guildId) return false;
-    const userId = session.user.id;
-    const cacheKey = `${guildId}:${userId}`;
 
-    const cached = GuildAccessGuard.cache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) return cached.allowed;
+    const discordUserId = await discordIdOf(this.prisma, session.user.id);
+    if (!discordUserId) throw new ForbiddenError('Compte Discord lié introuvable pour cette session.');
 
-    const guild = await this.client.guilds.fetch(guildId).catch(() => null);
-    const member = guild ? await guild.members.fetch(userId).catch(() => null) : null;
+    const guild = this.client.guilds.cache.get(guildId) ?? (await this.client.guilds.fetch(guildId).catch(() => null));
+    if (!guild) throw new ForbiddenError('Serveur introuvable pour le bot.');
 
-    // Seul un membre qui gère le serveur (ManageGuild, Administrator ou
-    // propriétaire) peut lire sa configuration : décision de GuildManagerPolicy.
-    const allowed = guild !== null && member !== null && guildManagerPolicy.isAuthorized(guildAccessContext(guild, userId, member));
+    const member = guild.members.cache.get(discordUserId) ?? (await guild.members.fetch(discordUserId).catch(() => null));
+    if (!member) throw new ForbiddenError('Tu n\u0027es pas membre de ce serveur.');
 
-    GuildAccessGuard.cache.set(cacheKey, { allowed, expiresAt: Date.now() + CACHE_TTL_MS });
-    return allowed;
+    if (!guildManagerPolicy.isAuthorized(guildAccessContext(guild, discordUserId, member))) {
+      throw new ForbiddenError('Droit de gérer le serveur requis (Gérer le serveur, Administrateur ou propriétaire).');
+    }
+
+    ctx.set(GUILD_KEY, { guildId, discordUserId, guild, member } satisfies GuildAccess);
+    return true;
   }
+}
 
-  private async resolveSession(ctx: Context) {
-    const existing = ctx.get('session') as { user: { id: string } } | undefined;
-    if (existing) return existing;
-    const auth = getAuth(getValidatedEnv());
-    const session = await auth.api.getSession({ headers: ctx.req.raw.headers });
-    if (session) ctx.set('session', session);
-    return session;
-  }
+/** Ce que la garde a vérifié pour cette requête. */
+export function guildAccessOf(ctx: Context): GuildAccess {
+  return ctx.get(GUILD_KEY) as GuildAccess;
 }

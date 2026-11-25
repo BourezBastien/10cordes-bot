@@ -73,8 +73,10 @@ function harness(routes: ResolvedRoute[]) {
   const registry = { resolve: vi.fn() };
   const audit = { record: vi.fn() };
   const legacy = { ensureMigrated: vi.fn(async () => undefined), reconcileInstance: vi.fn(async () => ({ checked: 2, updated: 1 })) };
-  const router = new CapabilityRouterService(store as never, registry as never, audit as never, legacy as never);
-  return { router, store, registry, audit, legacy };
+  // Santé des fournisseurs : ce que le routeur en retient est lisible dans `health.record`.
+  const health = { record: vi.fn() };
+  const router = new CapabilityRouterService(store as never, registry as never, audit as never, legacy as never, health as never);
+  return { router, store, registry, audit, legacy, health };
 }
 
 describe('CapabilityRouterService · résolution', () => {

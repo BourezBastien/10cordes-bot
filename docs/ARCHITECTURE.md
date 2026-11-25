@@ -2,6 +2,7 @@
 
 > Plan d'architecture détaillé pour validation. Complète [ROADMAP.md](./ROADMAP.md) (périmètre fonctionnel enrichi de l'analyse des 200+ suggestions communautaires Crow Bots).
 > Décisions validées : **Prisma**, **config guild JSON typé**, **dashboard React (plus tard)**, **better-auth + Discord (Lucia déprécié - confirmé)**, **Zod**, **OpenRouter inclus**, **zéro slash command (tout par l'agent IA + portail éphémère)**, **langue par utilisateur**, **modules avec dépendances**, **ToolRegistry façon MCP (chat + vocal + HTTP)**, **partage d'écran bot : impossible/ToS → rejeté**.
+> Le tableau de bord et l'API sont livrés depuis le 25/11/2026 : les §2.2, §2.3, §4 et §17 décrivent leur état livré. Le détail opérant (invariants, gardes, pièges) vit dans [AGENTS.md](../AGENTS.md).
 
 ---
 
@@ -10,10 +11,10 @@
 ```
 ┌────────────────────────────── Monorepo pnpm workspaces ──────────────────────────────┐
 │                                                                                      │
-│  apps/bot (Spraxium)                          apps/dashboard (React SPA, phase 2)    │
-│  ├─ Modules Discord (commands/handlers)       ├─ Vite + React 19 + TS               │
-│  ├─ API REST @spraxium/http (Hono) ◄──────────┼─ TanStack Router/Query/Table         │
-│  ├─ better-auth (Discord OAuth) ◄─────────────┤─ shadcn/ui + Aceternity + Tailwind 4 │
+│  apps/bot (Spraxium)                          apps/dashboard (React SPA)              │
+│  ├─ Listeners et handlers Discord             ├─ Vite 8 + React 19 + TS               │
+│  ├─ API REST @spraxium/http (Hono) ◄──────────┼─ TanStack Router/Query + Tailwind 4   │
+│  ├─ better-auth (Discord OAuth) ◄─────────────┤─ primitives propres (src/ds)          │
 │  └─ Prisma → SQLite (→ Postgres)              └─ better-auth client (cookies)        │
 │                                                        │                             │
 │  packages/shared ──── Zod schemas + types partagés ◄───┘                             │
@@ -38,30 +39,30 @@
 | Tests | `vitest` | standard écosystème |
 | Lint/format | **Biome** | même choix que le framework Spraxium ; remplace ESLint+Prettier |
 
-### 2.2 Dashboard (`apps/dashboard`, phase 2 - spécifié maintenant pour ne pas bloquer l'API)
+### 2.2 Dashboard (`apps/dashboard`, livré)
 
 | Domaine | Choix | Pourquoi |
 |---|---|---|
-| Build | **Vite 8** + React 19 + TS | SPA légère ; pas de Next.js (le backend est déjà l'API Hono du bot) |
-| Styles | **Tailwind CSS v4** | tokens CSS, dark mode par classe |
-| UI | **shadcn/ui** (Radix) + registre **Aceternity** | validé ; clé Aceternity dans `.env` (`ACETERNITY_API_KEY`), **jamais committée**, injectée dans `components.json` à l'install |
-| Router | **TanStack Router** (file-less, type-safe) | search params typés (ex: `?guild=…`), loaders, code-splitting |
-| Data | **TanStack Query 5** | cache/invalidation alignée sur l'API REST |
-| Tables | **TanStack Table 9** | data tables modération/logs |
-| Forms | react-hook-form + `@hookform/resolvers/zod` | résolution directe des schémas `packages/shared` |
-| Charts | **ApexCharts 7 + react-apexcharts** | préférence validée (TailAdmin) ; thème via `useChartTheme()` + overrides CSS globaux dark/light |
-| Auth client | `better-auth/react` (`createAuthClient`) | `useSession()`, `signIn.social({ provider: 'discord' })` |
-| Toasts | sonner · Icônes : lucide-react · i18n : i18next + react-i18next | standards 2026 |
+| Build | **Vite 8** + React 19 + TS | SPA légère ; pas de Next.js (le backend est déjà l'API Hono du bot). Chaque page d'un serveur est un morceau à part (`lazyRouteComponent`) |
+| Styles | **Tailwind CSS v4** (CSS-first) | jetons dans `@theme` (`src/styles/tokens.css`), utilitaires du langage graphique dans `theme.css`, thème sombre seul |
+| UI | **primitives propres** (`src/ds`) | bouton, champ, liste déroulante, onglets, tiroir, confirmation, tableau, pastille, indicateurs, fil, étapes : indépendantes de toute bibliothèque de composants |
+| Router | **TanStack Router** (routes par le code, typées) | garde de session dans `beforeLoad`, retour à la page demandée après le login |
+| Data | **TanStack Query 5** | cache et invalidation, relancés par le flux temps réel du serveur affiché |
+| Tables | `DataTable` (`src/ds/table.tsx`) | filets d'un pixel, défilement en largeur sur un petit écran |
+| Formulaires | état React + schémas Zod de `packages/shared` | même contrat que l'API, aucune bibliothèque de formulaire |
+| Graphiques | **ApexCharts** + react-apexcharts | barres plates de la consommation par jour (page Système) |
+| Auth client | `better-auth/react` | session par cookie, `signIn.social({ provider: 'discord' })` |
+| Divers | sonner (toasts) · lucide-react (icônes) · i18next + react-i18next (FR/EN) | |
 
-### 2.3 Thème dashboard (inspiré Tenkai + TailAdmin, vos préférences)
+### 2.3 Thème dashboard (livré)
 
 > **Inspiration visuelle principale : [ARCHIVE-9](https://github.com/LeoBdt/ARCHIVE-9)** (repo de LeoBdt). Le dashboard n'est pas une copie, mais son langage graphique a été délibérément repris : thème sombre, hiérarchie par accents, structure des vues. Ce même langage guide aussi nos panneaux Discord Components V2.
 
-- **Tokens** (mode dark par défaut) : `--color-canvas #111114`, `--color-surface #19191E`, `--color-border #303038`, texte `#F2F2F5`, muted `#A0A0AD`, accent vert `#72C99B` (série de charts 1-8 reprise pour les graphs).
-- **Typo** : IBM Plex Sans (variable) + IBM Plex Mono.
-- **Radius** : controls `.375rem`, cards `.5rem`, overlays `.75rem` (vos screenshots) - **pas de rounded-2xl TailAdmin sur les overlays**.
-- **Zéro ombre sur les surfaces** : cartes = `border` + fond, profondeur uniquement sur overlays (dropdown/dialog) via ombre douce `--shadow-theme-lg`.
-- **Dark mode** : classe `.dark` + Provider light/dark/system persisté localStorage (pattern TailAdmin).
+- **Tokens** (`src/styles/tokens.css`) : fond `#0a0a0d`, panneaux `#0e0e12` et `#101015`, champ `#121217`, filets `#1f1f26`, `#26262e` et `#3a3a44`, textes de `#e9e9ee` à `#a6a6b2`. Accent : l'orange 10cordes `#d95926` (survol `#ffa070`, texte sur accent `#1a0c06`). Sémantique : vert `#6ee7a8`, jaune `#f5c04a`, rouge `#ff4757`, bleu `#7cc4ff`, violet pour les compétences. La palette, les rayons et les ombres par défaut de Tailwind sont retirés dans `@theme` AVANT ces jetons.
+- **Typo** : Silkscreen (titres, libellés, boutons : pixel, auto-hébergée par `@fontsource`) + JetBrains Mono variable (textes courants).
+- **Aucun angle arrondi, aucune ombre** : la profondeur vient de la lumière des surfaces et de filets de 2 px. Les cadres sont crantés (utilitaire `notched` : les quatre coins retirés).
+- **Thème sombre seul** ; animations par pas (`motion.css`), coupées sous `prefers-reduced-motion`.
+- **Zones d'appui de 44 px**, y compris sous un dessin plus petit (puces, interrupteurs).
 - **Rendu Discord : Components V2 systématique** - tout message du bot (vues, confirmations, logs) est rendu en composants natifs (`Container`/`TextDisplay`/`Section`/`Separator`, flag `MessageFlags.IsComponentsV2`). Le code n'utilise **aucun suffixe « v2 »** : c'est le rendu de base - helpers dans `apps/bot/src/shared/ui/` (`ui.card()`, `ui.panel()`). Les embeds restent réservés aux cas où un composant n'a pas d'équivalent.
 
 ## 3. Structure du monorepo
@@ -78,17 +79,19 @@
 │  │     ├─ main.ts             # SpraxiumFactory + useGlobalGuards + listen()
 │  │     ├─ app.module.ts       # @HttpClientModule + @Module sur LA MÊME classe (règle framework)
 │  │     ├─ app.env.ts          # @EnvSchema : DISCORD_TOKEN, DATABASE_URL, LLM_*, HTTP_API_KEY…
-│  │     ├─ auth/               # better-auth : auth.instance.ts, better-auth.middleware.ts, guards
-│  │     ├─ core/               # security/ : BaseAccessPolicy + GuildAdminPolicy (POO)
+│  │     ├─ auth/               # better-auth : auth.instance.ts, auth-origins.ts, guards
+│  │     ├─ core/               # security/ : politiques d'accès et de permissions (POO)
 │  │     ├─ shared/             # helpers transverses (ui/, crypto/, cache/, template renderer…)
 │  │     └─ modules/
 │  │        ├─ module-manager/  # ✅ existant (global) + extension per-guild
 │  │        ├─ guild-config/    # GuildConfigService + tools agent config.*
-│  │        ├─ api/             # controllers HTTP : guilds, modules, config, auth-info
+│  │        ├─ api/             # API du tableau de bord : providers, capabilities, integrations,
+│  │        │                   # webhooks, rules, usage, events (SSE), panel compilé, politique
+│  │        ├─ webhooks/        # connecteurs HTTP sortants (outil webhook.call)
 │  │        ├─ assistant/       # agent conversationnel (gate, AgentLoop, SystemPromptBuilder)
 │  │        ├─ surface/         # moteur d'interactions générique (surfaces + triggers)
 │  │        └─ …
-│  └─ dashboard/                # phase 2 (scaffolding Vite, décrit §2.2)
+│  └─ dashboard/                # livré : src/ds (primitives), shell, lib, pages (§2.2)
 ├─ packages/
 │  └─ shared/                   # src/schemas/*.ts (Zod) : guild-config, api-dto, errors
 │                               # src/types/*.ts : types inférés (z.infer) consommés par bot + dashboard
@@ -97,86 +100,109 @@
 
 Règles de dépendance : `bot → shared ← dashboard`. Interdiction d'importer `discord.js` ou Prisma depuis `shared` (reste isomorphe/léger).
 
-## 4. Couche API REST (dès P0 - le dashboard l'attendra)
+## 4. Couche API REST (livrée)
 
-Basé sur le template `http-bot` + docs `@spraxium/http` :
+Le serveur HTTP du bot est déclaré dans `config/http.config.ts` : pas de clé
+API globale (elle exigeait `x-api-key` sur toute route, login Discord
+compris). La clé `HTTP_API_KEY` protège la seule sonde `/healthz`
+(`ProbeKeyGuard`). L'API du tableau de bord s'authentifie par la session.
 
 ```ts
-// config/http.config.ts
+// config/http.config.ts (extrait)
 export const httpConfig = defineHttp({
-  enabled: true,
-  host: '127.0.0.1',                       // 0.0.0.0 seulement derrière proxy
-  port: 3000,
-  apiKey: process.env.HTTP_API_KEY,        // server-to-server (auto-active ApiKeyGuard, header x-api-key)
-  sharding: false,
+  host: process.env.HTTP_HOST ?? '127.0.0.1',   // 0.0.0.0 seulement derrière proxy
+  port: Number.parseInt(process.env.PORT ?? '3000', 10),
   module: AppModule,
-  security: {
-    cors: {                                // dashboard sur autre origine
-      origins: [process.env.DASHBOARD_ORIGIN ?? 'http://localhost:5173'],
-      methods: ['GET', 'POST', 'PATCH', 'DELETE'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Api-Key'],
-      credentials: true,
-      maxAge: 600,
-    },
-  },
+  security: httpSecurity(process.env.DASHBOARD_ORIGIN),  // src/modules/api/http-security.ts
 });
 ```
 
-- **Pipeline du framework** (fixe) : hidePoweredBy → securityHeaders → CORS → bodyLimit → middlewares globaux → guards globaux → @HttpGuards (classe puis méthode) → handler.
-- **Enveloppe réponse** : succès `{ … }` (JSON) ; erreurs `{ ok: false, error, details? }` via `HttpError` (BadRequestError 400, UnauthorizedError 401, ForbiddenError 403, NotFoundError 404, ConflictError 409, TooManyRequestsError 429…).
-- **Versioning** : tous les controllers sous `/api/v1/…` (`@HttpController('/api/v1/guilds')`).
-- **Rate limit** : `RateLimitMiddleware` sous-classé (`windowMs: 15_000, max: 100`) en middleware global.
-- **Règle framework respectée** : `@HttpClientModule` directement sur `AppModule` (jamais de module HTTP séparé - ignoré silencieusement sinon).
+- **Pipeline du framework** (fixe) : hidePoweredBy → en-têtes de sécurité → CORS → bodyLimit → middlewares du module (`LoggerMiddleware`, `ApiPolicyMiddleware`) → `@HttpGuards` (classe puis méthode) → handler.
+- **Politique commune** (`ApiPolicyMiddleware`, avant toute route) :
+  - `Cache-Control: no-store` et `X-Robots-Tag: noindex, nofollow` sur tout `/api/` ;
+  - contrôle d'origine : toute requête de `/api/v1` qui modifie (hors GET) vient d'une origine admise (`Origin`, sinon `Referer`), faute de quoi 403. La session voyage dans un cookie : sans ce contrôle, une page tierce ferait modifier le serveur par le navigateur d'un membre connecté ;
+  - CSP : `default-src 'none'` sur chaque réponse, et la CSP des pages (`default-src 'self'`, scripts et styles du serveur seul, polices du serveur, images de Discord) sur les seules pages HTML du bot. La CSP du framework est désactivée : il la pose après le handler, une valeur pour toutes les réponses.
+- **Enveloppe réponse** : succès `{ … }` (JSON, la ressource nommée : `{ provider }`, `{ routes }`, `{ webhook }`…) ; erreurs `{ ok: false, error, details? }` via `HttpError` (400, 401, 403, 404, 409, 422, 429…).
+- **Versioning** : les contrôleurs du tableau de bord sont sous `/api/v1/guilds/:guildId/…`, un contrôleur par groupe.
+- **Contrat** : les schémas Zod de `packages/shared/src/schemas/dashboard-*.ts` servent au bot (validation des corps) et au tableau de bord (contrôle des réponses).
+- **Règle framework respectée** : `@HttpClientModule` directement sur `AppModule` (jamais de module HTTP séparé : ignoré silencieusement sinon). Le contrôleur fourre-tout du panel (`PanelController`, `GET /*`) est déclaré en DERNIER.
 
 ### 4.1 Auth (better-auth + Discord) - la pièce centrale
 
-**Server** (`src/auth/auth.instance.ts`) :
+**Server** (`src/auth/auth.instance.ts`, livré) :
 ```ts
-export const auth = betterAuth({
-  database: prismaAdapter(prisma, { provider: 'sqlite' }),   // même DB que le bot
+betterAuth({
+  secret: env.BETTER_AUTH_SECRET,
+  baseURL: origins[0],                                      // première origine admise du panel
+  trustedOrigins: origins,                                  // DASHBOARD_ORIGIN : plusieurs, séparées par des virgules
+  advanced: { useSecureCookies: publicUrl.startsWith('https://') },
+  database: prismaAdapter(prisma, { provider: 'sqlite' }),  // même DB que le bot
+  emailAndPassword: { enabled: false },
   socialProviders: {
-    discord: {
-      clientId: env.DISCORD_CLIENT_ID,
-      clientSecret: env.DISCORD_CLIENT_SECRET,
-      scopes: ['identify', 'email', 'guilds'],               // 'bot' ajouté uniquement sur l'URL d'invite
+    discord: { clientId: env.DISCORD_CLIENT_ID, clientSecret: env.DISCORD_CLIENT_SECRET, scopes: ['identify'] },
+  },
+  session: { expiresIn: 7 * 24 * 60 * 60, cookieCache: { enabled: true, maxAge: 5 * 60 } },
+  rateLimit: { enabled: true, window: 60, max: 20 },        // limite propre au login
+  databaseHooks: {
+    account: {
+      // Les jetons OAuth sont effacés dès que le compte est lié : il ne reste que l'identifiant Discord.
+      create: { after: (account) => scrubOAuthTokens(prisma, account.id) },
+      update: { after: (account) => scrubOAuthTokens(prisma, account.id) },
     },
   },
-  session: { expiresIn: 7 * 24 * 3600, cookieCache: { enabled: true, maxAge: 5 * 60 } },
-  rateLimit: { enabled: true, window: 60, max: 20 },
-  trustedOrigins: [env.DASHBOARD_ORIGIN],
 });
 ```
-- **Montage sans accès Hono brut** : `HttpMiddleware` global qui intercepte `ctx.req.path.startsWith('/api/auth')` → `return auth.handler(ctx.req.raw)` (un middleware peut court-circuiter en retournant une `Response` - supporté). *Point à vérifier à l'implémentation : ordre du middleware vs CORS (le préflight OPTIONS de /api/auth doit passer par CorsMiddleware - sinon intercepter aussi OPTIONS).*
+- **Montage** : `AuthController` (`@HttpController('/api/auth')`, `GET` et `POST` sur `/*`) rend la `Response` de `auth.handler(ctx.req.raw)` telle quelle. Sans login configuré (`BETTER_AUTH_SECRET`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`), chaque requête répond 503 avec la cause.
 - **Tables better-auth** : générées dans `schema.prisma` via `npx @better-auth/cli generate --output prisma/schema.prisma` (User, Session, Account, Verification). Re-générer après chaque ajout de plugin.
+- **L'appartenance à un serveur ne vient jamais d'un jeton de l'utilisateur** : elle se lit avec le client du bot (`GuildAccessGuard`).
 
-**Guards API** (`src/auth/guards/`) :
-1. `SessionGuard implements HttpGuard` - `auth.api.getSession({ headers: ctx.req.raw.headers })` ; 401 sinon. Global sur `/api/v1`.
-2. `GuildAccessGuard` - sur `@HttpGuards` des routes `/guilds/:guildId/*` : vérifie que l'utilisateur de la session possède **ManageGuild ou Administrator** sur le guild (fetch discord.js via Client injecté, cache 5 min Map<guildId+userId>). 403 sinon.
-3. `ApiKeyGuard` - actif par config pour les appels serveur-à-serveur (webhooks, CI), contournement de session.
+**Guards API** (`src/auth/guards/`, livrées) :
+1. `SessionGuard implements HttpGuard` : la session de la requête (cookie), lue par `readSession` ; sans session, ou login non configuré, refus (401). La session lue est posée dans le contexte pour les handlers et les gardes en aval. Elle ouvre chaque route du tableau de bord.
+2. `GuildAccessGuard` : sur chaque route portant `:guildId`. À CHAQUE requête, sans cache : l'identité Discord liée à la session doit être membre du serveur et passer `GuildManagerPolicy` (Gérer le serveur, Administrateur ou propriétaire). Sinon 403.
+3. `ProbeKeyGuard` : sur la seule sonde `/healthz` (clé `HTTP_API_KEY`, comparaison en temps constant). Plus aucune autre route ne demande de clé API.
 
 **Flux auth complet** :
 ```
-Dashboard → GET /api/auth/signin/discord (signIn.social) → redirect Discord
-→ callback /api/auth/callback/discord → better-auth crée User+Account, pose le cookie de session
-→ Dashboard useSession() OK → GET /api/v1/guilds (liste des guilds Discord du user, cross user.accounts + guilds.bot)
-→ pour chaque guild : bot présent ? user admin ? → UI liste des guilds gérables
+Dashboard → requireSession (beforeLoad) : sans session → /login?redirect=<page demandée>
+→ signIn.social({ provider: 'discord' }) → redirect Discord (scope identify)
+→ callback /api/auth/callback/discord → better-auth crée User+Account, efface les jetons, pose le cookie
+→ retour à la page demandée → GET /api/v1/guilds (serveurs du bot où le membre lié peut gérer)
+→ chaque appel suivant : SessionGuard → GuildAccessGuard → handler
 ```
-L'**invite du bot** passe par une URL OAuth séparée avec scope `bot` + `permissions` calculées (constante partagée dans `packages/shared`) - jamais mélangée au login (principe moindre privilège ; le scope `guilds` du login sert juste à lister les guilds du user).
+L'**invite du bot** passe par une URL OAuth séparée avec scope `bot` + `permissions` calculées : jamais mélangée au login (principe de moindre privilège).
 
-### 4.2 Endpoints P0
+### 4.2 Endpoints (livrés)
 
-| Méthode + route | Guard | Rôle |
-|---|---|---|
-| `GET /api/v1/guilds` | Session | Guilds du user (intersection guilds Discord ↔ guilds du bot) + droits admin |
-| `GET /api/v1/guilds/:guildId` | Session + GuildAccess | Infos guild (via `BotBridge.getGuild`) + résumé config |
-| `GET /api/v1/guilds/:guildId/config` | Session + GuildAccess | Guild config (JSON typé) |
-| `PATCH /api/v1/guilds/:guildId/config` | Session + GuildAccess | Patch partiel → Zod parse → persist → invalidate cache |
-| `GET /api/v1/guilds/:guildId/modules` | Session + GuildAccess | États modules per-guild |
-| `PATCH /api/v1/guilds/:guildId/modules/:moduleId` | Session + GuildAccess | Toggle + whitelist (channels/roles/users) |
-| `GET /api/v1/meta/modules` | Session | Catalogue (id/label/description/commandes) - pour rendre l'UI générique |
-| `GET /api/v1/meta/session` | Session | Profil courant (pour l'UI) |
+Sauf mention, chaque route exige la session puis l'accès au serveur (`SessionGuard`, `GuildAccessGuard`).
 
-Convention live-edit : **toute écriture API passe par les mêmes services que les commandes Discord** (une seule implémentation, deux interfaces). Le dashboard n'est qu'un client de plus.
+| Méthode + route | Rôle |
+|---|---|
+| `GET /api/v1/guilds` | Serveurs du bot où le membre lié à la session peut gérer (session seule) |
+| `GET /api/v1/guilds/:guildId` | Fiche du serveur (nom, icône, nombre de membres) ; l'accueil compose le reste à partir des routes ci-dessous |
+| `GET` / `PATCH /api/v1/guilds/:guildId/config` | Configuration du serveur (JSON typé), correctif partiel validé par Zod |
+| `GET /api/v1/guilds/:guildId/modules` · `PATCH …/modules/:moduleId` | États des modules, activation et coupure (avec sa cascade) |
+| `GET /api/v1/guilds/:guildId/channels` · `…/roles` | Salons visibles et rôles, pour les sélecteurs |
+| `GET /api/v1/guilds/:guildId/audit?kind=actions\|plans\|errors&page=N` | Journal du serveur, par famille, paginé ; une famille inconnue est refusée (400) |
+| `GET /api/v1/guilds/:guildId/memories` · `…/stats` | Fiches de mémoire, indicateurs |
+| `GET` / `POST …/providers` · `PATCH` / `DELETE …/providers/:providerId` · `POST …/test` | Fournisseurs IA du serveur, test de connexion, état de santé |
+| `GET` / `POST …/providers/:providerId/models` · `DELETE …/models/:modelId` | Catalogue des modèles du fournisseur, slugs ajoutés à la main |
+| `GET /api/v1/guilds/:guildId/capabilities` · `PUT` / `DELETE …/capabilities/:capability` | Routes de capacités : modèle principal et de repli (`{ routes, followedBy }`) |
+| `GET /api/v1/guilds/:guildId/integrations` · `PUT` / `POST …/test` / `DELETE …/integrations/:slug` | Services spécialisés (PixelLab) : activation, clé par serveur, test d'accès |
+| `GET` / `POST …/webhooks` · `PATCH` / `DELETE …/webhooks/:webhookId` · `POST …/ping` | Connecteurs HTTP sortants et essai |
+| `GET` / `PATCH /api/v1/guilds/:guildId/rules` | Règles du serveur (mêmes que l'outil `rules.set`) |
+| `GET` / `PATCH /api/v1/guilds/:guildId/agent-settings` | Mode de raisonnement de l'agent du serveur |
+| `GET /api/v1/guilds/:guildId/usage?window=24h\|7d\|30d` | Appels au modèle, jetons, erreurs, replis, par modèle et par jour |
+| `POST …/agent/chat` · `GET …/agent/requests/:requestId` | Conversation avec l'agent depuis le panel, étapes de la demande |
+| `GET /api/v1/guilds/:guildId/events` | Flux temps réel du serveur (SSE) |
+| `GET /api/v1/meta/session` · `GET /api/v1/meta/modules` | Profil courant, catalogue des modules (session seule) |
+| `GET /api/auth/*` | better-auth : login Discord, session |
+| `GET /legal/terms` · `GET /legal/privacy` | Mentions légales, confidentialité |
+| `GET /healthz` | Sonde du processus (clé `HTTP_API_KEY`) |
+| `GET /*` | Panel compilé, quand `DASHBOARD_DIST_DIR` est réglé (déclaré en dernier) |
+
+Convention live-edit : **toute écriture API passe par les mêmes services que la conversation Discord** (une seule implémentation, deux interfaces). Le dashboard n'est qu'un client de plus.
+
+Aucune vue ne porte un secret : `{ hasApiKey, keyHint }`. Une clé vide lors d'une mise à jour conserve celle en place, `null` la retire.
 
 ## 5. Couche données (Prisma)
 
@@ -245,11 +271,13 @@ conversation naturelle (« passe les logs dans #modération ») → tool agent c
 → GuildConfigService.patch(guildId, patch) → Zod safeParse (erreur → ValidationException avec champ/reason)
 → Prisma upsert → cache invalidé → réponse V2 ✅ (effet immédiat sur tous les modules)
 ```
-### 7.3 Édition config via dashboard (phase 2)
+### 7.3 Édition depuis le dashboard (livré)
 ```
-PATCH /api/v1/guilds/:id/config → SessionGuard → GuildAccessGuard → même GuildConfigService.patch
-→ 200 { config } ; TanStack Query invalide ['guild', id, 'config'] → UI reflète
+PATCH /api/v1/guilds/:guildId/config → ApiPolicyMiddleware (origine admise) → SessionGuard → GuildAccessGuard
+→ même GuildConfigService.patch que l'outil de l'agent, revalidation Zod intégrale, journalisée au nom du membre
+→ 200 (le document) ; TanStack Query invalide ['guild', id, 'config'] → la page reflète
 ```
+Même schéma pour tout le reste : règles (`rules`), fournisseurs et capacités, intégrations, connecteurs. Une écriture du panel ne fait jamais rien qu'une écriture de la conversation ne ferait pas.
 ### 7.4 Join du bot sur un nouveau serveur
 ```
 GuildCreate listener → Prisma Guild upsert (settings = defaults Zod) → log boot
@@ -403,9 +431,16 @@ Réfs : [Anthropic - Writing effective tools](https://www.anthropic.com/research
 
 **Mémoire conversationnelle par canal** (pattern Discord-AI-Bot) : l'historique Discord est la mémoire - fetch des N derniers messages du canal, rendu `[Label (ID)] : contenu` avec préfixes inforgeables (contenu neutralisé), messages du bot = turns assistant. Pas d'état partagé entre canaux. Gate de triage : appel cheap model OUI/NON avant génération coûteuse (mention/DM bypass).
 
-## 17. Realtime bot ↔ dashboard
+## 17. Realtime bot ↔ dashboard (livré : Server-Sent Events)
 
-Bot et API vivent dans le même process (§1) → **event bus interne** (EventEmitter typé) + broadcast **WebSocket** depuis Hono vers le dashboard (Salons configurés, modules togglés, audit en direct). Migration Postgres : `LISTEN/NOTIFY` remplace le bus interne sans changer le contrat des events. RethinkDB écarté (moins maintenu, PostgreSQL/SQLite couvrent le besoin).
+Bot et API vivent dans le même process (§1). Le temps réel tient en un flux par serveur : `GET /api/v1/guilds/:guildId/events` (SSE, gardé comme le reste).
+
+- **Source** : `DashboardEventsService` s'abonne à `AuditService`. Chaque entrée d'audit d'un serveur devient, pour ce serveur seulement, un événement `{ type }` parmi cinq : `provider.updated`, `capability.updated`, `integration.updated`, `webhook.updated`, `rules.updated`.
+- **Contrat volontairement pauvre** : un événement ne dit ni serveur, ni identifiant, ni contenu. Il sert à une seule chose, invalider les requêtes du serveur affiché ; le dashboard relit ensuite ce qu'il a le droit de lire. Rien de sensible ne transite.
+- **Tenue du flux** : un commentaire `ping` toutes les 25 s (`SSE_PING_INTERVAL_MS`), abonnement posé avant l'écriture de l'ouverture, `Cache-Control: no-store`.
+- **Étapes d'une demande de l'agent** : hors flux. Le panel envoie l'identifiant qu'il a choisi (`web-<uuid>`), l'agent consigne ses étapes dans `RequestProgressService` (en mémoire, borné), le panel relit `agent/requests/:requestId`.
+
+Un WebSocket a été écarté : le besoin est unidirectionnel (le bot pousse, le panel relit), et SSE passe un proxy sans négociation. Migration Postgres : `LISTEN/NOTIFY` remplacerait le crochet sur l'audit sans changer le contrat des événements.
 
 ## 18. Jeux - trois couches de rendu
 

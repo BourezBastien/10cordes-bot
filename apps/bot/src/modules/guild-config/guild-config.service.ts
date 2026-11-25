@@ -1,10 +1,11 @@
 import { Injectable } from '@spraxium/common';
 import { GuildConfigSchema, type GuildConfig } from '@10cordes/shared';
 import { PrismaService } from '../database/prisma.service';
+import type { AuditEntry } from '../audit/audit.service';
 import { AuditService } from '../audit/audit.service';
 import { deepMerge } from '../../shared/utils/object';
 
-// Les exception layouts sont instanciés par le framework sans DI — le service
+// Les exception layouts sont instanciés par le framework sans DI : le service
 // s'enregistre ici pour rendre la config accessible au GuildErrorLayout.
 let layoutInstance: GuildConfigService | undefined;
 
@@ -14,7 +15,7 @@ export function getConfigServiceForLayout(): GuildConfigService {
 }
 
 /**
- * Configuration par serveur — un seul document JSON typé (Zod), cache mémoire
+ * Configuration par serveur : un seul document JSON typé (Zod), cache mémoire
  * invalidé à l'écriture, auto-provision à la première lecture.
  */
 @Injectable()
@@ -42,8 +43,17 @@ export class GuildConfigService {
     return config;
   }
 
-  /** Fusionne un patch partiel puis re-valide TOUT le document avant écriture. */
-  async patch(guildId: string, patch: Record<string, unknown>): Promise<GuildConfig> {
+  /**
+   * Fusionne un patch partiel puis re-valide TOUT le document avant écriture.
+   * `actorId` et `source` disent qui demande le changement : sans eux (outils
+   * Discord), l'audit reste tel quel, sans acteur.
+   */
+  async patch(
+    guildId: string,
+    patch: Record<string, unknown>,
+    actorId?: string | null,
+    source: NonNullable<AuditEntry['source']> = 'discord',
+  ): Promise<GuildConfig> {
     const current = await this.get(guildId);
     const merged = GuildConfigSchema.parse(deepMerge(current as unknown as Record<string, unknown>, patch));
     await this.prisma.guild.update({
@@ -53,8 +63,9 @@ export class GuildConfigService {
     this.cache.set(guildId, merged);
     this.audit.record({
       guildId,
-      source: 'discord',
+      source,
       action: 'config.patch',
+      ...(actorId ? { actorId } : {}),
       metadata: { keys: Object.keys(patch) },
     });
     return merged;

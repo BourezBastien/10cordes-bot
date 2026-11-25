@@ -86,7 +86,7 @@ function harness(flags: PermissionName[] = ['ManageChannels', 'ManageGuild', 'Se
     get: vi.fn((label: string): BotTool | undefined => TOOLS[label]),
     run: vi.fn(async (): Promise<ToolResult> => ({ ok: true, summary: 'fait' })),
   };
-  const service = new ActionPlanService({ interactiveSurface: surface } as never, audit as never, client as never, registry as never);
+  const service = new ActionPlanService({ interactiveSurface: surface } as never, audit as never, client as never, registry as never, { record: vi.fn() } as never);
   /** Composants du premier message envoyé (le panneau), séparateurs compris. */
   const components = (): Component[] => {
     const payload = channel.send.mock.calls[0]?.[0] as Payload | undefined;

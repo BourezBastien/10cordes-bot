@@ -16,6 +16,7 @@ import {
 } from './handlers/provider-hub.buttons.handlers';
 import { ProviderLegacyMigration } from './provider-legacy.migration';
 import { GuildProviderService } from './provider-store.service';
+import { ProviderHealthService } from './provider-health.service';
 import { ProvidersBoot } from './providers.boot';
 
 /**
@@ -51,7 +52,7 @@ import { ProvidersBoot } from './providers.boot';
     ProviderDeleteButtonHandler,
     ProviderPageButtonHandler,
   ],
-  providers: [ProviderAdapterRegistry, GuildProviderService, ProviderLegacyMigration, CapabilityRouterService, ProvidersBoot],
-  exports: [ProviderAdapterRegistry, GuildProviderService, CapabilityRouterService],
+  providers: [ProviderAdapterRegistry, GuildProviderService, ProviderLegacyMigration, CapabilityRouterService, ProviderHealthService, ProvidersBoot],
+  exports: [ProviderAdapterRegistry, GuildProviderService, CapabilityRouterService, ProviderHealthService],
 })
 export class ProvidersModule {}

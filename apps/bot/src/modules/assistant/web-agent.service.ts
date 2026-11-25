@@ -24,10 +24,13 @@ import { describeError, stackExcerpt } from '../../shared/utils/error-stack';
 import { GuildIntegrationService } from '../integrations/guild-integration.service';
 import { imageEnginesLine } from '../providers/image-engines';
 import { CapabilityRouterService } from '../providers/capability-router.service';
+import { RequestProgressService } from './request-progress.service';
 
 const RATE_LIMIT_MS = 4_000;
 const MAX_MESSAGE_LENGTH = 2_000;
 const TRANSCRIPT_SIZE = 12;
+/** Longueur gardée du résumé d'un outil, dans le résultat du chat. */
+const TOOL_SUMMARY_MAX = 200;
 
 interface WebChatResult {
   reply: string | null;
@@ -58,12 +61,22 @@ export class WebAgentService {
     private readonly client: Client,
     private readonly router: CapabilityRouterService,
     private readonly integrations: GuildIntegrationService,
+    private readonly progress: RequestProgressService,
   ) {}
 
-  async chat(guildId: string, discordUserId: string, message: string): Promise<WebChatResult> {
+  /**
+   * Répond à une demande venue du dashboard. `requestId` est l'identifiant que
+   * le panel a choisi pour suivre les étapes de SA demande pendant qu'elle
+   * tourne (lecture par `agent/requests/:requestId`) ; sans lui, la demande
+   * garde un identifiant interne et rien n'est suivi.
+   */
+  async chat(guildId: string, discordUserId: string, message: string, clientRequestId?: string): Promise<WebChatResult> {
     const trimmed = message.trim();
     if (trimmed.length === 0) throw new Error('Message vide.');
     if (trimmed.length > MAX_MESSAGE_LENGTH) throw new Error('Message trop long (2000 caractères max).');
+    const tracked = clientRequestId !== undefined;
+    const requestId = clientRequestId ?? `web-${Math.random().toString(36).slice(2, 10)}`;
+    if (tracked) this.progress.start(guildId, requestId);
 
     const key = `${guildId}:${discordUserId}`;
     const last = this.rateLimits.get(key);
@@ -143,7 +156,6 @@ export class WebAgentService {
       },
     ];
 
-    const requestId = `web-${Math.random().toString(36).slice(2, 10)}`;
     const ctx: ToolRunContext = {
       guildId,
       channelId: channel?.id ?? null,
@@ -157,6 +169,11 @@ export class WebAgentService {
     };
 
     const executed: WebChatResult['tools'] = [];
+    const note = (name: string, result: { ok: boolean; summary: string }): void => {
+      const summary = result.summary.slice(0, TOOL_SUMMARY_MAX);
+      executed.push({ name, ok: result.ok, summary });
+      if (tracked) this.progress.record(guildId, requestId, { name, ok: result.ok, summary });
+    };
     // THINKING STABLE : l'effort et le modèle se décident une fois, avant le premier tour.
     const plan = await this.llm.planRequest(
       { userId: discordUserId, guildId, cause: 'web' },
@@ -166,15 +183,15 @@ export class WebAgentService {
       .run(messages, toolset, ctx, { userId: discordUserId, guildId, requestId, ...plan }, {
         cause: 'web',
         quotaExhaustedMessage: QUOTA_EXHAUSTED_MESSAGE,
-        onToolResult: (name, result) => {
-          executed.push({ name, ok: result.ok, summary: result.summary.slice(0, 200) });
-        },
+        onToolResult: note,
       })
       .catch((error: unknown) => {
         this.log.warn(`chat web erreur : ${error instanceof Error ? error.message : String(error)}`);
         fileLog()?.event('error', 'loop', 'loop.error', { requestId, guildId, error: describeError(error), stack: stackExcerpt(error) });
         return null;
       });
+    // La demande est finie pour le panel : réussie, ou en échec si la boucle n'a pas abouti.
+    if (tracked) this.progress.finish(guildId, requestId, outcome ? 'done' : 'failed');
     // Fin de demande, comme sur Discord : les actions qui modifient, restées en attente,
     // forment UN plan, affiché dans le salon dédié IA du serveur.
     await getActionPlans()

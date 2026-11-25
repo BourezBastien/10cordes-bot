@@ -51,7 +51,7 @@ describe('cleanPlanSummary', () => {
     expect(cleanPlanSummary('Je renomme #général en #accueil et j\u0027écris à pierre@exemple.test pour prévenir.')).toBe(
       'Je renomme général en accueil et j\u0027écris à pierre@exemple.test pour prévenir.',
     );
-    // Un pseudonyme précédé d\u0027un arobase, lui, disparaît.
+    // Un pseudonyme précédé d'un arobase, lui, disparaît.
     expect(cleanPlanSummary('Je préviens @pierre et @everyone ensuite.')).toBe('Je préviens et ensuite.');
   });
 
@@ -69,6 +69,12 @@ describe('cleanPlanSummary', () => {
 });
 
 describe('PlanSummaryWriter', () => {
+  /** Un écrivain monté avec sa comptabilité : la valeur de `record` est ce que le test relit. */
+  function mounted() {
+    const usage = { record: vi.fn() };
+    return { writer: new PlanSummaryWriter(usage as never), usage };
+  }
+
   /** Journal factice : les lignes LLM sont conservées. */
   function journal() {
     const lines: Array<Record<string, unknown>> = [];
@@ -88,7 +94,7 @@ describe('PlanSummaryWriter', () => {
 
   it('le modèle reçoit la demande et la liste des actions, sans outil, et son texte est gardé nettoyé', async () => {
     mocks.chat.mockResolvedValue(completion('Je vais renommer le salon en général **et** lui donner un sujet. @everyone'));
-    const summary = await new PlanSummaryWriter().write(INPUT);
+    const summary = await mounted().writer.write(INPUT);
     expect(summary).toBe('Je vais renommer le salon en général et lui donner un sujet.');
     expect(mocks.chat).toHaveBeenCalledTimes(1);
     const [messages, tools, options] = mocks.chat.mock.calls[0];
@@ -102,21 +108,21 @@ describe('PlanSummaryWriter', () => {
   });
 
   it('sans action, aucun appel', async () => {
-    expect(await new PlanSummaryWriter().write({ ...INPUT, actions: [] })).toBeNull();
+    expect(await mounted().writer.write({ ...INPUT, actions: [] })).toBeNull();
     expect(mocks.chat).not.toHaveBeenCalled();
   });
 
   it('un modèle qui appelle un outil ou ne dit rien ne fournit pas de résumé', async () => {
     mocks.chat.mockResolvedValue(completion('texte', [{ id: 'c1', name: 'renameChannel', arguments: '{}' }]));
-    expect(await new PlanSummaryWriter().write(INPUT)).toBeNull();
+    expect(await mounted().writer.write(INPUT)).toBeNull();
     mocks.chat.mockResolvedValue(completion('   '));
-    expect(await new PlanSummaryWriter().write(INPUT)).toBeNull();
+    expect(await mounted().writer.write(INPUT)).toBeNull();
   });
 
   it('une erreur du modèle (indisponible, clé refusée) laisse le panneau s\u0027afficher sans résumé', async () => {
     const lines = journal();
     mocks.chat.mockRejectedValue(new Error('clé rejetée'));
-    await expect(new PlanSummaryWriter().write(INPUT)).resolves.toBeNull();
+    await expect(mounted().writer.write(INPUT)).resolves.toBeNull();
     // L'appel raté entre quand même dans le journal des coûts.
     expect(lines).toEqual([expect.objectContaining({ cause: 'plan.summary', ok: false, error: 'Error: clé rejetée', guildId: GUILD })]);
   });
@@ -124,7 +130,7 @@ describe('PlanSummaryWriter', () => {
   it('au-delà de douze secondes, le panneau n\u0027attend pas : pas de résumé', async () => {
     vi.useFakeTimers();
     mocks.chat.mockImplementation(() => new Promise<ChatCompletionResult>(() => undefined));
-    const outcome = new PlanSummaryWriter().write(INPUT);
+    const outcome = mounted().writer.write(INPUT);
     await vi.advanceTimersByTimeAsync(12_001);
     await expect(outcome).resolves.toBeNull();
   });
@@ -132,7 +138,7 @@ describe('PlanSummaryWriter', () => {
   it('l\u0027appel entre dans le journal des coûts, sous la cause plan.summary', async () => {
     const lines = journal();
     mocks.chat.mockResolvedValue({ ...completion('Je vais renommer le salon.'), served: { provider: 'deepseek-official', model: 'deepseek-flash', capability: 'chat.default', fallback: false } });
-    await new PlanSummaryWriter().write(INPUT);
+    await mounted().writer.write(INPUT);
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({
       cause: 'plan.summary',
@@ -144,5 +150,22 @@ describe('PlanSummaryWriter', () => {
       ok: true,
       guildId: GUILD,
     });
+  });
+
+  it('l’appel entre aussi dans la comptabilité du serveur, avec les valeurs du journal', async () => {
+    const { writer, usage } = mounted();
+    mocks.chat.mockResolvedValue({ ...completion('Je vais renommer le salon.'), served: { provider: 'deepseek-official', model: 'deepseek-flash', capability: 'chat.default', fallback: true } });
+    await writer.write(INPUT);
+    expect(usage.record).toHaveBeenCalledTimes(1);
+    expect(usage.record).toHaveBeenCalledWith(
+      expect.objectContaining({ guildId: GUILD, cause: 'plan.summary', provider: 'deepseek-official', model: 'deepseek-flash', capability: 'chat.default', fallback: true, promptTokens: 4, completionTokens: 6, ok: true }),
+    );
+  });
+
+  it('un appel raté se compte aussi, en échec et sans jetons', async () => {
+    const { writer, usage } = mounted();
+    mocks.chat.mockRejectedValue(new Error('indisponible'));
+    await writer.write(INPUT);
+    expect(usage.record).toHaveBeenCalledWith(expect.objectContaining({ cause: 'plan.summary', model: 'runtime', promptTokens: 0, completionTokens: 0, ok: false }));
   });
 });

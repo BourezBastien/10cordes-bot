@@ -1,34 +1,44 @@
-import { useSession } from '@/lib/auth';
-import { Navigate } from '@tanstack/react-router';
+import { useSearch } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@/components/ui/button';
 import { authClient } from '@/lib/auth';
+import { Button } from '@/ds/button';
+import { BrandMark } from '@/ds/brand';
+import { Frame } from '@/ds/frame';
+import { currentLocale, toggleLocale, type Locale } from '@/lib/i18n';
+
+/*
+ * CONNEXION. Une seule action : Discord. Le panneau n'a ni mot de passe ni
+ * compte propre ; les jetons OAuth sont abandonnés dès la liaison (bot).
+ * Une fois connecté, le visiteur revient à la page qu'il demandait, quand
+ * elle est celle d'un serveur. La langue se change en bas de la carte.
+ */
 
 export function LoginPage() {
   const { t } = useTranslation();
-  const { data: session, isPending } = useSession();
-
-  if (isPending) {
-    return <div className="grid h-full place-items-center text-ink-muted">{t('common.loading')}</div>;
-  }
-  if (session) {
-    return <Navigate to="/guilds" />;
-  }
-
+  const { redirect: back } = useSearch({ from: '/login' });
+  const other: Locale = currentLocale() === 'fr' ? 'en' : 'fr';
+  const signIn = () => void authClient.signIn.social({ provider: 'discord', callbackURL: back ?? '/guilds' });
   return (
-    <div className="grid h-full place-items-center bg-canvas">
-      <div className="flex w-80 flex-col items-center gap-6 rounded-lg border border-line bg-surface p-8">
-        <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-accent text-2xl font-bold text-canvas">
-          10
-        </div>
+    <main className="grid flex-1 place-items-center p-6">
+      <Frame tone="accent" className="flex w-[min(420px,100%)] flex-col items-center gap-6 p-8 anim-lift">
+        <BrandMark size={64} />
         <div className="text-center">
-          <h1 className="text-xl font-semibold">{t('login.title')}</h1>
-          <p className="mt-1 text-sm text-ink-muted">{t('login.subtitle')}</p>
+          <h1 className="text-2xl">10CORDES</h1>
+          <p className="text-desc mt-2">{t('login.subtitle')}</p>
         </div>
-        <Button size="lg" className="w-full" onClick={() => authClient.signIn.social({ provider: 'discord', callbackURL: '/guilds' })}>
+        <Button variant="solid" size="lg" className="w-full" onClick={signIn}>
           {t('login.button')}
         </Button>
-      </div>
-    </div>
+        <p className="text-center text-xs leading-relaxed text-ink-faint">{t('login.note')}</p>
+        <button
+          type="button"
+          onClick={toggleLocale}
+          aria-label={`${t('nav.locale')} : ${other.toUpperCase()}`}
+          className="text-label min-h-11 min-w-11 px-3 hover:text-ink enabled:active:translate-y-px"
+        >
+          {other.toUpperCase()}
+        </button>
+      </Frame>
+    </main>
   );
 }

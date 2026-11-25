@@ -2,6 +2,7 @@ import { LlmFormatLeakError } from './llm.errors';
 import type { LlmService } from './llm.service';
 import type { ChatCause, ChatCompletionResult, ChatMessage, ChatOptions, OpenAiTool } from './llm.types';
 import { fileLog } from '../logging/file-log.service';
+import type { UsageLogService } from '../usage/usage-log.service';
 
 /** Options identiques sur tous les tours d'une même requête. */
 export type TurnOptions = ChatOptions & { reasoningEffort: string | null; preferReasoning: boolean | undefined };
@@ -15,10 +16,14 @@ export interface LoopTurn {
 /**
  * Les tours LLM de la boucle : l'appel, le rejeu après une fuite de balises
  * internes, et la ligne du journal des coûts. Chaque appel réel passe par
- * le compteur de tours de la boucle.
+ * le compteur de tours de la boucle, et entre dans la comptabilité du
+ * serveur (journal des appels au modèle).
  */
 export class LoopTurns {
-  constructor(private readonly llm: LlmService) {}
+  constructor(
+    private readonly llm: LlmService,
+    private readonly usage: UsageLogService,
+  ) {}
 
   /**
    * Un tour, texte bufferisé. Si le modèle laisse fuir ses balises internes
@@ -49,21 +54,18 @@ export class LoopTurns {
   /**
    * Ligne du journal LLM d'un tour : le modèle qui a réellement répondu
    * (fournisseur de la route du serveur, ou de son repli), sa durée, la
-   * référence de la demande et son serveur.
+   * référence de la demande et son serveur. La comptabilité du serveur
+   * reçoit les mêmes valeurs, calculées une seule fois : les deux journaux
+   * ne peuvent pas diverger.
    */
   log(completion: ChatCompletionResult, cause: ChatCause, ms: number, ok: boolean, requestId?: string, guildId?: string | null): void {
-    fileLog()?.llm({
-      cause,
-      model: completion.served?.model ?? 'runtime',
-      provider: completion.served?.provider,
-      fallback: completion.served?.fallback,
-      capability: completion.served?.capability,
-      promptTokens: completion.usage?.promptTokens ?? 0,
-      completionTokens: completion.usage?.completionTokens ?? 0,
-      ms,
-      ok,
-      requestId,
-      guildId: guildId ?? undefined,
-    });
+    const model = completion.served?.model ?? 'runtime';
+    const provider = completion.served?.provider;
+    const fallback = completion.served?.fallback;
+    const capability = completion.served?.capability;
+    const promptTokens = completion.usage?.promptTokens ?? 0;
+    const completionTokens = completion.usage?.completionTokens ?? 0;
+    fileLog()?.llm({ cause, model, provider, fallback, capability, promptTokens, completionTokens, ms, ok, requestId, guildId: guildId ?? undefined });
+    this.usage.record({ guildId: guildId ?? null, requestId: requestId ?? null, cause, capability: capability ?? null, provider: provider ?? null, model, fallback: fallback === true, promptTokens, completionTokens, ms, ok });
   }
 }

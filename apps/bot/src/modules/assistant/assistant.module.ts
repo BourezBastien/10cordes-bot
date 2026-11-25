@@ -16,6 +16,7 @@ import { LlmService } from './llm.service';
 import { TypingIndicator } from './typing-indicator';
 
 import { WebAgentService } from './web-agent.service';
+import { RequestProgressService } from './request-progress.service';
 
 import { ResponseCacheService } from './response-cache.service';
 
@@ -38,9 +39,10 @@ import { BootRecoveryService } from './boot-recovery.service';
     AssistantService,
     LlmService,
     WebAgentService,
+    RequestProgressService,
     ResponseCacheService,
     BootRecoveryService,
   ],
-  exports: [LlmService, AssistantQueue, WebAgentService, ResponseCacheService],
+  exports: [LlmService, AssistantQueue, WebAgentService, RequestProgressService, ResponseCacheService],
 })
 export class AssistantModule {}

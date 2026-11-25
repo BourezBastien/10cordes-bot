@@ -9,7 +9,11 @@ import {
 } from '@10cordes/shared';
 import { MODULE_CATALOG } from './module.catalog';
 import { GuildModuleStateService } from './guild-module-state.service';
+import type { AuditEntry } from '../audit/audit.service';
 import { AuditService } from '../audit/audit.service';
+
+/** Origine d'une écriture, pour l'audit : les outils Discord par défaut, l'API du dashboard sinon. */
+type AuditSource = NonNullable<AuditEntry['source']>;
 
 export interface DisableResult {
   applied: boolean;
@@ -36,7 +40,7 @@ export class ModuleManagerService {
     return findModule(MODULE_CATALOG, moduleId);
   }
 
-  /** Modules actifs sur le serveur — consommé par le ToolRegistry (filtre requiredModules). */
+  /** Modules actifs sur le serveur, consommés par le ToolRegistry (filtre requiredModules). */
   async activeModules(guildId: string | null): Promise<Set<string>> {
     if (!guildId) return new Set(MODULE_CATALOG.map((module) => module.id));
     const active = new Set<string>();
@@ -59,8 +63,12 @@ export class ModuleManagerService {
     );
   }
 
-  /** Active le module + toutes ses dépendances obligatoires inactives (ordre topologique). */
-  async enableModule(guildId: string, moduleId: string): Promise<string[]> {
+  /**
+   * Active le module + toutes ses dépendances obligatoires inactives (ordre
+   * topologique). `actorId` et `source` disent qui demande le changement : sans
+   * eux (outils Discord), l'audit reste tel quel, sans acteur.
+   */
+  async enableModule(guildId: string, moduleId: string, actorId?: string, source: AuditSource = 'discord'): Promise<string[]> {
     const module = this.find(moduleId);
     if (!module) {
       throw new ValidationException({ field: 'module', reason: `Unknown module \`${moduleId}\`.` });
@@ -70,8 +78,9 @@ export class ModuleManagerService {
     for (const id of toEnable) await this.guildStates.setEnabled(guildId, id, true);
     this.audit.record({
       guildId,
-      source: 'discord',
+      source,
       action: 'module.enable',
+      ...(actorId ? { actorId } : {}),
       targetId: moduleId,
       metadata: { enabled: toEnable },
     });
@@ -81,8 +90,9 @@ export class ModuleManagerService {
   /**
    * Désactive le module. Si des modules actifs en dépendent, renvoie la cascade
    * détaillée (à confirmer par l'utilisateur) sauf si `confirm` est déjà vrai.
+   * `actorId` et `source` : voir `enableModule`.
    */
-  async disableModule(guildId: string, moduleId: string, confirm: boolean): Promise<DisableResult> {
+  async disableModule(guildId: string, moduleId: string, confirm: boolean, actorId?: string, source: AuditSource = 'discord'): Promise<DisableResult> {
     if (!this.find(moduleId)) {
       throw new ValidationException({ field: 'module', reason: `Unknown module \`${moduleId}\`.` });
     }
@@ -98,8 +108,9 @@ export class ModuleManagerService {
     for (const id of all) await this.guildStates.setEnabled(guildId, id, false);
     this.audit.record({
       guildId,
-      source: 'discord',
+      source,
       action: 'module.disable',
+      ...(actorId ? { actorId } : {}),
       targetId: moduleId,
       metadata: { disabled: all, confirmed: confirm },
     });

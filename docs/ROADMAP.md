@@ -14,8 +14,10 @@ Realisé et validé en production interne :
 - Zéro slash command : surface Discord = conversation (mention, nom du bot, salon dédié) uniquement. Le registre Discord est purgé au boot.
 - Agent IA conversationnel : 60+ tools permission-gated (noms verbe-first camelCase), mémoire persistante serveur + membres, réponses éphémères hors salon dédié, queue workers (FIFO par utilisateur, 3 parallèles).
 - Dashboard : bouton "Panneau de configuration" sur le portail de l'agent (staff) -> panneau V2 éphémère par catégories.
+- Dashboard web (livré le 25/11/2026) : fournisseurs IA et modèles, intégrations et connecteurs HTTP sortants, règles, modules, configuration, journal, mémoires, consommation, conversation avec l'agent (étapes en direct). Login Discord, français et anglais, servi par le bot quand `DASHBOARD_DIST_DIR` est réglé.
+- Depuis le 24/11 : toute action qui modifie attend un clic quand la règle du serveur l'exige ; chaque requête sortante passe par une garde (hôtes privés refusés, redirections revérifiées).
 
-Prochaine phase : dashboard React (bot.10codes.io), feeds, jeux temps réel.
+Prochaine phase : ingénierie (CI, journal des décisions, refroidissement par modèle), feeds, jeux temps réel.
 
 1. **Zéro commande, 100 % conversationnel** - ni slash commands ni préfixes : l'agent (gate + permissions re-vérifiées en code à chaque action) est l'unique surface.
 2. **Tout est module** - activable/désactivable en live (global + par serveur), avec **dépendances obligatoires** : désactiver `economy` désactive `shop` **sauf si `shop` est requis par un autre module actif** ; l'activation tire ses dépendances.
@@ -196,10 +198,10 @@ Prochaine phase : dashboard React (bot.10codes.io), feeds, jeux temps réel.
 
 **C. Games** (voir §4.8) et commandes utilitaires IA (`/translate`, `/summarize`) s'appuient sur le même socle.
 
-### 4.2 Dashboard web (React, phase 2)
-- Vite + React 19 + Tailwind 4 + shadcn/ui + Aceternity + TanStack Router/Query/Table + ApexCharts ; thème Tenkai (dark, sans ombres, radius .375–.75rem, IBM Plex Sans)
-- **Auth Discord-only via better-auth** (Lucia déprécié) : liste des guilds gérables (ManageGuild), guilds où le bot absent → bouton **Setup** (OAuth scope `bot`), permissions affichées
-- API REST `/api/v1` (`@spraxium/http`, CORS, better-auth en middleware, SessionGuard + GuildAccessGuard) - spéc complète dans ARCHITECTURE.md
+### 4.2 Dashboard web (livré le 25/11/2026)
+- Vite 8 + React 19 + Tailwind 4 (CSS-first) + primitives propres + TanStack Router/Query + ApexCharts ; langage graphique inspiré d'ARCHIVE-9 (thème sombre seul, aucun angle arrondi, aucune ombre, cadres crantés, Silkscreen + JetBrains Mono), accent orange 10cordes ; français et anglais
+- **Auth Discord-only via better-auth** (droit `identify` seul, jetons OAuth abandonnés) : serveurs où le bot est présent et où le membre peut gérer ; l'appartenance et le droit sont relus à chaque appel
+- API REST `/api/v1/guilds/:guildId/...` (`@spraxium/http`, CORS, SessionGuard + GuildAccessGuard, contrôle d'origine des écritures, CSP, aucune clé dans les vues), flux temps réel SSE par serveur, connecteurs HTTP sortants (`webhook.call`). Détail dans ARCHITECTURE.md et AGENTS.md
 
 ### 4.3 Tickets & modmail 🎫 (P2 - la spéc Crow complète)
 - Panneau custom (embed 12✅, **couleurs de boutons 14✅**, message hors embed 12✅), **threads ou salons** (3✅), **forms/modals** (✅), blacklist users (10✅) et rôles par catégorie (4✅)

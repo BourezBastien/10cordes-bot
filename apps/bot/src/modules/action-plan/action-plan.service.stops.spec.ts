@@ -114,7 +114,7 @@ function harness(flags: PermissionName[] = ['ManageChannels', 'KickMembers']) {
   };
   const guild = fakeGuild(flags);
   const interaction = fakeInteraction(guild);
-  const service = new ActionPlanService({ interactiveSurface: prisma.surface } as never, audit as never, client as never, registry as never);
+  const service = new ActionPlanService({ interactiveSurface: prisma.surface } as never, audit as never, client as never, registry as never, { record: vi.fn() } as never);
   return { ...prisma, audit, registry, service, interaction, fetchMember: guild.members.fetch, fetchMessage, edit };
 }
 

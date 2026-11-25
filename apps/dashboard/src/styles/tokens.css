@@ -1,0 +1,71 @@
+/*
+ * JETONS du système visuel 10cordes. Réimplémentation, dans Tailwind 4, d'un
+ * langage graphique emprunté à ARCHIVE-9 (github.com/LeoBdt/ARCHIVE-9, prise
+ * comme inspiration visuelle, aucun fichier repris) : un thème sombre seul,
+ * où la profondeur vient de la lumière des surfaces et de filets de 2 px,
+ * jamais d'une ombre ni d'un angle arrondi. L'accent est l'orange 10cordes,
+ * là où la référence emploie un rouge.
+ *
+ * Chaque jeton devient une classe : `--color-panel-deep` donne `bg-panel-deep`,
+ * `text-panel-deep`, `border-panel-deep` ; `--font-pixel` donne `font-pixel`.
+ */
+
+@theme {
+  /* La palette, les rayons et les ombres par défaut sont retirés D'ABORD :
+   * un réinitialiseur efface aussi ce qui le précède dans le bloc. Seuls les
+   * jetons déclarés ensuite existent. Aucun rayon, aucune ombre : le cadre
+   * cranté pose lui-même son ombre. */
+  --color-*: initial;
+  --radius-*: initial;
+  --shadow-*: initial;
+
+  /* Surfaces, de la plus reculée à la plus claire. */
+  --color-bg: #0a0a0d;
+  --color-panel-deep: #0e0e12;
+  --color-panel: #101015;
+  --color-field: #121217;
+  --color-hover: #16161c;
+  --color-veil: rgb(5 5 8 / 0.78);
+
+  /* Filets : 1 px entre les lignes, 2 px pour un cadre, plus clair pour un cadre discret. */
+  --color-line-soft: #1f1f26;
+  --color-line: #26262e;
+  --color-edge: #3a3a44;
+
+  /* Texte, du plus lisible au plus discret (libellés, métadonnées). */
+  --color-ink: #e9e9ee;
+  --color-ink-soft: #d4d4dc;
+  --color-ink-muted: #c4c4ce;
+  --color-ink-faint: #a6a6b2;
+
+  /* Accent : l'orange 10cordes, avec ses quatre compagnons
+   * (survol, texte sur fond accent, surface teintée, barre discrète). */
+  --color-accent: #d95926;
+  --color-accent-soft: #ffa070;
+  --color-accent-ink: #1a0c06;
+  --color-accent-deep: #200f09;
+  --color-accent-dim: #7a3517;
+
+  /* Sémantique : réussite, avertissement, erreur, information, compétence. */
+  --color-ok: #6ee7a8;
+  --color-ok-ink: #07190f;
+  --color-ok-deep: #0b1c13;
+  --color-warn: #f5c04a;
+  --color-warn-ink: #1c1503;
+  --color-warn-deep: #1e1708;
+  --color-danger: #ff4757;
+  --color-danger-soft: #ff8a95;
+  --color-danger-ink: #1c080b;
+  --color-danger-deep: #230b10;
+  --color-info: #7cc4ff;
+  --color-info-ink: #06121e;
+  --color-info-deep: #0b1520;
+  --color-skill: #c4a0ff;
+  --color-skill-ink: #150a22;
+  --color-skill-deep: #170f22;
+
+  /* Polices : tout le texte est en mono, l'affichage en pixel. */
+  --font-pixel: "Silkscreen", ui-monospace, monospace;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "Cascadia Mono", monospace;
+  --font-sans: var(--font-mono);
+}

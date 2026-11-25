@@ -77,7 +77,7 @@ function makeRegistry({ confirm = true, withPlans = true }: { confirm?: boolean;
     destructive: true,
     handler,
   } as unknown as BotTool);
-  const plans = new ActionPlanService(planPrisma as never, audit as never, { guilds: { cache: new Map() }, channels: { cache: new Map() } } as never, registry);
+  const plans = new ActionPlanService(planPrisma as never, audit as never, { guilds: { cache: new Map() }, channels: { cache: new Map() } } as never, registry, { record: vi.fn() } as never);
   if (withPlans) bindActionPlans(plans);
   return { registry, handler, audit, rules, plans };
 }

@@ -86,7 +86,7 @@ function harness() {
   const client = { channels: { cache: new Map([[CHANNEL, channel], [OTHER_CHANNEL, otherChannel]]), fetch: vi.fn(async (_id: string): Promise<unknown> => null) }, guilds: { cache: new Map() } };
   const audit = { record: vi.fn() };
   const registry = { get: vi.fn(), run: vi.fn() };
-  const service = new ActionPlanService({ interactiveSurface: prisma } as never, audit as never, client as never, registry as never);
+  const service = new ActionPlanService({ interactiveSurface: prisma } as never, audit as never, client as never, registry as never, { record: vi.fn() } as never);
   return { prisma, registry, channel, otherChannel, client, audit, service };
 }
 

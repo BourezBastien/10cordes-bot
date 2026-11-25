@@ -1,0 +1,91 @@
+/*
+ * Textes de l'interface, en français. Chaque groupe correspond à une partie
+ * de l'interface ; `en.ts` reprend la même forme, et une clé manquante en
+ * anglais est une erreur de compilation.
+ */
+
+export const commonFr = {
+  app: {
+    name: '10cordes',
+    tagline: 'Le pilote Discord de ton serveur',
+  },
+  nav: {
+    servers: 'Serveurs',
+    home: 'Accueil',
+    ai: 'IA',
+    integrations: 'Intégrations',
+    journal: 'Journal',
+    rules: 'Règles',
+    modules: 'Modules',
+    config: 'Config',
+    memories: 'Mémoires',
+    system: 'Système',
+    agent: 'Agent',
+    more: 'Plus',
+    logout: 'Déconnexion',
+    locale: 'Langue',
+    search: 'Rechercher',
+  },
+  shell: {
+    searchPlaceholder: 'Aller à…',
+    searchEmpty: 'Aucune destination.',
+    searchHint: 'Flèches pour choisir, Entrée pour ouvrir, Échap pour fermer.',
+    serversGroup: 'Serveurs',
+    pagesGroup: 'Pages',
+    guest: 'Non connecté',
+    live: 'Temps réel',
+    liveOff: 'Hors ligne',
+    liveOn: 'Connecté',
+    close: 'Fermer',
+    signedInAs: 'Connecté en tant que {{name}}',
+  },
+  common: {
+    loading: 'Chargement…',
+    error: 'Une erreur est survenue',
+    retry: 'Réessayer',
+    save: 'Enregistrer',
+    saved: 'Enregistré',
+    cancel: 'Annuler',
+    back: 'Retour',
+    close: 'Fermer',
+    delete: 'Supprimer',
+    edit: 'Éditer',
+    add: 'Ajouter',
+    confirm: 'Confirmer',
+    none: 'aucun',
+    unknown: 'Inconnu',
+    never: 'Jamais',
+    showMore: 'Afficher plus',
+    noChanges: 'Aucune modification à enregistrer',
+    empty: 'Rien à afficher.',
+    refresh: 'Actualiser',
+    members_one: '{{count}} membre',
+    members_other: '{{count}} membres',
+    server: 'Serveur',
+  },
+  boot: {
+    label: 'Chargement du panneau',
+  },
+  login: {
+    title: '10cordes',
+    subtitle: 'Le pilote Discord de ton serveur',
+    button: 'Se connecter avec Discord',
+    note: 'Connexion par Discord. Aucun mot de passe, et aucun jeton OAuth n’est conservé.',
+  },
+  guilds: {
+    title: 'Tes serveurs',
+    description: 'Les serveurs où le bot est présent et où tu peux le configurer.',
+    empty: 'Aucun serveur gérable. Invite le bot pour commencer.',
+    open: 'Ouvrir',
+  },
+  forbidden: {
+    title: 'Accès refusé',
+    message: 'Tu n’es pas membre de ce serveur, ou le bot n’y est plus.',
+    back: 'Mes serveurs',
+  },
+  notFound: {
+    title: 'Page introuvable',
+    message: 'Cette adresse ne correspond à aucune page du panneau.',
+    back: 'Mes serveurs',
+  },
+};

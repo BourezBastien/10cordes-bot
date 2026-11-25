@@ -1,239 +1,234 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CONFIG_KEYS, type ConfigKeyDescriptor } from '@10cordes/shared';
-import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { useParams } from '@tanstack/react-router';
-import { api, ApiError } from '@/lib/api';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input, Label } from '@/components/ui/input';
+import { CONFIG_KEYS, type ConfigKeyDescriptor } from '@10cordes/shared';
+import { Button } from '@/ds/button';
+import { Checkbox, Field, Input, Textarea } from '@/ds/field';
+import { Empty } from '@/ds/kpi';
+import { Select, type SelectOption } from '@/ds/select';
+import { Tabs, type TabItem } from '@/ds/tabs';
+import { guildPath } from '@/shell/guild-list';
+import { useGuild } from '@/shell/guild-context';
+import { GuildHeader } from '@/shell/guild-header';
+import { Page, QueryState } from '@/shell/page';
+import { api, ApiError, errorMessage } from '@/lib/api';
+import { useChannels, useConfig, useRoles } from '@/lib/queries';
+import { ConfigDocumentSchema, type ChannelLite, type RoleLite } from '@/lib/schemas';
+import { cn } from '@/lib/utils';
 
-type GuildConfigDoc = Record<string, unknown>;
+/*
+ * CONFIGURATION. Les réglages du serveur, champ par champ, un onglet par
+ * groupe. Les changements se cumulent (barre d'accent à gauche du champ
+ * modifié) et s'enregistrent ensemble, ou s'abandonnent.
+ */
 
-interface ChannelLite {
-  id: string;
-  name: string;
-  type: number;
-}
-interface RoleLite {
-  id: string;
-  name: string;
-  color: number;
-}
+type Doc = Record<string, unknown>;
+type Errors = Record<string, string>;
 
-function getPath(doc: GuildConfigDoc, path: string): unknown {
-  return path.split('.').reduce<unknown>((acc, key) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[key] : undefined), doc);
-}
+const NONE = '__none__';
+const CATEGORY = 4;
 
-function setIn(patch: Record<string, unknown>, path: string, value: unknown): void {
-  const keys = path.split('.');
-  let node = patch;
-  for (let i = 0; i < keys.length - 1; i++) {
-    if (!node[keys[i]] || typeof node[keys[i]] !== 'object') node[keys[i]] = {};
-    node = node[keys[i]] as Record<string, unknown>;
-  }
-  node[keys[keys.length - 1]] = value;
+function getPath(doc: Doc, path: string): unknown {
+  return path.split('.').reduce<unknown>((node, key) => (node && typeof node === 'object' ? (node as Doc)[key] : undefined), doc);
 }
 
-function ConfigField({
-  descriptor,
-  value,
-  channels,
-  roles,
-  onChange,
-}: {
+/** Copie du document où `path` vaut `value` : les niveaux intermédiaires naissent au besoin. */
+function setPath(doc: Doc, path: string, value: unknown): Doc {
+  const [head, ...rest] = path.split('.');
+  if (rest.length === 0) return { ...doc, [head]: value };
+  const child = doc[head] && typeof doc[head] === 'object' ? (doc[head] as Doc) : {};
+  return { ...doc, [head]: setPath(child, rest.join('.'), value) };
+}
+
+function same(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+interface ControlProps {
   descriptor: ConfigKeyDescriptor;
   value: unknown;
-  channels: ChannelLite[];
-  roles: RoleLite[];
+  error?: string;
   onChange: (value: unknown) => void;
-}) {
-  const { t } = useTranslation();
+  options: SelectOption<string>[];
+}
+
+function Control({ descriptor, value, error, onChange, options }: ControlProps) {
+  const label = descriptor.description;
   switch (descriptor.type) {
     case 'boolean':
       return (
-        <label className="flex items-center gap-3">
-          <input
-            type="checkbox"
-            checked={Boolean(value)}
-            onChange={(e) => onChange(e.target.checked)}
-            className="h-4 w-4 accent-accent"
-          />
-          <span className="text-sm">{descriptor.description}</span>
-        </label>
+        <div className="flex flex-col gap-1">
+          <Checkbox checked={Boolean(value)} onChange={(event) => onChange(event.target.checked)} label={label} />
+          {error ? <p role="alert" className="text-xs text-danger-soft">{error}</p> : null}
+        </div>
       );
     case 'number':
       return (
-        <div className="flex flex-col gap-1">
-          <Label>{descriptor.description}</Label>
-          <Input
-            type="number"
-            value={typeof value === 'number' ? value : ''}
-            onChange={(e) => onChange(e.target.value === '' ? undefined : Number(e.target.value))}
-          />
-        </div>
+        <Field label={label} error={error}>
+          {(control) => (
+            <Input
+              {...control}
+              type="number"
+              value={typeof value === 'number' ? String(value) : ''}
+              onChange={(event) => onChange(event.target.value === '' ? undefined : Number(event.target.value))}
+            />
+          )}
+        </Field>
       );
     case 'channel':
-      return (
-        <div className="flex flex-col gap-1">
-          <Label>{descriptor.description}</Label>
-          <select
-            className="h-9 w-full rounded-md border border-line bg-canvas px-3 text-sm text-ink"
-            value={typeof value === 'string' ? value : ''}
-            onChange={(e) => onChange(e.target.value)}
-          >
-            <option value="">({t('common.none')})</option>
-            {channels.map((channel) => (
-              <option key={channel.id} value={channel.id}>
-                #{channel.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      );
     case 'role':
-      return (
-        <div className="flex flex-col gap-1">
-          <Label>{descriptor.description}</Label>
-          <select
-            className="h-9 w-full rounded-md border border-line bg-canvas px-3 text-sm text-ink"
-            value={typeof value === 'string' ? value : ''}
-            onChange={(e) => onChange(e.target.value)}
-          >
-            <option value="">({t('common.none')})</option>
-            {roles.map((role) => (
-              <option key={role.id} value={role.id}>
-                @{role.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      );
     case 'locale':
       return (
-        <div className="flex flex-col gap-1">
-          <Label>{descriptor.description}</Label>
-          <select
-            className="h-9 w-full rounded-md border border-line bg-canvas px-3 text-sm text-ink"
-            value={typeof value === 'string' ? value : 'fr'}
-            onChange={(e) => onChange(e.target.value)}
-          >
-            <option value="fr">Français</option>
-            <option value="en">English</option>
-          </select>
-        </div>
+        <Field label={label} error={error}>
+          {(control) => (
+            <Select
+              {...control}
+              value={typeof value === 'string' && value !== '' ? value : NONE}
+              options={options}
+              onChange={(next) => onChange(next === NONE ? '' : next)}
+            />
+          )}
+        </Field>
       );
     default:
-      return (
-        <div className="flex flex-col gap-1">
-          <Label>{descriptor.description}</Label>
-          <Input value={typeof value === 'string' ? value : ''} onChange={(e) => onChange(e.target.value)} />
-        </div>
+      return descriptor.path.endsWith('.template') ? (
+        <Field label={label} error={error}>
+          {(control) => <Textarea {...control} value={typeof value === 'string' ? value : ''} onChange={(event) => onChange(event.target.value)} />}
+        </Field>
+      ) : (
+        <Field label={label} error={error}>
+          {(control) => <Input {...control} value={typeof value === 'string' ? value : ''} onChange={(event) => onChange(event.target.value)} />}
+        </Field>
       );
   }
+}
+
+function optionsFor(descriptor: ConfigKeyDescriptor, channels: ReadonlyArray<ChannelLite>, roles: ReadonlyArray<RoleLite>, none: string): SelectOption<string>[] {
+  const empty: SelectOption<string> = { value: NONE, label: none };
+  if (descriptor.type === 'channel') {
+    return [empty, ...channels.map((channel) => ({ value: channel.id, label: channel.type === CATEGORY ? `▣ ${channel.name}` : `# ${channel.name}` }))];
+  }
+  if (descriptor.type === 'role') {
+    return [empty, ...roles.map((role) => ({ value: role.id, label: `@ ${role.name}` }))];
+  }
+  if (descriptor.type === 'locale') {
+    return [
+      { value: 'fr', label: 'Français' },
+      { value: 'en', label: 'English' },
+    ];
+  }
+  return [];
+}
+
+function Changed({ changed, children }: { changed: boolean; children: ReactNode }) {
+  return <div className={cn('flex flex-col gap-1', changed && 'bar-accent pl-3')}>{children}</div>;
 }
 
 export function ConfigPage() {
   const { t } = useTranslation();
-  const { guildId } = useParams({ from: '/g/$guildId' });
+  const { guildId } = useGuild();
   const queryClient = useQueryClient();
-  const [patch, setPatch] = useState<Record<string, unknown>>({});
+  const [patch, setPatch] = useState<Doc>({});
+  const [errors, setErrors] = useState<Errors>({});
+  const [group, setGroup] = useState('');
 
-  const configQuery = useQuery({
-    queryKey: ['guild', guildId, 'config'],
-    queryFn: () => api.get<GuildConfigDoc>(`/api/v1/guilds/${guildId}/config`),
-  });
-  const channelsQuery = useQuery({
-    queryKey: ['guild', guildId, 'channels'],
-    queryFn: () => api.get<{ channels: ChannelLite[] }>(`/api/v1/guilds/${guildId}/channels`),
-    staleTime: 5 * 60_000,
-  });
-  const rolesQuery = useQuery({
-    queryKey: ['guild', guildId, 'roles'],
-    queryFn: () => api.get<{ roles: RoleLite[] }>(`/api/v1/guilds/${guildId}/roles`),
-    staleTime: 5 * 60_000,
-  });
+  const config = useConfig(guildId);
+  const channels = useChannels(guildId);
+  const roles = useRoles(guildId);
 
-  const saveMutation = useMutation({
-    mutationFn: (data: Record<string, unknown>) => api.patch(`/api/v1/guilds/${guildId}/config`, data),
+  const save = useMutation({
+    mutationFn: (data: Doc) => api.patch(guildPath(guildId, '/config'), data, ConfigDocumentSchema),
     onSuccess: () => {
       toast.success(t('common.saved'));
       setPatch({});
+      setErrors({});
       void queryClient.invalidateQueries({ queryKey: ['guild', guildId, 'config'] });
     },
     onError: (error: unknown) => {
-      if (error instanceof ApiError && error.details) {
+      const next: Errors = {};
+      if (error instanceof ApiError) {
         for (const detail of error.details) {
-          toast.error(`${detail.property} : ${Object.values(detail.constraints)[0]}`);
+          next[detail.property] = Object.values(detail.constraints)[0] ?? '';
         }
-      } else {
-        toast.error(t('common.error'));
       }
+      setErrors(next);
+      toast.error(errorMessage(error));
     },
   });
 
-  const channels = channelsQuery.data?.channels ?? [];
-  const roles = rolesQuery.data?.roles ?? [];
-  const doc = configQuery.data ?? {};
-
   const update = (descriptor: ConfigKeyDescriptor, value: unknown) => {
-    setIn(patch, descriptor.path, value);
-    setPatch({ ...patch });
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next[descriptor.path];
+      return next;
+    });
+    setPatch((prev) => setPath(prev, descriptor.path, value));
   };
 
-  const save = () => {
-    if (Object.keys(patch).length === 0) {
-      toast.info(t('common.noChanges'));
-      return;
-    }
-    saveMutation.mutate(patch);
-  };
-
-  const groups = new Map<string, ConfigKeyDescriptor[]>();
-  for (const key of CONFIG_KEYS) {
-    const group = key.path.split('.')[0];
-    if (!groups.has(group)) groups.set(group, []);
-    groups.get(group)?.push(key);
-  }
-
-  if (configQuery.isPending) {
-    return <div className="p-8 text-ink-muted">{t('common.loading')}</div>;
-  }
+  const changed = Object.keys(patch).length;
 
   return (
-    <div className="mx-auto w-full max-w-3xl p-8">
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">{t('nav.config')}</h1>
-        <Button onClick={save} disabled={saveMutation.isPending}>
-          {saveMutation.isPending ? '…' : t('common.save')}
-        </Button>
-      </div>
-      <div className="flex flex-col gap-4">
-        {[...groups.entries()].map(([group, keys]) => (
-          <Card key={group}>
-            <CardHeader>
-              <CardTitle className="capitalize">{group}</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              {keys.map((key) => (
-                <ConfigField
-                  key={key.path}
-                  descriptor={key}
-                  value={patchHas(patch, key.path) ? getPath(patch, key.path) : getPath(doc, key.path)}
-                  channels={channels}
-                  roles={roles}
-                  onChange={(value) => update(key, value)}
-                />
-              ))}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    </div>
+    <Page>
+      <GuildHeader
+        title={t('config.title')}
+        description={t('config.description')}
+        actions={
+          <>
+            <Button variant="ghost" disabled={save.isPending || changed === 0} onClick={() => { setPatch({}); setErrors({}); }}>
+              {t('config.reset')}
+            </Button>
+            <Button variant="solid" loading={save.isPending} disabled={changed === 0} onClick={() => save.mutate(patch)}>
+              {changed > 0 ? `${t('common.save')} (${t('config.changed', { count: changed })})` : t('common.save')}
+            </Button>
+          </>
+        }
+      />
+      <QueryState query={config} label={t('common.loading')}>
+        {(data) => {
+          const groups = new Map<string, ConfigKeyDescriptor[]>();
+          for (const key of CONFIG_KEYS) {
+            const name = key.path.split('.')[0] ?? key.path;
+            const list = groups.get(name) ?? [];
+            list.push(key);
+            groups.set(name, list);
+          }
+          const none = `(${t('common.none')})`;
+          // Bâti à chaque rendu, sans état : le rendu d'un enfant peut être rejoué.
+          const tabs: TabItem[] = [...groups].map(([name, keys]) => ({
+            id: name,
+            label: name,
+            content: (
+              <div className="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
+                {keys.map((descriptor) => {
+                  const inPatch = getPath(patch, descriptor.path) !== undefined;
+                  const value = inPatch ? getPath(patch, descriptor.path) : getPath(data, descriptor.path);
+                  return (
+                    <Changed key={descriptor.path} changed={inPatch && !same(value, getPath(data, descriptor.path))}>
+                      <Control
+                        descriptor={descriptor}
+                        value={value}
+                        error={errors[descriptor.path]}
+                        onChange={(next) => update(descriptor, next)}
+                        options={optionsFor(descriptor, channels.data?.channels ?? [], roles.data?.roles ?? [], none)}
+                      />
+                    </Changed>
+                  );
+                })}
+              </div>
+            ),
+          }));
+          if (tabs.length === 0) return <Empty title={t('config.empty')} />;
+          return (
+            <Tabs
+              tabs={tabs}
+              value={tabs.some((tab) => tab.id === group) ? group : (tabs[0]?.id ?? '')}
+              onChange={setGroup}
+              label={t('config.title')}
+            />
+          );
+        }}
+      </QueryState>
+    </Page>
   );
-}
-
-function patchHas(patch: Record<string, unknown>, path: string): boolean {
-  return getPath(patch, path) !== undefined;
 }

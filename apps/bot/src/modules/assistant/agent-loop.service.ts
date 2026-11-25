@@ -5,6 +5,7 @@ import { ToolRegistryService } from '../tool-registry/tool-registry.service';
 import { fileLog } from '../logging/file-log.service';
 import { describeError } from '../../shared/utils/error-stack';
 import { stringifySafe } from '../../shared/utils/object';
+import { UsageLogService } from '../usage/usage-log.service';
 import { LoopTurns, type TurnOptions } from './agent-loop.turns';
 
 /**
@@ -103,8 +104,9 @@ export class AgentLoopService {
   constructor(
     private readonly llm: LlmService,
     private readonly registry: ToolRegistryService,
+    usage: UsageLogService,
   ) {
-    this.turns = new LoopTurns(llm);
+    this.turns = new LoopTurns(llm, usage);
   }
 
   async run(

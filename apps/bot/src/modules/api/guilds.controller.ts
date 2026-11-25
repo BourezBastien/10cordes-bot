@@ -1,43 +1,39 @@
 import {
   HttpBody,
-  HttpCtx,
   HttpController,
+  HttpCtx,
   HttpGet,
   HttpGuards,
   HttpParam,
   HttpPatch,
   HttpPost,
   HttpQuery,
-  ValidationError,
 } from '@spraxium/http';
 import { Client } from 'discord.js';
-import { guildAccessContext, guildManagerPolicy } from '../../core/security/access-policy';
-import { ZodError } from 'zod';
 import type { Context } from 'hono';
+import { discordIdOf } from '../../auth/discord-identity';
+import { GuildAccessGuard, guildAccessOf } from '../../auth/guards/guild-access.guard';
+import { SessionGuard, sessionOf } from '../../auth/guards/session.guard';
+import { guildAccessContext, guildManagerPolicy } from '../../core/security/access-policy';
+import { RequestProgressService } from '../assistant/request-progress.service';
+import { WebAgentService } from '../assistant/web-agent.service';
 import { PrismaService } from '../database/prisma.service';
 import { GuildConfigService } from '../guild-config/guild-config.service';
 import { GuildModuleStateService } from '../module-manager/guild-module-state.service';
 import { ModuleManagerService } from '../module-manager/module-manager.service';
-import { WebAgentService } from '../assistant/web-agent.service';
-import { SessionGuard } from '../../auth/guards/session.guard';
-import { GuildAccessGuard } from '../../auth/guards/guild-access.guard';
+import { domainToHttpError } from './domain-errors';
+import { AgentChatSchema, ConfigPatchSchema, ModuleToggleSchema, auditKindOf, auditPageOf, auditWhere, webAgentRefusal } from './guilds.support';
+import { notFoundHere, parseBody } from './http-errors';
 
-interface ModuleToggleBody {
-  enabled: boolean;
-  confirm?: boolean;
-}
+const AUDIT_PAGE_SIZE = 25;
 
-interface AgentChatBody {
-  message: string;
-}
-
-function toValidationDetails(error: ZodError): Array<{ property: string; constraints: Record<string, string> }> {
-  return error.issues.map((issue) => ({
-    property: issue.path.join('.'),
-    constraints: { message: issue.message },
-  }));
-}
-
+/**
+ * Serveurs du dashboard : `/api/v1/guilds`. Chaque route d'un serveur passe par
+ * `GuildAccessGuard`, qui relit à chaque requête l'appartenance et le droit de
+ * gérer le serveur du membre Discord lié au compte connecté ; ce membre est
+ * ensuite connu du handler par `guildAccessOf(ctx)`. Toute écriture venue du
+ * dashboard est journalisée en son nom (`source: 'api'`).
+ */
 @HttpController('/api/v1/guilds')
 export class GuildsController {
   constructor(
@@ -47,20 +43,30 @@ export class GuildsController {
     private readonly prisma: PrismaService,
     private readonly webAgent: WebAgentService,
     private readonly client: Client,
+    private readonly progress: RequestProgressService,
   ) {}
 
-  /** Serveurs où le bot est présent ET où l'utilisateur peut gérer la configuration. */
+  /**
+   * Serveurs où le bot est présent ET où l'utilisateur peut gérer la
+   * configuration. Déclarée avec et sans barre finale : le routeur est strict,
+   * et le dashboard demande `/api/v1/guilds`.
+   */
+  @HttpGet('')
   @HttpGet('/')
   @HttpGuards(SessionGuard)
   async list(@HttpCtx() ctx: Context): Promise<unknown> {
-    const session = ctx.get('session');
-    const userId = session.user.id;
+    // L'identifiant de la session est celui de better-auth, pas un snowflake
+    // Discord : le snowflake est dans la table des comptes liés. Sans compte
+    // lié, aucun serveur n'est listé.
+    const session = await sessionOf(ctx);
+    const discordUserId = session ? await discordIdOf(this.prisma, session.user.id) : null;
+    if (!discordUserId) return { guilds: [] };
 
     const guilds: Array<Record<string, unknown>> = [];
     for (const guild of this.client.guilds.cache.values()) {
-      const member = await guild.members.fetch(userId).catch(() => null);
+      const member = await guild.members.fetch(discordUserId).catch(() => null);
       if (!member) continue;
-      if (!guildManagerPolicy.isAuthorized(guildAccessContext(guild, userId, member))) continue;
+      if (!guildManagerPolicy.isAuthorized(guildAccessContext(guild, discordUserId, member))) continue;
       guilds.push({
         id: guild.id,
         name: guild.name,
@@ -75,12 +81,13 @@ export class GuildsController {
   @HttpGet('/:guildId')
   @HttpGuards(SessionGuard, GuildAccessGuard)
   async getGuild(@HttpParam('guildId') guildId: string): Promise<unknown> {
-    const guild = this.client.guilds.cache.get(guildId);
+    const guild = this.client.guilds.cache.get(guildId) ?? (await this.client.guilds.fetch(guildId).catch(() => null));
+    if (!guild) throw notFoundHere();
     return {
-      id: guildId,
-      name: guild?.name ?? null,
-      icon: guild?.iconURL() ?? null,
-      memberCount: guild?.memberCount ?? null,
+      id: guild.id,
+      name: guild.name,
+      icon: guild.iconURL(),
+      memberCount: guild.memberCount,
     };
   }
 
@@ -90,20 +97,16 @@ export class GuildsController {
     return this.config.get(guildId);
   }
 
-  /** Patch partiel de la configuration — revalidation Zod intégrale à l'écriture. */
+  /** Patch partiel de la configuration : revalidation Zod intégrale à l'écriture, journalisée au nom de l'auteur. */
   @HttpPatch('/:guildId/config')
   @HttpGuards(SessionGuard, GuildAccessGuard)
-  async patchConfig(
-    @HttpParam('guildId') guildId: string,
-    @HttpBody() body: Record<string, unknown>,
-  ): Promise<unknown> {
+  async patchConfig(@HttpParam('guildId') guildId: string, @HttpCtx() ctx: Context, @HttpBody() body: unknown): Promise<unknown> {
+    const { discordUserId } = guildAccessOf(ctx);
+    const patch = parseBody(ConfigPatchSchema, body);
     try {
-      return await this.config.patch(guildId, body);
+      return await this.config.patch(guildId, patch, discordUserId, 'api');
     } catch (error) {
-      if (error instanceof ZodError) {
-        throw new ValidationError(toValidationDetails(error));
-      }
-      throw error;
+      throw domainToHttpError(error);
     }
   }
 
@@ -111,28 +114,33 @@ export class GuildsController {
   @HttpGet('/:guildId/modules')
   @HttpGuards(SessionGuard, GuildAccessGuard)
   async listModules(@HttpParam('guildId') guildId: string): Promise<unknown> {
-    const modules = await this.modules.listModules(guildId);
-    return Promise.all(
-      modules.map(async (module) => ({
+    const modules = await Promise.all(
+      (await this.modules.listModules(guildId)).map(async (module) => ({
         ...module,
         constraints: await this.states.getConstraints(guildId, module.id),
       })),
     );
+    return { modules };
   }
 
-  /** Toggle d'un module — même moteur de cascade que la commande /modules. */
+  /** Bascule d'un module : même moteur de cascade que les outils de l'agent ; un module inconnu est un 404. */
   @HttpPatch('/:guildId/modules/:moduleId')
   @HttpGuards(SessionGuard, GuildAccessGuard)
   async toggleModule(
     @HttpParam('guildId') guildId: string,
     @HttpParam('moduleId') moduleId: string,
-    @HttpBody() body: ModuleToggleBody,
+    @HttpCtx() ctx: Context,
+    @HttpBody() body: unknown,
   ): Promise<unknown> {
-    if (body.enabled) {
-      const enabled = await this.modules.enableModule(guildId, moduleId);
-      return { applied: true, enabled };
+    const { discordUserId } = guildAccessOf(ctx);
+    const { enabled, confirm } = parseBody(ModuleToggleSchema, body);
+    if (!this.modules.find(moduleId)) throw notFoundHere();
+    try {
+      if (enabled) return { applied: true, enabled: await this.modules.enableModule(guildId, moduleId, discordUserId, 'api') };
+      return await this.modules.disableModule(guildId, moduleId, confirm ?? false, discordUserId, 'api');
+    } catch (error) {
+      throw domainToHttpError(error);
     }
-    return this.modules.disableModule(guildId, moduleId, body.confirm ?? false);
   }
 
   /** Salons du serveur : inputs channel de l'éditeur de config. */
@@ -172,25 +180,29 @@ export class GuildsController {
     return { roles };
   }
 
-  /** Journal d'audit paginé (du plus récent). */
+  /**
+   * Journal d'audit paginé (du plus récent). `kind` le limite à une famille :
+   * `actions` (tout, sauf les plans et les erreurs), `plans` ou `errors`.
+   */
   @HttpGet('/:guildId/audit')
   @HttpGuards(SessionGuard, GuildAccessGuard)
   async listAudit(
     @HttpParam('guildId') guildId: string,
     @HttpQuery('page') pageRaw?: string,
+    @HttpQuery('kind') kindRaw?: string,
   ): Promise<unknown> {
-    const page = Math.max(1, Number.parseInt(pageRaw ?? '1', 10) || 1);
-    const pageSize = 25;
+    const page = auditPageOf(pageRaw);
+    const where = auditWhere(guildId, auditKindOf(kindRaw));
     const [entries, total] = await Promise.all([
       this.prisma.auditLog.findMany({
-        where: { guildId },
+        where,
         orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
+        skip: (page - 1) * AUDIT_PAGE_SIZE,
+        take: AUDIT_PAGE_SIZE,
       }),
-      this.prisma.auditLog.count({ where: { guildId } }),
+      this.prisma.auditLog.count({ where }),
     ]);
-    return { entries, page, pageSize, total, pages: Math.max(1, Math.ceil(total / pageSize)) };
+    return { entries, page, pageSize: AUDIT_PAGE_SIZE, total, pages: Math.max(1, Math.ceil(total / AUDIT_PAGE_SIZE)) };
   }
 
   /** Mémoires persistantes : serveur + membres. */
@@ -237,31 +249,33 @@ export class GuildsController {
 
   /**
    * Chat avec l'agent depuis le dashboard : mêmes tools et gates que Discord,
-   * permissions = celles du membre Discord lié au compte connecté.
+   * permissions = celles du membre Discord lié au compte connecté (celui que la
+   * garde vient de vérifier). Un refus du service répond 429 (cadence) ou 400.
+   * Avec `requestId`, le panel suit les étapes de sa demande pendant qu'elle
+   * tourne (`agent/requests/:requestId`).
    */
   @HttpPost('/:guildId/agent/chat')
   @HttpGuards(SessionGuard, GuildAccessGuard)
-  async agentChat(
-    @HttpParam('guildId') guildId: string,
-    @HttpCtx() ctx: Context,
-    @HttpBody() body: AgentChatBody,
-  ): Promise<unknown> {
-    const session = ctx.get('session');
-    const account = await this.prisma.account.findFirst({
-      where: { userId: session.user.id, providerId: 'discord' },
-      select: { accountId: true },
-    });
-    const discordUserId = account?.accountId;
-    if (!discordUserId) {
-      throw new ValidationError([{ property: 'message', constraints: { message: "Compte Discord lié introuvable pour cette session." } }]);
-    }
+  async agentChat(@HttpParam('guildId') guildId: string, @HttpCtx() ctx: Context, @HttpBody() body: unknown): Promise<unknown> {
+    const { discordUserId } = guildAccessOf(ctx);
+    const { message, requestId } = parseBody(AgentChatSchema, body);
     try {
-      return await this.webAgent.chat(guildId, discordUserId, String(body?.message ?? ''));
+      return await this.webAgent.chat(guildId, discordUserId, message, requestId);
     } catch (error) {
-      if (error instanceof Error && error.message.length < 200) {
-        throw new ValidationError([{ property: 'message', constraints: { message: error.message } }]);
-      }
-      throw error;
+      throw webAgentRefusal(error) ?? domainToHttpError(error);
     }
+  }
+
+  /**
+   * Étapes d'une demande de l'agent lancée depuis le dashboard : les outils
+   * appelés, réussis ou non, et l'état de la demande. Une demande d'un AUTRE
+   * serveur répond 404, comme une demande inconnue.
+   */
+  @HttpGet('/:guildId/agent/requests/:requestId')
+  @HttpGuards(SessionGuard, GuildAccessGuard)
+  async requestProgress(@HttpParam('guildId') guildId: string, @HttpParam('requestId') requestId: string): Promise<unknown> {
+    const progress = this.progress.read(guildId, requestId);
+    if (!progress) throw notFoundHere();
+    return progress;
   }
 }

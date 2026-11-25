@@ -70,5 +70,7 @@ export function boundedModels(models: readonly ProviderModel[]): ProviderModel[]
     ...(model.kinds && model.kinds.length > 0 ? { kinds: model.kinds.slice(0, KINDS_MAX) } : {}),
     contextWindow: model.contextWindow,
     maxOutput: model.maxOutput,
+    // Seul un slug saisi à la main porte sa marque : un modèle découvert n'écrit pas la sienne.
+    ...(model.origin === 'manual' ? { origin: model.origin } : {}),
   }));
 }

@@ -47,6 +47,7 @@ model Guild {
   providers            GuildProvider[]
   capabilityRoutes     CapabilityRoute[]
   integrations         GuildIntegration[]
+  webhookEndpoints     WebhookEndpoint[]
 
   @@map("guilds")
 }
@@ -383,6 +384,60 @@ model GuildIntegration {
 
   @@unique([guildId, slug])
   @@map("guild_integrations")
+}
+
+/// Connecteur HTTP sortant d'un serveur : un endpoint REST qu'un déclencheur
+/// ou une recette appelle (outil `webhook.call`). L'URL est publique et
+/// validée ; les en-têtes secrets sont chiffrés. Rien à voir avec un webhook
+/// Discord entrant.
+model WebhookEndpoint {
+  id                  String    @id @default(cuid())
+  guildId             String
+  slug                String // unique par serveur : lettres, chiffres, tirets
+  name                String
+  method              String    @default("POST") // GET, POST, PUT, PATCH, DELETE
+  url                 String // https uniquement, hôte public (assertProviderUrl puis safeFetch)
+  authType            String    @default("none") // none, bearer, header
+  authHeaderName      String? // pour authType « header » (X-Api-Key...)
+  encryptedHeaders    String? // CHIFFRÉS AES-256-GCM (v1:<iv>:<tag>:<data>) : en-têtes secrets
+  publicHeadersJson   String? // en-têtes non secrets (JSON)
+  requestTemplateJson String? // gabarit du corps : {{payload}} et {{payload.cle}}
+  responseExtractPath String? // chemin pointé de la réponse (« data.result »)
+  enabled             Boolean   @default(true)
+  lastHttpStatus     Int?
+  lastCheckedAt       DateTime?
+  lastError          String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  guild               Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, slug])
+  @@index([guildId])
+  @@map("webhook_endpoints")
+}
+
+/// Un appel au modèle servi à un serveur : jetons, modèle, durée, issue.
+/// Alimente la page Système du dashboard (jetons par fenêtre et par modèle).
+/// Sans clé étrangère vers le serveur : une ligne s'écrit sans rien relire.
+model LlmUsageRow {
+  id               String   @id @default(cuid())
+  guildId          String
+  requestId        String?
+  /// Raison de l'appel : reply, web, consolidation, triage, memory.ingestion, plan.summary.
+  cause            String
+  capability       String?
+  provider         String?
+  model            String?
+  /// Vrai quand un fournisseur de repli a servi l'appel.
+  fallback         Boolean  @default(false)
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  ms               Int      @default(0)
+  ok               Boolean  @default(true)
+  createdAt        DateTime @default(now())
+
+  @@index([guildId, createdAt])
+  @@map("llm_usage_rows")
 }
 
 // ── Vie de serveur (birthdays, sticky, AFK, sanctions temporaires, activité) ──

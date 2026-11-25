@@ -1,0 +1,169 @@
+/*
+ * MOUVEMENT PAR PAS. Rien ne glisse : chaque entrée avance par saccades
+ * (steps()), sans interpolation. Une classe `anim-*` pose l'animation ;
+ * `stagger` retarde celle d'un élément selon son index ; le mouvement réduit
+ * (préférence du système) affiche tout, sans rien faire bouger.
+ */
+
+@keyframes px-pull {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes px-lift {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes px-slide {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes px-type {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes px-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes px-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes px-bob {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-6px);
+  }
+}
+
+/* Une ligne ou une carte monte de 14 px en quatre temps. */
+@utility anim-pull {
+  animation: px-pull 0.35s steps(4, end) both;
+}
+
+/* Un dialogue ou un tiroir monte de 18 px. */
+@utility anim-lift {
+  animation: px-lift 0.3s steps(4, end) both;
+}
+
+/* Un panneau se découvre du haut vers le bas. */
+@utility anim-slide {
+  animation: px-slide 0.35s steps(5, end) both;
+}
+
+/* Un titre s'écrit de gauche à droite. */
+@utility anim-type {
+  animation: px-type 0.6s steps(8, end) both;
+}
+
+/* Un voile apparaît. */
+@utility anim-fade {
+  animation: px-fade 0.2s steps(3, end) both;
+}
+
+/* Un sprite monte et redescend, en deux temps. */
+@utility anim-bob {
+  animation: px-bob 2.4s steps(2, end) infinite alternate;
+}
+
+/*
+ * Retard d'entrée d'un élément d'une liste : index × 30 ms, plafonné à 12.
+ * L'élément pose son index dans `--i` (style inline) et porte l'animation
+ * (`anim-pull`) : les cartes apparaissent l'une après l'autre.
+ */
+@utility stagger {
+  animation-delay: calc(min(var(--i, 0), 12) * 30ms);
+}
+
+/* Clignotement franc : visible une seconde sur deux. */
+@utility anim-blink {
+  animation: px-blink 1s steps(1, end) infinite;
+}
+
+/* Un pixel parcourt les quatre coins d'un carré de 16 px : attente indéterminée. */
+@keyframes px-orbit {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  25% {
+    translate: 8px 0;
+  }
+  50% {
+    translate: 8px 8px;
+  }
+  75% {
+    translate: 0 8px;
+  }
+}
+
+/* Un élément reste visible jusqu'au bout de sa durée, puis disparaît. */
+@keyframes px-vanish {
+  from,
+  99% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@utility anim-orbit {
+  animation: px-orbit 0.6s steps(1, end) infinite;
+}
+
+/* Curseur d'écriture : visible le temps de la frappe (`--life`), puis plus rien. */
+@utility anim-life {
+  animation: px-vanish var(--life, 600ms) steps(1, end) forwards;
+}
+
+/* Mouvement réduit : tout apparaît, rien ne bouge, le curseur d'écriture se retire. */
+@media (prefers-reduced-motion: reduce) {
+  [class*="anim-"],
+  [class*="caret"],
+  [class*="stagger"] {
+    animation: none !important;
+  }
+
+  .anim-life {
+    display: none;
+  }
+}

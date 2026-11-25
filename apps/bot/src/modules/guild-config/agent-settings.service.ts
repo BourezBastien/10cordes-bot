@@ -1,4 +1,6 @@
 import { Injectable } from '@spraxium/common';
+import type { AuditEntry } from '../audit/audit.service';
+import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
 export type ThinkingMode = 'adaptive' | 'always' | 'off';
@@ -7,6 +9,9 @@ export interface AgentSettings {
   thinkingMode: ThinkingMode;
   configThreadId: string | null;
 }
+
+/** Origine d'une écriture, pour l'audit : l'API du dashboard, ou l'agent (outils Discord). */
+type AuditSource = NonNullable<AuditEntry['source']>;
 
 const CACHE_TTL_MS = 60_000;
 
@@ -19,7 +24,10 @@ const CACHE_TTL_MS = 60_000;
 export class AgentSettingsService {
   private readonly cache = new Map<string, { settings: AgentSettings; fetchedAt: number }>();
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async get(guildId: string): Promise<AgentSettings> {
     const cached = this.cache.get(guildId);
@@ -33,7 +41,12 @@ export class AgentSettingsService {
     return settings;
   }
 
-  async patch(guildId: string, patch: Partial<AgentSettings>): Promise<AgentSettings> {
+  /**
+   * Écrit un patch partiel. Un `actorId` est donné quand quelqu'un a demandé le
+   * changement (le dashboard) : l'écriture est alors journalisée. Sans lui
+   * (fil de config, outil `config.thinking`), rien n'est journalisé, comme avant.
+   */
+  async patch(guildId: string, patch: Partial<AgentSettings>, actorId?: string, source: AuditSource = 'agent'): Promise<AgentSettings> {
     const current = await this.get(guildId);
     const merged: AgentSettings = { ...current, ...patch };
     await this.prisma.guildAgentSettings.upsert({
@@ -42,6 +55,9 @@ export class AgentSettingsService {
       update: { thinkingMode: merged.thinkingMode, configThreadId: merged.configThreadId },
     });
     this.cache.delete(guildId);
+    if (actorId !== undefined) {
+      this.audit.record({ guildId, source, action: 'settings.updated', actorId, metadata: { keys: Object.keys(patch), thinkingMode: merged.thinkingMode } });
+    }
     return merged;
   }
 

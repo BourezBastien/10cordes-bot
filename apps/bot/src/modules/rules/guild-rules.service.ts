@@ -3,6 +3,7 @@ import { Logger } from '@spraxium/logger';
 import { z } from 'zod';
 import { defineTool, type BotTool } from '@10cordes/shared';
 import { PrismaService } from '../database/prisma.service';
+import type { AuditEntry } from '../audit/audit.service';
 import { AuditService } from '../audit/audit.service';
 import { getToolRegistry, ToolRegistryService, bindRegistryRuntimeDeps } from '../tool-registry/tool-registry.service';
 import { bindGuildRules } from './guild-rules.runtime';
@@ -41,6 +42,32 @@ const DEFAULT_RULES: GuildRules = {
 };
 
 const CACHE_TTL_MS = 60_000;
+
+/** Origine d'une écriture, pour l'audit : l'agent (outil `rules.set`) par défaut, l'API du dashboard sinon. */
+type AuditSource = NonNullable<AuditEntry['source']>;
+
+/**
+ * Patch accepté par l'outil `rules.set` et par l'API du dashboard : mêmes
+ * champs, mêmes bornes pour les deux (au plus 10 instructions ajoutées ou
+ * retirées par patch, de 3 à 300 caractères chacune).
+ */
+const GUILD_RULES_PATCH_SCHEMA = z.object({
+  freeCategoryIds: z.array(z.string().min(15)).max(20).optional(),
+  freeChannelIds: z.array(z.string().min(15)).max(50).optional(),
+  blockedChannelIds: z.array(z.string().min(15)).max(50).optional().describe('Salons où le bot est TOTALEMENT muet (même mentionné)'),
+  strictMentionElsewhere: z.boolean().optional(),
+  seriousOnlyElsewhere: z.boolean().optional(),
+  confirmDestructiveActions: z.boolean().optional().describe('Règle « Confirmer les actions (hors lecture) » : toute action qui modifie attend le clic du demandeur'),
+  addCustomInstructions: z.array(z.string().min(3).max(300)).max(10).optional(),
+  removeCustomInstructions: z.array(z.string().min(3).max(300)).max(10).optional(),
+});
+
+type GuildRulesPatch = z.output<typeof GUILD_RULES_PATCH_SCHEMA>;
+
+/** Les champs fournis d'un patch : un champ à `undefined` ne change rien et ne doit pas écraser la valeur en place. */
+function provided<T extends object>(patch: T): Partial<T> {
+  return Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)) as Partial<T>;
+}
 
 /** Ligne du prompt système quand la règle est active : ce que le modèle doit faire, et ne pas faire. */
 const CONFIRM_RULE_PROMPT =
@@ -122,8 +149,26 @@ export class GuildRulesService implements SpraxiumOnBoot {
     return parentCategoryId !== null && rules.freeCategoryIds.includes(parentCategoryId);
   }
 
+  /**
+   * Règles d'un serveur mises à jour par un patch partiel : le même chemin pour
+   * l'outil `rules.set` (agent) et pour le dashboard (API). Un champ fourni
+   * remplace le sien ; les instructions libres s'ajoutent et se retirent par
+   * listes (retrait par texte exact, ajout à la suite), les autres ne bougent
+   * pas. Seuls les champs fournis changent.
+   */
+  async apply(guildId: string, patch: GuildRulesPatch, actorId: string, source: AuditSource = 'agent'): Promise<GuildRules> {
+    const { addCustomInstructions, removeCustomInstructions, ...fields } = GUILD_RULES_PATCH_SCHEMA.parse(patch);
+    const changes: Partial<GuildRules> = provided(fields);
+    if (addCustomInstructions !== undefined || removeCustomInstructions !== undefined) {
+      const current = await this.get(guildId);
+      const removed = new Set(removeCustomInstructions ?? []);
+      changes.customInstructions = [...current.customInstructions.filter((line) => !removed.has(line)), ...(addCustomInstructions ?? [])];
+    }
+    return this.patch(guildId, changes, actorId, source);
+  }
+
   /** Patch partiel des règles (fusion, upsert, invalidation, audit). */
-  private async patch(guildId: string, patch: Partial<GuildRules>, actorId: string): Promise<GuildRules> {
+  private async patch(guildId: string, patch: Partial<GuildRules>, actorId: string, source: AuditSource = 'agent'): Promise<GuildRules> {
     const current = await this.get(guildId);
     const merged: GuildRules = { ...current, ...patch };
     await this.prisma.guildRule.upsert({
@@ -132,6 +177,7 @@ export class GuildRulesService implements SpraxiumOnBoot {
         guildId,
         freeCategoryIds: JSON.stringify(merged.freeCategoryIds),
         freeChannelIds: JSON.stringify(merged.freeChannelIds),
+        blockedChannelIds: JSON.stringify(merged.blockedChannelIds),
         strictMentionElsewhere: merged.strictMentionElsewhere,
         seriousOnlyElsewhere: merged.seriousOnlyElsewhere,
         confirmDestructiveActions: merged.confirmDestructiveActions,
@@ -140,6 +186,7 @@ export class GuildRulesService implements SpraxiumOnBoot {
       update: {
         freeCategoryIds: JSON.stringify(merged.freeCategoryIds),
         freeChannelIds: JSON.stringify(merged.freeChannelIds),
+        blockedChannelIds: JSON.stringify(merged.blockedChannelIds),
         strictMentionElsewhere: merged.strictMentionElsewhere,
         seriousOnlyElsewhere: merged.seriousOnlyElsewhere,
         confirmDestructiveActions: merged.confirmDestructiveActions,
@@ -149,7 +196,7 @@ export class GuildRulesService implements SpraxiumOnBoot {
     this.invalidate(guildId);
     this.audit.record({
       guildId,
-      source: 'agent',
+      source,
       action: 'rules.set',
       actorId,
       metadata: { patch: Object.keys(patch) },
@@ -184,16 +231,7 @@ export class GuildRulesService implements SpraxiumOnBoot {
       description:
         "Définit les règles de comportement du serveur (persistées, appliquées automatiquement par le système). Champs : freeCategoryIds/freeChannelIds (zones libres : le bot répond sans mention et agit librement), strictMentionElsewhere (ailleurs, mention @ obligatoire), seriousOnlyElsewhere (ailleurs, ton sérieux uniquement), confirmDestructiveActions (règle « Confirmer les actions (hors lecture) » : tout ce qui modifie attend un clic du demandeur), customInstructions (règles libres). Seuls les champs fournis changent.",
       category: 'rules',
-      paramsSchema: z.object({
-        freeCategoryIds: z.array(z.string().min(15)).max(20).optional(),
-        freeChannelIds: z.array(z.string().min(15)).max(50).optional(),
-        blockedChannelIds: z.array(z.string().min(15)).max(50).optional().describe('Salons où le bot est TOTALEMENT muet (même mentionné)'),
-        strictMentionElsewhere: z.boolean().optional(),
-        seriousOnlyElsewhere: z.boolean().optional(),
-        confirmDestructiveActions: z.boolean().optional().describe('Règle « Confirmer les actions (hors lecture) » : toute action qui modifie attend le clic du demandeur'),
-        addCustomInstructions: z.array(z.string().min(3).max(300)).max(10).optional(),
-        removeCustomInstructions: z.array(z.string().min(3).max(300)).max(10).optional(),
-      }),
+      paramsSchema: GUILD_RULES_PATCH_SCHEMA,
       requiredModules: [],
       permissions: ['ManageGuild'],
       destructive: false,
@@ -201,41 +239,7 @@ export class GuildRulesService implements SpraxiumOnBoot {
         'Résous TOUJOURS les catégories/salons via getChannels (IDs réels du serveur) avant de les passer. Pour une demande du type « la catégorie AGENTS est une zone libre agents, ailleurs mention stricte et sérieux » : freeCategoryIds=[catégorie], strictMentionElsewhere=true, seriousOnlyElsewhere=true en UN seul appel.',
       handler: async (input, ctx) => {
         if (!ctx.guildId) return { ok: false, summary: 'Contexte de serveur requis.' };
-        const {
-          freeCategoryIds,
-          freeChannelIds,
-          blockedChannelIds,
-          strictMentionElsewhere,
-          seriousOnlyElsewhere,
-          confirmDestructiveActions,
-          addCustomInstructions,
-          removeCustomInstructions,
-        } = input as {
-          freeCategoryIds?: string[];
-          freeChannelIds?: string[];
-          blockedChannelIds?: string[];
-          strictMentionElsewhere?: boolean;
-          seriousOnlyElsewhere?: boolean;
-          confirmDestructiveActions?: boolean;
-          addCustomInstructions?: string[];
-          removeCustomInstructions?: string[];
-        };
-        const current = await service.get(ctx.guildId);
-        const removed = new Set(removeCustomInstructions ?? []);
-        const custom = [...current.customInstructions.filter((line) => !removed.has(line)), ...(addCustomInstructions ?? [])];
-        const merged = await service.patch(
-          ctx.guildId,
-          {
-            ...(freeCategoryIds !== undefined ? { freeCategoryIds } : {}),
-            ...(freeChannelIds !== undefined ? { freeChannelIds } : {}),
-            ...(blockedChannelIds !== undefined ? { blockedChannelIds } : {}),
-            ...(strictMentionElsewhere !== undefined ? { strictMentionElsewhere } : {}),
-            ...(seriousOnlyElsewhere !== undefined ? { seriousOnlyElsewhere } : {}),
-            ...(confirmDestructiveActions !== undefined ? { confirmDestructiveActions } : {}),
-            customInstructions: custom,
-          },
-          ctx.userId,
-        );
+        const merged = await service.apply(ctx.guildId, input as GuildRulesPatch, ctx.userId);
         return { ok: true, summary: `Règles mises à jour : ${service.describe(merged)}`, data: { rules: merged } };
       },
     });

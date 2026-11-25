@@ -1,39 +1,182 @@
 @import "tailwindcss";
+@import "./tokens.css";
+@import "./motion.css";
 
-/* Theme Tenkai : surfaces sombres, petits rayons, zéro ombre (ARCHITECTURE.md §2.3) */
-@theme {
-  --color-canvas: #111114;
-  --color-surface: #19191e;
-  --color-surface-hover: #212127;
-  --color-line: #303038;
-  --color-ink: #f2f2f5;
-  --color-ink-muted: #a0a0ad;
-  --color-accent: #72c99b;
-  --color-accent-hover: #5eb989;
-  --color-danger: #e88b94;
-  --color-warn: #d9b36b;
+/*
+ * BASE du système visuel 10cordes. Les jetons sont dans tokens.css, les
+ * animations dans motion.css. Trois traits reconnaissent ce thème : le cadre
+ * cranté (`notched`), deux polices auto-hébergées (Silkscreen en affichage,
+ * JetBrains Mono partout ailleurs), et un mouvement par pas.
+ */
 
-  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
 
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: 15px;
+    line-height: 1.55;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+    scrollbar-color: var(--color-edge) var(--color-bg);
+  }
+
+  @media (max-width: 720px) {
+    body {
+      font-size: 14px;
+    }
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-pixel);
+    font-weight: 400;
+    line-height: 1.25;
+    color: var(--color-ink);
+  }
+
+  /* Un contour net, pas un halo : le cadre cranté occupe déjà l'ombre de l'élément. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 3px;
+  }
+
+  ::selection {
+    background: var(--color-accent);
+    color: var(--color-accent-ink);
+  }
+
+  /* Aucun angle arrondi, bibliothèques tierces comprises. */
+  *,
+  ::before,
+  ::after {
+    border-radius: 0 !important;
+  }
+
+  /* Le voile de la boîte de dialogue native du tiroir (Sheet). */
+  dialog::backdrop {
+    background: var(--color-veil);
+  }
 }
 
-html,
-body,
-#root {
-  height: 100%;
+/* --- Cadre cranté --- */
+
+/*
+ * Quatre ombres sans flou ni étalement, décalées de 2 px de chaque côté :
+ * deux barres verticales et deux horizontales, exactement de la longueur du
+ * côté. Le carré de 2 px de chaque coin reste vide. Le cadre est hors du
+ * cadre de mise en page : ses voisins ont besoin de 2 px d'écart, et aucun
+ * ancêtre ne le rogne (pas de overflow: hidden). Il remplace toute autre
+ * ombre de l'élément. Sa couleur est `--notch`, celle du filet par défaut ;
+ * une classe `notch-*` la change. Un contenant défilant rognant ses enfants
+ * (`overflow`) porte le cadre, et son enfant défile : le cadre reste entier.
+ */
+@utility notched {
+  box-shadow:
+    2px 0 0 0 var(--notch, var(--color-line)),
+    -2px 0 0 0 var(--notch, var(--color-line)),
+    0 2px 0 0 var(--notch, var(--color-line)),
+    0 -2px 0 0 var(--notch, var(--color-line));
 }
 
-body {
-  background-color: var(--color-canvas);
-  color: var(--color-ink);
-  font-family: var(--font-sans);
+@utility notch-edge {
+  --notch: var(--color-edge);
 }
 
-/* Zéro ombre : les séparations se font par bordures. */
-* {
-  box-shadow: none !important;
+@utility notch-ink {
+  --notch: var(--color-ink);
 }
+
+@utility notch-accent {
+  --notch: var(--color-accent);
+}
+
+@utility notch-ok {
+  --notch: var(--color-ok);
+}
+
+@utility notch-warn {
+  --notch: var(--color-warn);
+}
+
+@utility notch-danger {
+  --notch: var(--color-danger);
+}
+
+@utility notch-info {
+  --notch: var(--color-info);
+}
+
+/* Barre verticale de 3 px, à l'intérieur du bord gauche : choix retenu, repère visé. */
+@utility bar-accent {
+  box-shadow: inset 3px 0 0 0 var(--color-accent);
+}
+
+@utility bar-danger {
+  box-shadow: inset 3px 0 0 0 var(--color-danger);
+}
+
+@utility bar-ok {
+  box-shadow: inset 3px 0 0 0 var(--color-ok);
+}
+
+@utility bar-warn {
+  box-shadow: inset 3px 0 0 0 var(--color-warn);
+}
+
+@utility bar-info {
+  box-shadow: inset 3px 0 0 0 var(--color-info);
+}
+
+/* --- Texte --- */
+
+/* Libellé : pixel, majuscules, un pixel d'espacement, la teinte la plus discrète. */
+@utility text-label {
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  line-height: 1.4;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
+}
+
+/*
+ * Description : la police de corps, en petit et discret. Jamais la police
+ * d'affichage : à 12 px sur deux lignes, ses minuscules ressemblent à des
+ * capitales et se lisent mal. Le pixel reste pour les titres, les libellés,
+ * la navigation et les boutons.
+ */
+@utility text-desc {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-ink-faint);
+}
+
+/* Badge : pixel, 10 px, foncé sur une teinte pleine. */
+@utility text-badge {
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+/* Curseur carré clignotant de Typed et des étapes en cours. */
+@utility caret {
+  display: inline-block;
+  width: 0.6em;
+  height: 1.1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--color-accent);
+  animation: px-blink 1s steps(1, end) infinite;
+}
+

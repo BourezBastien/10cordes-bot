@@ -14,12 +14,16 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:3000',
+        // Le bot, sur cette machine ; `API_PROXY_TARGET` le place ailleurs (bot distant, serveur d'essai).
+        target: process.env.API_PROXY_TARGET || 'http://127.0.0.1:3000',
         changeOrigin: true,
       },
     },
   },
   build: {
     outDir: 'dist',
+    // Les polices restent des fichiers : la CSP des pages (font-src 'self')
+    // refuse les données embarquées, et un fichier se met en cache un an.
+    assetsInlineLimit: 0,
   },
 });

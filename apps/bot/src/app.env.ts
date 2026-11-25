@@ -31,10 +31,17 @@ export class AppEnv extends SpraxiumBaseEnv {
   @IsString()
   HTTP_HOST!: string;
 
-  /** Origine du dashboard autorisée en CORS. */
+  /** Origine(s) du dashboard autorisées : CORS, login et contrôle d'origine. Plusieurs adresses séparées par des virgules. */
   @Env('DASHBOARD_ORIGIN', { default: 'http://localhost:5173', secret: false })
   @IsString()
   DASHBOARD_ORIGIN!: string;
+
+  /** Dossier du panel compilé (build de apps/dashboard). Réglé, le bot le sert lui-même sur son propre serveur HTTP. */
+  @Env('DASHBOARD_DIST_DIR')
+  @IsOptional()
+  @Secret()
+  @IsString()
+  DASHBOARD_DIST_DIR?: string;
 
   /** Secret better-auth (min 32 chars), requis pour l'API/dashboard. Sans ENCRYPTION_SECRET, c'est la clé maîtresse qui chiffre la base. */
   @Env('BETTER_AUTH_SECRET')
@@ -56,7 +63,7 @@ export class AppEnv extends SpraxiumBaseEnv {
   @IsString()
   DISCORD_CLIENT_SECRET?: string;
 
-  /** Clé API serveur à serveur (header x-api-key), optionnelle. */
+  /** Clé API serveur à serveur (en-tête x-api-key) de la sonde `/healthz`. Optionnelle : sans elle, la sonde est ouverte. */
   @Env('HTTP_API_KEY')
   @IsOptional()
   @Secret()

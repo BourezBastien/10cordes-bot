@@ -3,6 +3,7 @@ import type { ChatCause } from '../../shared/llm/chat-contract';
 import { AuditService } from '../audit/audit.service';
 import type { AbstractProviderAdapter } from './provider-adapter';
 import { ProviderAdapterRegistry } from './provider-adapter.registry';
+import { ProviderHealthService } from './provider-health.service';
 import { ProviderLegacyMigration } from './provider-legacy.migration';
 import type { ResolvedRoute } from './provider-store.service';
 import { GuildProviderService } from './provider-store.service';
@@ -27,6 +28,7 @@ export class CapabilityRouterService {
     private readonly registry: ProviderAdapterRegistry,
     private readonly audit: AuditService,
     private readonly legacy: ProviderLegacyMigration,
+    private readonly health: ProviderHealthService,
   ) {}
 
   /** Route ACTIVE d'une capacité pour ce serveur, null s'il n'y en a pas. */
@@ -139,11 +141,14 @@ export class CapabilityRouterService {
     }
     let lastError: unknown;
     for (const [index, attempt] of attempts.entries()) {
+      // Chaque tentative réelle est portée à la santé du fournisseur qui l'a servie (réussite, ou l'erreur de l'appel).
       try {
         const result = await run(attempt.adapter, attempt.provider, attempt.modelId);
+        this.health.record(route.provider.guildId, attempt.provider.id, { ok: true });
         if (index > 0) this.noteFallback(route, attempt.provider, actorId);
         return result;
       } catch (error) {
+        this.health.record(route.provider.guildId, attempt.provider.id, { ok: false, error, secret: attempt.provider.apiKey });
         lastError = error;
         if (!isFallbackEligible(error)) throw error;
       }

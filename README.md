@@ -28,6 +28,7 @@ Built on [Spraxium](https://github.com/spraxium/spraxium) (discord.js v14) · Ty
 - **Action plans.** All the destructive actions of one request share a single ✅ Appliquer / ❌ Annuler panel, reserved to the requester and valid 15 minutes. The plan can be applied once; each action is revalidated at click time (permissions in the guild and in the target channel, role hierarchy) on the member as they are now, a server snapshot is archived first, and a refusal stops the plan with an honest count.
 - **Skill blueprints.** 135 pre-built recipes across 10 domains (tickets with escalation, temp voice, anti-raid, giveaways, verification, counting games, casino...) with parameters overridable by natural language. `search_skills` finds the right recipe; the agent follows its workflow.
 - **A configuration view that tells the truth.** Asking for the configuration shows only what is really applied on that server: active rules, applied skills, connected integrations, the providers of the server and the model bound to each capability (never the keys), in a private `config-bot` thread.
+- **A web dashboard.** One page per concern: AI providers and models (registry, catalog, routing matrix with main and fallback), integrations and outgoing HTTP connectors, server rules, modules, configuration, journal (actions, plans, errors), memories, model usage over 24 h, 7 d and 30 d, and a conversation with the agent whose steps are shown live. Same services as the conversation, Discord login, French and English. Every route re-checks on each call that the signed-in member still belongs to the server and can manage it; a view never carries a key (only whether there is one and a hint); a write must come from a trusted origin.
 - **Stable thinking.** Whether a request reasons is decided once, before its first turn, from the server setting (`adaptive` by default: on for action requests, off for plain conversation and questions), and stays the same for the whole request. An action request matches a recipe, names an action to run, or spells a mutating tool. A request that reasons runs on the `chat.reasoning` route when the server has one.
 - **Persistent memory with opt-out.** Consolidated profiles per member and per server (LLM curator with anti-wipe guards). "Oublie-moi" purges everything and blocks future collection.
 - **Learning loop.** The bot detects repeated action patterns (3+ similar requests) and proposes creating a reusable skill.
@@ -71,11 +72,12 @@ pnpm start        # production run (from apps/bot)
 | `REDIS_URL` | no | empty (= memory) | Queue + cache. `redis://redis:6379` in prod |
 | `PORT` | no | `3000` | HTTP server port |
 | `HTTP_HOST` | no | `127.0.0.1` | Bind address. `0.0.0.0` in Docker |
-| `HTTP_API_KEY` | no | (none) | API key header `x-api-key` |
-| `DASHBOARD_ORIGIN` | no | `http://localhost:5173` | CORS origin for the dashboard |
-| `BETTER_AUTH_SECRET` | no | (none) | Min 32 chars, required for dashboard |
-| `DISCORD_CLIENT_ID` | no | (none) | OAuth client ID |
-| `DISCORD_CLIENT_SECRET` | no | (none) | OAuth client secret |
+| `HTTP_API_KEY` | no | (none) | Key of the `/healthz` probe alone (header `x-api-key`). The dashboard API authenticates by session |
+| `DASHBOARD_ORIGIN` | no | `http://localhost:5173` | Origins allowed for the dashboard, comma separated (CORS, origin check of writes, login). The first one carries the Discord login callback |
+| `DASHBOARD_DIST_DIR` | no | (none) | Folder of the compiled dashboard (`../dashboard/dist`): the bot then serves it on its own origin |
+| `BETTER_AUTH_SECRET` | no | (none) | Min 32 chars, required for the dashboard login. Also derives the master key of the database secrets |
+| `DISCORD_CLIENT_ID` | no | (none) | Discord OAuth client ID of the bot (dashboard login) |
+| `DISCORD_CLIENT_SECRET` | no | (none) | Discord OAuth client secret (dashboard login) |
 | `E2E_ENABLED` | no | `false` | Dev test rigs only |
 
 **Where the keys live**: in the database, encrypted (AES-256-GCM). The database has the absolute priority.
@@ -113,12 +115,17 @@ apps/bot/src/
     providers/               Multi-provider engine: adapters (4 protocols), registry,
                              store, CapabilityRouterService (fallback), hub panel,
                              tools provider.* / capability.* / providers.panel
-    agent/                   Discord tools, 47 SkillBlueprint, skill service
+    agent/                   Discord tools, 135 SkillBlueprint, skill service
+    api/                     Dashboard API: providers, capabilities, integrations,
+                             webhooks, rules, usage, live events (SSE), compiled panel,
+                             common policy (cache, origin check, CSP)
+    webhooks/                Outgoing HTTP connectors (tool webhook.call)
+    usage/                   Model calls counted per server
     records/                 Typed store (Zod collections)
     memory/                  Profiles + curator + opt-out + ingestion
     moderation/ logging/ ... Technical modules
-packages/shared/             Zod schemas, BotTool<T>, SkillBlueprint types
-apps/dashboard/              Web dashboard (React 19, Vite 8)
+packages/shared/             Zod schemas, BotTool<T>, SkillBlueprint types, dashboard contract
+apps/dashboard/              Web dashboard (React 19, Vite 8, TanStack Router, Tailwind 4)
 ```
 
 ## POO layer (new)

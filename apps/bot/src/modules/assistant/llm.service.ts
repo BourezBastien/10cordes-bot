@@ -8,6 +8,7 @@ import { GuildConfigService } from '../guild-config/guild-config.service';
 import { AgentSettingsService } from '../guild-config/agent-settings.service';
 import { IntegrationService } from '../integrations/integration.service';
 import { CapabilityRouterService } from '../providers/capability-router.service';
+import { ProviderHealthService } from '../providers/provider-health.service';
 import { ProviderError } from '../providers/provider.types';
 import { setLlmAccessor } from './llm.accessor';
 import { isFallbackWorthy, LlmFormatLeakError } from './llm.errors';
@@ -74,6 +75,7 @@ export class LlmService implements SpraxiumOnBoot {
     private readonly integrations: IntegrationService,
     private readonly router: CapabilityRouterService,
     agentSettings: AgentSettingsService,
+    private readonly health: ProviderHealthService,
   ) {
     this.effortPlanner = new ReasoningEffortPlanner({ env, agentSettings, baseUrl: () => this.baseUrl });
     this.endpoints = new ChatEndpointPlanner({ router, legacy: () => ({ baseUrl: this.baseUrl, apiKey: this.apiKey, model: this.model }) });
@@ -255,9 +257,12 @@ export class LlmService implements SpraxiumOnBoot {
       const onBackup = index > 0;
       try {
         const result = await this.transport.send(endpoint, { ...turn, messages, tools, options }, callbacks);
+        this.health.record(attempt.provider.guildId, attempt.provider.id, { ok: true });
         if (onBackup) this.router.noteFallback(planned.route, attempt.provider, options.userId);
         return { ...result, served: { provider: attempt.provider.slug, model: endpoint.model, fallback: onBackup, capability: planned.route?.capability } };
       } catch (error) {
+        // Santé du fournisseur : l'erreur du tour dit si la panne est passagère (même lecture que la bascule sur le repli).
+        this.health.record(attempt.provider.guildId, attempt.provider.id, { ok: false, error, transient: isFallbackWorthy(error), secret: attempt.provider.apiKey });
         const last = index === attempts.length - 1;
         if (last || published() || !isFallbackWorthy(error)) throw error;
         log.warn(`fournisseur principal en échec pour « ${planned.route.capability} » (${attempt.provider.slug}) : bascule sur le repli`);

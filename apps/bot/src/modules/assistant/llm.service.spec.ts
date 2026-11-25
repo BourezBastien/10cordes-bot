@@ -121,8 +121,10 @@ function harness(options: { route?: ResolvedRoute | null; reasoning?: ResolvedRo
   };
   const registry = { register: vi.fn() };
   const settings = { get: vi.fn(async () => ({ thinkingMode: options.mode ?? 'adaptive' })) };
-  const service = new LlmService(env, registry as never, {} as never, {} as never, integrations as unknown as IntegrationService, router as never, settings as never);
-  return { service, router, integrations, registry, settings };
+  // Santé des fournisseurs : ce que le service en retient est lisible dans `health.record`.
+  const health = { record: vi.fn() };
+  const service = new LlmService(env, registry as never, {} as never, {} as never, integrations as unknown as IntegrationService, router as never, settings as never, health as never);
+  return { service, router, integrations, registry, settings, health };
 }
 
 const chatOptions = (overrides: Record<string, unknown> = {}) => ({ userId: ACTOR, guildId: GUILD, cause: 'reply' as const, reasoningEffort: null, preferReasoning: false, ...overrides });

@@ -33,10 +33,12 @@ relit `spraxium.config.ts` et l'import ESM nu échoue.
 | `REDIS_URL` | non | (vide = mémoire) | Queue durable + cache temps réel. `redis://redis:6379` en prod |
 | `PORT` | non | `3000` | Port du serveur HTTP |
 | `HTTP_HOST` | non | `127.0.0.1` | Bind HTTP. `0.0.0.0` en Docker |
-| `DASHBOARD_ORIGIN` | non | `http://localhost:5173` | Origine CORS du dashboard |
-| `HTTP_API_KEY` | non | (aucun) | Clé API header `x-api-key` |
-| `BETTER_AUTH_SECRET` | non | (aucun) | Min 32 chars, requis pour le dashboard |
-| `DISCORD_CLIENT_SECRET` | non | (aucun) | OAuth Discord pour le login dashboard |
+| `DASHBOARD_ORIGIN` | non | `http://localhost:5173` | Origines admises du tableau de bord, séparées par des virgules (CORS, contrôle d'origine des écritures, login). La première porte l'adresse de rappel du login Discord |
+| `DASHBOARD_DIST_DIR` | non | (aucun) | Dossier du tableau de bord compilé (`../dashboard/dist`) : le bot le sert sur sa propre origine |
+| `HTTP_API_KEY` | non | (aucun) | Clé de la sonde `/healthz` seule (header `x-api-key`). L'API du tableau de bord s'authentifie par la session |
+| `BETTER_AUTH_SECRET` | non | (aucun) | Min 32 chars ; derive aussi la clé maîtresse du chiffrement. Requis pour le tableau de bord |
+| `DISCORD_CLIENT_ID` | non | (aucun) | Identifiant OAuth Discord du bot (login du tableau de bord) |
+| `DISCORD_CLIENT_SECRET` | non | (aucun) | Secret OAuth Discord pour le login du tableau de bord |
 | `ENCRYPTION_SECRET` | non | dérivé | Chiffrement AES-256-GCM des clés en DB |
 | `LLM_API_URL` | non | (aucun) | Base URL compatible OpenAI (bootstrap) |
 | `LLM_API_KEY` | non | (aucun) | Clé API du fournisseur LLM (bootstrap) |
@@ -55,6 +57,36 @@ relit `spraxium.config.ts` et l'import ESM nu échoue.
 
 Les autres intégrations (PixelLab, kie.ai...) se connectent de la même
 façon depuis Discord.
+
+### Tableau de bord web
+
+Le tableau de bord (`apps/dashboard`) parle à l'API du bot. Deux façons de
+l'ouvrir :
+
+1. **En développement** : `pnpm --filter 10cordes-dashboard dev`, puis
+   <http://localhost:5173>. Vite relaie `/api` vers le bot (cible par
+   `API_PROXY_TARGET`, `http://127.0.0.1:3000` par défaut).
+2. **Compilé, servi par le bot** : `pnpm --filter 10cordes-dashboard build`,
+   puis `DASHBOARD_DIST_DIR=../dashboard/dist` dans l'environnement du bot.
+   Le tableau de bord et l'API partagent alors la même origine
+   (`http://127.0.0.1:3000`). Sans ce réglage, le bot ne sert aucune page.
+   Réglez dans le même temps `DASHBOARD_ORIGIN=http://127.0.0.1:3000` : le
+   login n'accepte que les origines admises, et son rappel Discord suit la
+   première.
+
+Le login passe par Discord. Il demande trois variables :
+`BETTER_AUTH_SECRET`, `DISCORD_CLIENT_ID` et `DISCORD_CLIENT_SECRET`. Tant
+que l'une manque, `/api/auth/*` répond 503 avec la cause, et le tableau de
+bord renvoie à la page de connexion. Dans le portail développeur Discord,
+l'adresse de rappel OAuth est la première origine de `DASHBOARD_ORIGIN`
+suivie de `/api/auth/callback/discord`. Seul le droit `identify` est
+demandé, et les jetons OAuth sont abandonnés dès que le compte est lié.
+
+Ce que l'API garantit : chaque route d'un serveur reverifie à chaque appel
+que le membre connecté fait toujours partie du serveur et peut le gérer ;
+aucune clé ne ressort (seuls `hasApiKey` et un indice) ; une clé vide lors
+d'une mise à jour conserve celle en place ; une écriture vient d'une
+origine admise ; rien ne se met en cache ni ne s'indexe.
 
 ## Comment ça marche
 
@@ -116,9 +148,14 @@ apps/bot/src/
   main.ts              bootstrap + purge slash commands
   app.module.ts        arbre des modules
   app.env.ts           env typée (variables génériques)
-  auth/                better-auth + guards
+  auth/                better-auth + gardes (session, accès à un serveur)
   modules/
+    api/                API du tableau de bord (fournisseurs, capacités,
+                        intégrations, connecteurs, règles, usage, flux temps
+                        réel, panel compilé) et politique commune
     assistant/         agent conversationnel (gate, boucle LLM, streaming)
+    webhooks/          connecteurs HTTP sortants (outil webhook.call)
+    usage/             compte des appels au modèle, par serveur
     surface/           moteur générique (surfaces, triggers, événements)
     rules/             règles serveur (GuildRule)
     agent/             tools discord.*, skills
@@ -127,7 +164,7 @@ apps/bot/src/
     moderation/ logging/ tickets/ ...   modules techniques
   shared/              UI V2, cache temps réel, safe-fetch, crypto
 packages/shared/       schémas Zod, contrats BotTool, SkillBlueprint
-apps/dashboard/        dashboard web (React 19, Vite 8)
+apps/dashboard/        tableau de bord web (React 19, Vite 8, TanStack Router)
 ```
 
 ## Docker

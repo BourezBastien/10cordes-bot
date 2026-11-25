@@ -1,9 +1,10 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ToolRunContext } from '@10cordes/shared';
 import { AgentLoopService, ceilingMessage } from './agent-loop.service';
 import { setFileLog, type FileLogService } from '../logging/file-log.service';
 import { LlmFormatLeakError } from './llm.errors';
 import type { ChatCompletionResult, ChatMessage, ChatOptions, OpenAiTool } from './llm.types';
+import type { UsageLogEntry } from '../usage/usage-log.service';
 
 /**
  * Boucle LLM + tools. Trois garanties fixées ici, chacune née d'un incident
@@ -16,6 +17,13 @@ import type { ChatCompletionResult, ChatMessage, ChatOptions, OpenAiTool } from 
 // Clé calculée : sync-tool-names.mjs repère la clé name suivie d'une chaîne.
 const NAME = 'name';
 const TOOL = 'test.ping';
+
+/** Comptabilité du serveur (factice) : chaque tour lui est remis. */
+const usage = { record: vi.fn<(entry: UsageLogEntry) => void>() };
+
+beforeEach(() => {
+  usage.record.mockReset();
+});
 
 const tool = (id: string): OpenAiTool => ({ type: 'function', function: { [NAME]: id, description: `tool ${id}`, parameters: { type: 'object', properties: {} } } });
 
@@ -85,7 +93,7 @@ describe('AgentLoopService · une recette ouverte rend ses tools appelables', ()
     const registryMock = registry();
     registryMock.run.mockResolvedValue({ ok: true, summary: 'ouvert', data: { tools: [{ [NAME]: 'surface.create' }, { [NAME]: 'surface.patchState' }] } });
     const { llm, calls } = fakeLlm([async () => completion('', [{ id: 'c1', tool: 'openSkill' }]), textTurn('Panneau créé.')]);
-    await new AgentLoopService(llm as never, registryMock as never).run([], { active: [tool(TOOL)], byName: catalog() }, ctx(), { userId: '1', guildId: null }, hooks());
+    await new AgentLoopService(llm as never, registryMock as never, usage as never).run([], { active: [tool(TOOL)], byName: catalog() }, ctx(), { userId: '1', guildId: null }, hooks());
     expect(calls[0]?.tools.map((entry) => entry.function.name)).toEqual([TOOL]);
     expect(calls[1]?.tools.map((entry) => entry.function.name)).toEqual([TOOL, 'surface.create', 'surface.patchState']);
   });
@@ -94,7 +102,7 @@ describe('AgentLoopService · une recette ouverte rend ses tools appelables', ()
     const registryMock = registry();
     registryMock.run.mockResolvedValue({ ok: true, summary: 'trouvé', data: { tools: [{ [NAME]: 'tool.fantome' }] } });
     const { llm, calls } = fakeLlm([async () => completion('', [{ id: 'c1', tool: 'search_tools' }]), textTurn('ok')]);
-    await new AgentLoopService(llm as never, registryMock as never).run([], { active: [tool(TOOL)], byName: catalog() }, ctx(), { userId: '1', guildId: null }, hooks());
+    await new AgentLoopService(llm as never, registryMock as never, usage as never).run([], { active: [tool(TOOL)], byName: catalog() }, ctx(), { userId: '1', guildId: null }, hooks());
     expect(calls[1]?.tools.map((entry) => entry.function.name)).toEqual([TOOL]);
   });
 });
@@ -102,7 +110,7 @@ describe('AgentLoopService · une recette ouverte rend ses tools appelables', ()
 describe('AgentLoopService · effort de raisonnement stable', () => {
   it('effort et capacité de conversation se décident UNE fois avant le premier tour et restent identiques sur tous les tours', async () => {
     const { llm, calls, planRequest } = fakeLlm([toolTurn('c1'), toolTurn('c2'), textTurn('Fait.')]);
-    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1550000000000000001', guildId: '1550835980116824136' }, hooks());
+    const outcome = await new AgentLoopService(llm as never, registry() as never, usage as never).run([], toolset(), ctx(), { userId: '1550000000000000001', guildId: '1550835980116824136' }, hooks());
     expect(outcome.finalText).toBe('Fait.');
     expect(planRequest).toHaveBeenCalledTimes(1);
     expect(planRequest).toHaveBeenCalledWith({ userId: '1550000000000000001', guildId: '1550835980116824136', cause: 'reply' }, true);
@@ -112,7 +120,7 @@ describe('AgentLoopService · effort de raisonnement stable', () => {
 
   it('respecte le plan décidé par l\u0027appelant, même désactivé (null)', async () => {
     const { llm, calls, planRequest } = fakeLlm([textTurn('Bonjour')]);
-    await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null, reasoningEffort: null, preferReasoning: false }, hooks());
+    await new AgentLoopService(llm as never, registry() as never, usage as never).run([], toolset(), ctx(), { userId: '1', guildId: null, reasoningEffort: null, preferReasoning: false }, hooks());
     expect(planRequest).not.toHaveBeenCalled();
     expect(calls[0]?.options.reasoningEffort).toBeNull();
     expect(calls[0]?.options.preferReasoning).toBe(false);
@@ -122,20 +130,20 @@ describe('AgentLoopService · effort de raisonnement stable', () => {
 describe('AgentLoopService · fuite de balises internes', () => {
   it('un tour qui fuit est rejoué une fois, sans garder le texte partiel du premier essai', async () => {
     const { llm } = fakeLlm([leakingTurn(), textTurn('Réponse propre')]);
-    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
+    const outcome = await new AgentLoopService(llm as never, registry() as never, usage as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
     expect(outcome.finalText).toBe('Réponse propre');
   });
 
   it('deux fuites de suite font échouer la requête avec l\u0027erreur typée', async () => {
     const { llm } = fakeLlm([leakingTurn(), leakingTurn()]);
-    await expect(new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks())).rejects.toBeInstanceOf(LlmFormatLeakError);
+    await expect(new AgentLoopService(llm as never, registry() as never, usage as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks())).rejects.toBeInstanceOf(LlmFormatLeakError);
   });
 });
 
 describe('AgentLoopService · plafond d\u0027itérations', () => {
   it('le dernier tour n\u0027est pas bridé par tool_choice none : il est relancé par un message', async () => {
     const { llm, calls } = fakeLlm(ceilingScript(textTurn('Résumé.')));
-    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
+    const outcome = await new AgentLoopService(llm as never, registry() as never, usage as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
     expect(outcome.forcedSummary).toBe(true);
     expect(outcome.finalText).toBe('Résumé.');
     expect(calls).toHaveLength(13);
@@ -148,7 +156,7 @@ describe('AgentLoopService · plafond d\u0027itérations', () => {
 
   it('un dernier tour qui appelle encore un outil est ignoré : message honnête, et rien du tour n\u0027est livré', async () => {
     const { llm } = fakeLlm(ceilingScript(toolTurn('trop-tard')));
-    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
+    const outcome = await new AgentLoopService(llm as never, registry() as never, usage as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
     expect(outcome.forcedSummary).toBe(true);
     expect(outcome.finalText).toBe(ceilingMessage(outcome.executed));
     expect(outcome.finalText).toContain('n\u0027est pas terminée');
@@ -156,13 +164,13 @@ describe('AgentLoopService · plafond d\u0027itérations', () => {
 
   it('un dernier tour qui fuit ses balises ne livre rien d\u0027autre que le message honnête', async () => {
     const { llm } = fakeLlm(ceilingScript(leakingTurn()));
-    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
+    const outcome = await new AgentLoopService(llm as never, registry() as never, usage as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
     expect(outcome.finalText).toBe(ceilingMessage(outcome.executed));
   });
 
   it('le texte d\u0027un tour à tool_calls n\u0027est jamais la réponse : seul le dernier tour, sans tool_calls, l\u0027est', async () => {
     const { llm } = fakeLlm([async () => completion('Je vais créer le salon...', [{ id: 'c1', tool: TOOL }]), textTurn('Salon créé.')]);
-    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
+    const outcome = await new AgentLoopService(llm as never, registry() as never, usage as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
     expect(outcome.finalText).toBe('Salon créé.');
     expect(outcome.executed).toEqual([TOOL]);
   });
@@ -191,20 +199,20 @@ describe('AgentLoopService · comptage des tours et référence de la demande', 
 
   it('le nombre de tours compte chaque appel LLM : un tour d\u0027outil, un tour de réponse', async () => {
     const { llm } = fakeLlm([toolTurn('c1'), textTurn('Fait.')]);
-    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
+    const outcome = await new AgentLoopService(llm as never, registry() as never, usage as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
     expect(outcome.turns).toBe(2);
   });
 
   it('un tour rejoué après une fuite compte pour deux appels', async () => {
     const { llm } = fakeLlm([leakingTurn(), textTurn('Propre')]);
-    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
+    const outcome = await new AgentLoopService(llm as never, registry() as never, usage as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
     expect(outcome.turns).toBe(2);
   });
 
   it('au plafond, le tour de conclusion compte et entre dans le journal des coûts ; chaque ligne porte la référence de la demande', async () => {
     const { lines, events } = journal();
     const { llm } = fakeLlm(ceilingScript(textTurn('Résumé.')));
-    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null, requestId: 'req-comptage' }, hooks());
+    const outcome = await new AgentLoopService(llm as never, registry() as never, usage as never).run([], toolset(), ctx(), { userId: '1', guildId: null, requestId: 'req-comptage' }, hooks());
     expect(outcome.turns).toBe(13);
     expect(lines).toHaveLength(13);
     expect(lines.every((line) => line.requestId === 'req-comptage')).toBe(true);
@@ -216,7 +224,7 @@ describe('AgentLoopService · comptage des tours et référence de la demande', 
   it('un échec du tour de conclusion est journalisé avec la nature de l\u0027erreur', async () => {
     const { events } = journal();
     const { llm } = fakeLlm([...ceilingScript(async () => { throw new Error('plus de réseau'); })]);
-    const outcome = await new AgentLoopService(llm as never, registry() as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
+    const outcome = await new AgentLoopService(llm as never, registry() as never, usage as never).run([], toolset(), ctx(), { userId: '1', guildId: null }, hooks());
     expect(outcome.finalText).toBe(ceilingMessage(outcome.executed));
     expect(events.find((entry) => entry.event === 'summary_failed')?.data).toMatchObject({ error: 'Error: plus de réseau' });
   });
