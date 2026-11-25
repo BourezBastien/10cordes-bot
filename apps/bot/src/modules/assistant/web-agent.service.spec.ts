@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AgentDecisionJournal } from './agent-decision.journal';
 import { RequestProgressService } from './request-progress.service';
 import { WebAgentService } from './web-agent.service';
+import { bindShutdown } from '../health/shutdown.runtime';
 
 /**
  * L’agent du dashboard : la même boucle que Discord, avec les permissions du
@@ -85,14 +86,43 @@ function harness(options: { fails?: boolean } = {}) {
     deps.integrations as never,
     deps.progress,
     journal,
-    // L'extinction suit une conversation commencée : ici, elle la laisse passer telle quelle.
-    { track: (work: Promise<unknown>) => work } as never,
   );
   return { service, deps, loop, progress, guild, record };
 }
 
+// Le service d'extinction lié en sortant d'un test ne suit plus rien.
 afterEach(() => {
   vi.clearAllTimers();
+  bindShutdown({ isDraining: () => false, drained: async () => true, track: (work) => work });
+});
+
+describe('WebAgentService · extinction', () => {
+  it('une conversation commencée depuis le web est signalée à l’extinction, qui l’attend', async () => {
+    const { service } = harness();
+    const tracked: Promise<unknown>[] = [];
+    bindShutdown({
+      isDraining: () => false,
+      drained: async () => true,
+      track: (work) => {
+        tracked.push(work);
+        return work;
+      },
+    });
+    const result = await service.chat(GUILD, USER, 'liste les fiches');
+    // Un seul travail suivi : la conversation elle-même, qui rend ce que rend `chat`.
+    expect(tracked).toHaveLength(1);
+    await expect(tracked[0]).resolves.toEqual(result);
+  });
+
+  it('une conversation qui échoue reste suivie jusqu’à sa fin : l’extinction attend sa réponse d’erreur', async () => {
+    const { service } = harness({ fails: true });
+    let tracked: Promise<unknown> | null = null;
+    bindShutdown({ isDraining: () => false, drained: async () => true, track: (work) => (tracked = work) });
+    const result = await service.chat(GUILD, USER, 'liste les fiches');
+    expect(result).toMatchObject({ silent: false, tools: [] });
+    // Le travail suivi est la conversation elle-même : il rend ce que rend `chat`.
+    await expect(tracked).resolves.toEqual(result);
+  });
 });
 
 describe('WebAgentService · chat', () => {

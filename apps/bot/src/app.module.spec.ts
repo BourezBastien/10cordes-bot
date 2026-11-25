@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { METADATA_KEYS } from '@spraxium/common';
 import { HTTP_METADATA_KEYS } from '@spraxium/http';
 import { describe, expect, it } from 'vitest';
 import { AppModule } from './app.module';
@@ -28,8 +29,8 @@ interface RouteMetadata {
   handlerName: string;
 }
 
-// Clé des métadonnées de module du framework (@spraxium/common ne l’exporte pas au type).
-const MODULE_KEY = 'spraxium:module';
+// Clé des métadonnées de module du framework (la même que lit le chargeur).
+const MODULE_KEY = METADATA_KEYS.MODULE;
 
 const http = Reflect.getMetadata(HTTP_METADATA_KEYS.HTTP_CLIENT_MODULE, AppModule) as { controllers: Controller[]; middleware: unknown[] };
 const moduleMetadata = Reflect.getMetadata(MODULE_KEY, AppModule) as { providers: Controller[]; imports: unknown[] };

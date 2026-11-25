@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PrismaService } from '../database/prisma.service';
 import { HealthController } from './health.controller';
 import { DEFAULT_SHUTDOWN_GRACE_MS, SHUTDOWN_GRACE_MAX_MS, ShutdownService, shutdownGraceMs } from './shutdown.service';
-import { awaitShutdownDrained, bindShutdown } from './shutdown.runtime';
+import { awaitShutdownDrained, bindShutdown, trackForShutdown } from './shutdown.runtime';
 
 /*
  * Extinction propre, et la sonde. Ce que fixent ces tests : la vidange ferme
@@ -41,7 +41,16 @@ describe('shutdownGraceMs', () => {
 describe('ShutdownService', () => {
   afterEach(() => {
     vi.useRealTimers();
-    bindShutdown({ isDraining: () => false, drained: async () => true });
+    bindShutdown({ isDraining: () => false, drained: async () => true, track: (work) => work });
+  });
+
+  it('un travail signalé par l’accesseur est suivi comme ceux du service, et rend tel quel', async () => {
+    const { service } = harness();
+    const track = vi.spyOn(service, 'track');
+    const work = Promise.resolve('fait');
+    await expect(trackForShutdown(work)).resolves.toBe('fait');
+    expect(track).toHaveBeenCalledTimes(1);
+    expect(track).toHaveBeenCalledWith(work);
   });
 
   it('sans extinction : rien ne se vide, et la base n\u0027a rien à attendre', async () => {
@@ -113,6 +122,7 @@ describe('PrismaService · extinction', () => {
     const order: string[] = [];
     bindShutdown({
       isDraining: () => true,
+      track: (work) => work,
       drained: async () => {
         await tick();
         order.push('vidange soldée');

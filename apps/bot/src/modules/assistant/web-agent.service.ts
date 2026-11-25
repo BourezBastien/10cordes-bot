@@ -27,7 +27,7 @@ import { CapabilityRouterService } from '../providers/capability-router.service'
 import { RequestProgressService } from './request-progress.service';
 import { AgentDecisionJournal } from './agent-decision.journal';
 import { outcomeOf } from './agent-decision.recorder';
-import { ShutdownService } from '../health/shutdown.service';
+import { trackForShutdown } from '../health/shutdown.runtime';
 
 const RATE_LIMIT_MS = 4_000;
 const MAX_MESSAGE_LENGTH = 2_000;
@@ -66,7 +66,6 @@ export class WebAgentService {
     private readonly integrations: GuildIntegrationService,
     private readonly progress: RequestProgressService,
     private readonly decisions: AgentDecisionJournal,
-    private readonly shutdown: ShutdownService,
   ) {}
 
   /**
@@ -79,7 +78,7 @@ export class WebAgentService {
    * délai de grâce, au lieu de la couper.
    */
   async chat(guildId: string, discordUserId: string, message: string, clientRequestId?: string): Promise<WebChatResult> {
-    return this.shutdown.track(this.converse(guildId, discordUserId, message, clientRequestId));
+    return trackForShutdown(this.converse(guildId, discordUserId, message, clientRequestId));
   }
 
   private async converse(guildId: string, discordUserId: string, message: string, clientRequestId?: string): Promise<WebChatResult> {
