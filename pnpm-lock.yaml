@@ -203,8 +203,8 @@ importers:
         specifier: ^0.9.0
         version: 0.9.0
       '@spraxium/http':
-        specifier: ^0.9.0
-        version: 0.9.0(@spraxium/common@0.9.0(discord.js@14.28.1))(@spraxium/core@0.9.0(discord.js@14.28.1))(@spraxium/logger@0.9.0)(discord.js@14.28.1)
+        specifier: ^1.0.2
+        version: 1.0.2(@spraxium/common@0.9.0(discord.js@14.28.1))(@spraxium/core@0.9.0(discord.js@14.28.1))(@spraxium/logger@0.9.0)(discord.js@14.28.1)
       '@spraxium/i18n':
         specifier: ^0.9.0
         version: 0.9.0(@spraxium/common@0.9.0(discord.js@14.28.1))(@spraxium/components@0.9.0(@spraxium/common@0.9.0(discord.js@14.28.1))(@spraxium/core@0.9.0(discord.js@14.28.1))(ioredis@6.0.0))(@spraxium/core@0.9.0(discord.js@14.28.1))(@spraxium/logger@0.9.0)
@@ -957,11 +957,11 @@ packages:
   '@fontsource/silkscreen@5.3.0':
     resolution: {integrity: sha512-M1NQ3LQH0LFNvyFPd/piHEGMImPPtpLglNnLC6Vdcq9kL0jNIOtTQmksAWCc4enbDnw1OnIpZtjNEfRqYm/QmA==}
 
-  '@hono/node-server@2.1.8':
-    resolution: {integrity: sha512-jdf7FHh6A1lzjpHHQUgxsg2GeER2vMetnAOfeActzcoli6jamlK+NAwL6Dsr5Fl3BS3tYUQzCdtZjU8Qxv7bEA==}
-    engines: {node: '>=20'}
+  '@hono/node-server@1.19.19':
+    resolution: {integrity: sha512-Fy9R7PACOzHU9LDpfnuzVyuVYevKQRcEG2mZhmfc+DRdmayEd3RVfa2XOt2IgGcPNgA77Yk63KBszepcMFK5Ng==}
+    engines: {node: '>=18.14.1'}
     peerDependencies:
-      hono: ^4 || ^5.0.0-0
+      hono: ^4
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -1694,8 +1694,8 @@ packages:
     resolution: {integrity: sha512-0By7dCcDWQC6XbX4t4yXVAdwMzdlns+VLmzULYU0KrG+2o9M5AF/MW5Fd3ciIdK2xeaLTpDT3CV6BHlWL/rz5w==}
     engines: {node: ^22.23.4 || ^24.22.1 || ^26.12.1}
 
-  '@spraxium/http@0.9.0':
-    resolution: {integrity: sha512-WEv3cKD0neTkIFy83x6TtC7oQguFvlys9DMwgGeZFhG4emzuy67B4YsoaXkzWQcRDIgS67ndkDywDKAjDwlp4Q==}
+  '@spraxium/http@1.0.2':
+    resolution: {integrity: sha512-+5ud5XSckqzH/0wEpnSPbVoinaeU1lgHPylsrvhDtAc3By1AwS3BrVkB0/qZaJgsW1pd9xgbvh4u+SAa58c2gA==}
     engines: {node: ^22.23.4 || ^24.22.1 || ^26.12.1}
     peerDependencies:
       '@spraxium/common': '*'
@@ -5395,7 +5395,7 @@ snapshots:
 
   '@fontsource/silkscreen@5.3.0': {}
 
-  '@hono/node-server@2.1.8(hono@4.13.20)':
+  '@hono/node-server@1.19.19(hono@4.13.20)':
     dependencies:
       hono: 4.13.20
 
@@ -5950,9 +5950,9 @@ snapshots:
       '@spraxium/logger': 0.9.0
       reflect-metadata: 0.2.2
 
-  '@spraxium/http@0.9.0(@spraxium/common@0.9.0(discord.js@14.28.1))(@spraxium/core@0.9.0(discord.js@14.28.1))(@spraxium/logger@0.9.0)(discord.js@14.28.1)':
+  '@spraxium/http@1.0.2(@spraxium/common@0.9.0(discord.js@14.28.1))(@spraxium/core@0.9.0(discord.js@14.28.1))(@spraxium/logger@0.9.0)(discord.js@14.28.1)':
     dependencies:
-      '@hono/node-server': 2.1.8(hono@4.13.20)
+      '@hono/node-server': 1.19.19(hono@4.13.20)
       '@spraxium/common': 0.9.0(discord.js@14.28.1)
       '@spraxium/core': 0.9.0(discord.js@14.28.1)
       '@spraxium/logger': 0.9.0

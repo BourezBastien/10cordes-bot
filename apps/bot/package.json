@@ -23,7 +23,7 @@
     "@spraxium/components": "^0.9.0",
     "@spraxium/core": "^0.9.0",
     "@spraxium/env": "^0.9.0",
-    "@spraxium/http": "^0.9.0",
+    "@spraxium/http": "^1.0.2",
     "@spraxium/i18n": "^0.9.0",
     "@spraxium/logger": "^0.9.0",
     "better-auth": "^1.7.27",
