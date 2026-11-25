@@ -20,7 +20,7 @@
     "@napi-rs/canvas": "^1.2.0",
     "@prisma/client": "^6.19.3",
     "@spraxium/common": "^0.9.0",
-    "@spraxium/components": "^0.9.0",
+    "@spraxium/components": "^1.0.2",
     "@spraxium/core": "^0.9.0",
     "@spraxium/env": "^0.9.0",
     "@spraxium/http": "^0.9.0",
