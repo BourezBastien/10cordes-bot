@@ -1,7 +1,8 @@
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
-import { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../../generated/prisma/client';
 import type { AppEnv } from '../app.env';
+import { createDatabaseClient } from '../modules/database/database-client';
 import { getValidatedEnv } from './env.accessor';
 import { trustedOriginsOf } from './auth-origins';
 
@@ -17,7 +18,8 @@ const OAUTH_TOKEN_FIELDS = {
 } as const;
 
 function createAuth(env: AppEnv) {
-  const prisma = new PrismaClient({ datasources: { db: { url: env.DATABASE_URL } } });
+  // Son propre client Prisma, sur l'adaptateur partagé (même base, même format de dates que le bot).
+  const prisma = createDatabaseClient(env.DATABASE_URL);
   const origins = trustedOriginsOf(env.DASHBOARD_ORIGIN);
   // L'adresse publique est celle du dashboard : après la connexion Discord, le
   // navigateur y est renvoyé (en dev comme quand le bot sert le panel).

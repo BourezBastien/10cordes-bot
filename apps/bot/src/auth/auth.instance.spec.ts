@@ -11,21 +11,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   betterAuth: vi.fn(),
   prismaAdapter: vi.fn(),
+  /** Un client factice par création : l'adresse reçue, et de quoi jouer l'effacement des jetons. */
+  createDatabaseClient: vi.fn(),
   prismaInstances: [] as Array<{ url: string | undefined; account: { updateMany: ReturnType<typeof vi.fn> } }>,
   env: { value: {} as Record<string, unknown> },
 }));
 
 vi.mock('better-auth', () => ({ betterAuth: mocks.betterAuth }));
 vi.mock('better-auth/adapters/prisma', () => ({ prismaAdapter: mocks.prismaAdapter }));
-vi.mock('@prisma/client', () => ({
-  PrismaClient: class {
-    account: { updateMany: ReturnType<typeof vi.fn> };
-    constructor(args: { datasources: { db: { url: string | undefined } } }) {
-      this.account = { updateMany: vi.fn(async () => ({ count: 1 })) };
-      mocks.prismaInstances.push({ url: args.datasources.db.url, account: this.account });
-    }
-  },
-}));
+// Le vrai client ouvrirait la base : ici, il est factice, et sa fabrique garde l'adresse reçue.
+vi.mock('../modules/database/database-client', () => ({ createDatabaseClient: mocks.createDatabaseClient }));
 vi.mock('./env.accessor', () => ({ getValidatedEnv: () => mocks.env.value }));
 
 // Clé calculée : le scanner du registre des outils lit, dans toute source suivie, une clé name suivie d'une chaîne littérale.
@@ -44,7 +39,7 @@ const CONFIGURED: Record<string, string | number> = {
   [CLIENT_ID_NAME]: 'client-id-test',
   [CLIENT_SECRET_NAME]: OAUTH_TEST,
   DASHBOARD_ORIGIN: 'https://panel.exemple.test, http://localhost:5173',
-  DATABASE_URL: 'file:../data/bot.db',
+  DATABASE_URL: 'file:./data/bot.db',
   PORT: 3000,
 };
 
@@ -71,6 +66,11 @@ const lastOptions = (): Options => mocks.betterAuth.mock.calls.at(-1)?.[0] as Op
 beforeEach(() => {
   mocks.betterAuth.mockReset().mockImplementation(() => ({ handler: vi.fn(), api: { getSession: vi.fn(async () => SESSION) } }));
   mocks.prismaAdapter.mockReset().mockImplementation(() => ({ provider: 'sqlite' }));
+  mocks.createDatabaseClient.mockReset().mockImplementation((url: string | undefined) => {
+    const account = { updateMany: vi.fn(async () => ({ count: 1 })) };
+    mocks.prismaInstances.push({ url, account });
+    return { account };
+  });
   mocks.prismaInstances.length = 0;
   mocks.env.value = { ...CONFIGURED };
 });
@@ -135,7 +135,8 @@ describe('getAuth', () => {
     expect(getAuth(CONFIGURED as never)).toBe(first);
     expect(mocks.betterAuth).toHaveBeenCalledTimes(1);
     expect(mocks.prismaInstances).toHaveLength(1);
-    expect(mocks.prismaInstances[0]?.url).toBe('file:../data/bot.db');
+    expect(mocks.prismaInstances[0]?.url).toBe('file:./data/bot.db');
+    expect(mocks.prismaAdapter).toHaveBeenCalledTimes(1);
   });
 });
 

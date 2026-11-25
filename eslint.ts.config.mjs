@@ -13,7 +13,7 @@ import tseslint from 'typescript-eslint';
  * verdict change. Le script `lint` le compile d'abord.
  */
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/.spraxium/**', '**/node_modules/**'] },
+  { ignores: ['**/dist/**', '**/.spraxium/**', '**/node_modules/**', 'apps/bot/generated/**', 'apps/bot/data/**', 'apps/bot/logs/**'] },
   {
     files: ['apps/**/*.ts', 'apps/**/*.tsx', 'packages/**/*.ts'],
     languageOptions: {
@@ -27,10 +27,11 @@ export default tseslint.config(
             'apps/bot/config/components.config.ts',
             'apps/bot/config/development.config.ts',
             'apps/bot/config/http.config.ts',
+            'apps/bot/prisma.config.ts',
             'packages/shared/vitest.config.ts',
             'packages/shared/tests/*.spec.ts',
           ],
-          // Quinze fichiers relèvent de ce projet par défaut (quatre du bot, un fichier de
+          // Seize fichiers relèvent de ce projet par défaut (cinq du bot, un fichier de
           // config et dix tests de shared) : la garde de performance du service les plafonne
           // à huit d'office. Une spec nouvelle dans l'un de ces dossiers compte ici.
           maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 24,

@@ -1,5 +1,5 @@
 import { Injectable, type SpraxiumOnBoot } from '@spraxium/common';
-import type { MemoryCorrection } from '@prisma/client';
+import type { MemoryCorrection } from '../../../generated/prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { ToolRegistryService } from '../tool-registry/tool-registry.service';

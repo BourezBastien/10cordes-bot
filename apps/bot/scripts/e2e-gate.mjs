@@ -45,7 +45,8 @@ if (!token) {
   console.error('[FAIL] DISCORD_TOKEN absent');
   process.exit(1);
 }
-process.env.DATABASE_URL ??= env.DATABASE_URL ?? 'file:../data/bot.db';
+// L'adresse est relative à apps/bot (la règle du bot : src/modules/database/database-url.ts).
+process.env.DATABASE_URL ??= env.DATABASE_URL ?? 'file:./data/bot.db';
 
 async function rest(path, init) {
   const res = await fetch(`${API}${path}`, {
@@ -76,8 +77,8 @@ async function botMessageAfter(channelId, sinceMs, maxMs) {
  * assistant.intro exclu : réponse d'accroche aux « salut » nus du serveur,
  * pas une réaction au message test (bruit ambiant du serveur de dév). */
 async function assistantActivitySince(since) {
-  const { PrismaClient } = await import('@prisma/client');
-  const prisma = new PrismaClient();
+  const { createDatabaseClient } = await import('../src/modules/database/database-client.ts');
+  const prisma = createDatabaseClient(process.env.DATABASE_URL);
   try {
     return await prisma.auditLog.count({
       where: {
@@ -93,8 +94,8 @@ async function assistantActivitySince(since) {
 
 /** Une ligne d'audit d'une action depuis un instant (en base, metadata est du texte JSON). */
 async function auditSince(since, action) {
-  const { PrismaClient } = await import('@prisma/client');
-  const prisma = new PrismaClient();
+  const { createDatabaseClient } = await import('../src/modules/database/database-client.ts');
+  const prisma = createDatabaseClient(process.env.DATABASE_URL);
   try {
     return await prisma.auditLog.findFirst({ where: { createdAt: { gt: since }, action }, orderBy: { createdAt: 'desc' } });
   } finally {
@@ -135,8 +136,8 @@ async function main() {
   }
   const guildId = devGuild.id;
 
-  const { PrismaClient } = await import('@prisma/client');
-  const prisma = new PrismaClient();
+  const { createDatabaseClient } = await import('../src/modules/database/database-client.ts');
+  const prisma = createDatabaseClient(process.env.DATABASE_URL);
   let channelId;
   try {
     const g = await prisma.guild.findUnique({ where: { id: guildId }, select: { settings: true } });

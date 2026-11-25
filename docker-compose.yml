@@ -3,7 +3,7 @@ services:
     build: .
     restart: unless-stopped
     # tini en PID 1 : SIGTERM arrive jusqu'à node, et les processus fils (ffmpeg,
-    # moteurs Prisma) sont recolectés au lieu de rester zombies.
+    # pilotes de base) sont recolectés au lieu de rester zombies.
     init: true
     # Plus long que le délai de grâce du bot (SHUTDOWN_GRACE_MS, 20 s) : une
     # demande en cours a le temps de finir avant que Docker tue le conteneur.
@@ -13,7 +13,8 @@ services:
       - path: ./apps/bot/.env
         required: false
     environment:
-      DATABASE_URL: file:../data/bot.db
+      # Relative à /app/apps/bot (dossier de travail) : dans le volume bot-data.
+      DATABASE_URL: file:./data/bot.db
       # Le réseau Docker résout le service par son nom (jamais 127.0.0.1).
       REDIS_URL: redis://redis:6379
       # Le serveur HTTP doit écouter sur toutes les interfaces du conteneur

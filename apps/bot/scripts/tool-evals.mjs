@@ -36,7 +36,8 @@ if (!token) {
   console.error('[FAIL] DISCORD_TOKEN absent');
   process.exit(1);
 }
-process.env.DATABASE_URL ??= env.DATABASE_URL ?? 'file:../data/bot.db';
+// L'adresse est relative à apps/bot (la règle du bot : src/modules/database/database-url.ts).
+process.env.DATABASE_URL ??= env.DATABASE_URL ?? 'file:./data/bot.db';
 
 async function rest(path, init) {
   const res = await fetch(`${API}${path}`, {
@@ -51,8 +52,8 @@ async function rest(path, init) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function toolsSince(since) {
-  const { PrismaClient } = await import('@prisma/client');
-  const prisma = new PrismaClient();
+  const { createDatabaseClient } = await import('../src/modules/database/database-client.ts');
+  const prisma = createDatabaseClient(process.env.DATABASE_URL);
   try {
     const rows = await prisma.auditLog.findMany({
       where: { createdAt: { gt: since }, action: { startsWith: 'assistant.tool.' } },
@@ -167,8 +168,8 @@ async function main() {
   if (!devGuild) throw new Error('E2E_GUILD_ID introuvable');
   const guildId = devGuild.id;
 
-  const { PrismaClient } = await import('@prisma/client');
-  const prisma = new PrismaClient();
+  const { createDatabaseClient } = await import('../src/modules/database/database-client.ts');
+  const prisma = createDatabaseClient(process.env.DATABASE_URL);
   let channelId;
   try {
     const g = await prisma.guild.findUnique({ where: { id: guildId }, select: { settings: true } });
@@ -217,8 +218,8 @@ async function main() {
   }
 
   // Nettoyage du job planifié éventuel.
-  const { PrismaClient: P2 } = await import('@prisma/client');
-  const p2 = new P2();
+    const { createDatabaseClient: createCleanupClient } = await import('../src/modules/database/database-client.ts');
+    const p2 = createCleanupClient(process.env.DATABASE_URL);
   try {
     await p2.scheduledJob.deleteMany({ where: { guildId, name: 'e2e-evals-ping' } }).catch(() => {});
   } finally {

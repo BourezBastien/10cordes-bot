@@ -68,7 +68,8 @@ if (!token) {
   console.error('[FAIL] DISCORD_TOKEN absent');
   process.exit(1);
 }
-process.env.DATABASE_URL ??= env.DATABASE_URL ?? 'file:../data/bot.db';
+// L'adresse est relative à apps/bot (la règle du bot : src/modules/database/database-url.ts).
+process.env.DATABASE_URL ??= env.DATABASE_URL ?? 'file:./data/bot.db';
 
 const GUILD_ID = env.E2E_GUILD_ID;
 const LOG_FILE = join(BOT_DIR, 'logs', `e2e-suite-${GUILD_ID}.jsonl`);
@@ -94,8 +95,8 @@ async function rest(path, init) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function prisma(fn) {
-  const { PrismaClient } = await import('@prisma/client');
-  const p = new PrismaClient();
+  const { createDatabaseClient } = await import('../src/modules/database/database-client.ts');
+  const p = createDatabaseClient(process.env.DATABASE_URL);
   try {
     return await fn(p);
   } finally {

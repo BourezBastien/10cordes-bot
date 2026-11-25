@@ -68,7 +68,7 @@ pnpm start        # production run (from apps/bot)
 | `PIXELLAB_API_KEY` | no | (none) | PixelLab key (pixel art). Read ONCE, to fill an empty database (import only) |
 | `LLM_EFFORT` | no | empty | Reasoning effort: low/medium/high |
 | `ENCRYPTION_SECRET` | no | derived | AES-256-GCM key for DB secrets |
-| `DATABASE_URL` | no | `file:../data/bot.db` | SQLite or PostgreSQL |
+| `DATABASE_URL` | no | `file:./data/bot.db` | SQLite file, relative to `apps/bot` (the bot refuses to start on a file that does not exist: `pnpm exec prisma migrate deploy` creates it). PostgreSQL is the next step |
 | `REDIS_URL` | no | empty (= memory) | Queue + cache. `redis://redis:6379` in prod |
 | `PORT` | no | `3000` | HTTP server port |
 | `HTTP_HOST` | no | `127.0.0.1` | Bind address. `0.0.0.0` in Docker |

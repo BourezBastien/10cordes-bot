@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PrismaClient, type Prisma } from '@prisma/client';
+import type { Prisma } from '../../../generated/prisma/client';
+import { createDatabaseClient } from '../database/database-client';
 import { UsageSummarySchema } from '@10cordes/shared';
 import { UsageReaderService } from './usage-reader.service';
+
+type PrismaClient = ReturnType<typeof createDatabaseClient>;
 
 /**
  * Lecture du journal des appels au modèle. Deux niveaux, parce que chacun
@@ -13,8 +16,8 @@ import { UsageReaderService } from './usage-reader.service';
  *   fenêtre, l'axe des jours (jours sans appel à zéro, changement d'heure,
  *   jour local et non UTC), le tri et les totaux sont vérifiés à la valeur près ;
  * - sur une vraie base SQLite jetable (la table est celle de la migration),
- *   les agrégats sont de vrais BigInt et les dates de vraies millisecondes :
- *   ce qui est compté est ce que la fenêtre contient vraiment.
+ *   lue par le vrai client Prisma et son adaptateur : ce qui est compté est
+ *   ce que la fenêtre contient vraiment.
  */
 
 const GUILD = '1550000000000000001';
@@ -24,7 +27,16 @@ const DAY = 24 * HOUR;
 /** Un mercredi de novembre, midi UTC : ni changement d'heure ni minuit en vue. */
 const NOW = Date.UTC(2026, 10, 25, 12, 0, 0);
 
-/** Une ligne de l'agrégat par modèle, telle que SQLite la rend (BigInt). */
+/**
+ * Le fuseau de la machine, lu avant que rien ne le change : celui de la
+ * bibliothèque SQLite de l'adaptateur, qui fixe le sien à son chargement et
+ * ne suit plus les changements de TZ. Node, lui, suit `process.env.TZ` (et ne
+ * revient pas toujours en arrière quand on la retire) : le test sur une base
+ * réelle lui redonne donc celui de la machine avant de comparer les jours.
+ */
+const SYSTEM_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
+/** Une ligne de l'agrégat par modèle, telle que SQLite la rend (ici un BigInt : le service doit l'accepter aussi). */
 const line = (provider: string | null, model: string | null, promptTokens: bigint): Record<string, unknown> => ({
   provider,
   model,
@@ -177,17 +189,34 @@ describe('UsageReaderService · fenêtre, agrégats et axe des jours', () => {
 /** Base SQLite jetable, hors du dépôt : sa table est celle de la migration, jamais celle de la base du bot. */
 async function disposableDatabase(): Promise<{ prisma: PrismaClient; close: () => Promise<void> }> {
   const dir = mkdtempSync(join(tmpdir(), '10cordes-usage-'));
-  const prisma = new PrismaClient({ datasources: { db: { url: `file:${join(dir, 'usage.db')}` } }, errorFormat: 'minimal' });
+  const prisma = createDatabaseClient(`file:${join(dir, 'usage.db')}`);
   await prisma.$executeRawUnsafe(readFileSync(new URL('../../../prisma/migrations/20261125090000_llm_usage_rows/migration.sql', import.meta.url), 'utf8'));
   return {
     prisma,
-    // Sous Windows, le fichier reste un instant pris par le moteur après la déconnexion : la suppression se retente.
-    close: async () => void ((await prisma.$disconnect(), rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 30 }))),
+    // Sous Windows, le pilote libsql garde le fichier un certain temps après la
+    // déconnexion (vu : de 200 ms à plus de 20 s après une écriture brute ; les
+    // données, elles, sont bien écrites). La suppression se retente une seconde,
+    // puis on renonce : il reste un dossier jetable dans le dossier temporaire.
+    close: async () => {
+      await prisma.$disconnect();
+      for (let attempt = 0; attempt < 10 && existsSync(dir); attempt += 1) {
+        try {
+          rmSync(dir, { recursive: true, force: true });
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
+    },
   };
 }
 
 describe('UsageReaderService · sur une base SQLite réelle', () => {
-  it('compte ce que la fenêtre contient vraiment, et les BigInt des agrégats deviennent des nombres', async () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('compte ce que la fenêtre contient vraiment, sur le vrai client et son adaptateur, et les agrégats arrivent en nombres entiers', async () => {
+    vi.stubEnv('TZ', SYSTEM_ZONE);
     const db = await disposableDatabase();
     try {
       const now = Date.now();
@@ -248,5 +277,6 @@ describe('UsageReaderService · sur une base SQLite réelle', () => {
     } finally {
       await db.close();
     }
-  });
+    // Une vraie base sur disque, quatre résumés, une fermeture que le pilote peut mettre à rendre le fichier : 15 s, contre 5 par défaut.
+  }, 15_000);
 });

@@ -14,7 +14,7 @@ jobs:
     name: Verify (lint · typecheck · test)
     runs-on: ubuntu-latest
     env:
-      DATABASE_URL: file:../data/bot.db
+      DATABASE_URL: file:./data/bot.db
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6

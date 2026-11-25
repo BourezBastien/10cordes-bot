@@ -14,7 +14,8 @@ import { EnvSchema, SpraxiumBaseEnv, Env, IsString, IsOptional, IsPort, Secret }
 export class AppEnv extends SpraxiumBaseEnv {
   // ── Infrastructure ──
 
-  @Env('DATABASE_URL', { default: 'file:../data/bot.db', secret: false })
+  // Adresse relative à apps/bot (la règle et ses pièges : modules/database/database-url.ts).
+  @Env('DATABASE_URL', { default: 'file:./data/bot.db', secret: false })
   @IsString()
   DATABASE_URL!: string;
 

@@ -22,6 +22,10 @@ COPY --from=build /app/packages/shared ./packages/shared
 COPY --from=build /app/apps/bot/package.json apps/bot/package.json
 COPY --from=build /app/apps/bot/.spraxium/dist apps/bot/.spraxium/dist
 COPY --from=build /app/apps/bot/prisma apps/bot/prisma
+# La CLI Prisma 7 lit l'adresse de la base dans prisma.config.ts, qui importe
+# la règle d'adresse du projet : les deux vont avec les migrations.
+COPY --from=build /app/apps/bot/prisma.config.ts apps/bot/prisma.config.ts
+COPY --from=build /app/apps/bot/src/modules/database/database-url.ts apps/bot/src/modules/database/database-url.ts
 
 EXPOSE 3000
 WORKDIR /app/apps/bot
@@ -41,4 +45,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
 # et s'éteint proprement (demandes en cours soldées dans le délai de grâce).
 # Le délai de grâce du bot (SHUTDOWN_GRACE_MS, 20 s) doit rester inférieur au
 # `stop_grace_period` de Docker (30 s dans le compose).
-CMD ["sh", "-c", "cp -n .spraxium/dist/spraxium.config.mjs .spraxium/dist/spraxium.config.js 2>/dev/null; npx prisma migrate deploy --schema prisma/schema.prisma && exec node .spraxium/dist/src/main.mjs"]
+CMD ["sh", "-c", "cp -n .spraxium/dist/spraxium.config.mjs .spraxium/dist/spraxium.config.js 2>/dev/null; npx prisma migrate deploy && exec node .spraxium/dist/src/main.mjs"]

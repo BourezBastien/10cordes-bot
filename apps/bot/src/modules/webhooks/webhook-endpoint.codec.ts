@@ -1,5 +1,5 @@
 import { WebhookAuthTypeSchema, WebhookMethodSchema, type WebhookAuthType, type WebhookMethod } from '@10cordes/shared';
-import type { WebhookEndpoint as WebhookEndpointRow } from '@prisma/client';
+import type { WebhookEndpoint as WebhookEndpointRow } from '../../../generated/prisma/client';
 import { decryptSecret, encryptSecret, isEncrypted } from '../../shared/crypto/secret-box';
 import type { ProviderSecrets } from '../providers/provider-store.codec';
 import { WebhookEndpointError } from './webhook-endpoint.errors';
