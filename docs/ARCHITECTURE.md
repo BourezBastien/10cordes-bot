@@ -15,8 +15,8 @@
 │  ├─ Listeners et handlers Discord             ├─ Vite 8 + React 19 + TS               │
 │  ├─ API REST @spraxium/http (Hono) ◄──────────┼─ TanStack Router/Query + Tailwind 4   │
 │  ├─ better-auth (Discord OAuth) ◄─────────────┤─ primitives propres (src/ds)          │
-│  └─ Prisma → SQLite (→ Postgres)              └─ better-auth client (cookies)        │
-│                                                        │                             │
+│  └─ Prisma → PostgreSQL (SQLite le temps     └─ better-auth client (cookies)        │
+│     de la migration des bases)                                                          │
 │  packages/shared ──── Zod schemas + types partagés ◄───┘                             │
 │  (guild config, DTOs API, contrats erreurs)                                          │
 └──────────────────────────────────────────────────────────────────────────────────────┘
@@ -31,7 +31,7 @@
 | Domaine | Choix | Pourquoi |
 |---|---|---|
 | Framework | Spraxium 0.9.x (existant) | modules/DI/guards/exceptions déjà en place |
-| ORM | **Prisma** + SQLite (`file:./data/bot.db`) | validé ; switch Postgres = provider + URL ; migrations propres ; adapter Prisma pour better-auth |
+| ORM | **Prisma** 7, PostgreSQL 16 (cible) et SQLite (migration) | deux clients générés, un type ; le moteur est lu dans `DATABASE_URL` ; migrations propres ; adapter Prisma pour better-auth |
 | Validation | **Zod** (+ `packages/shared`) | source de vérité unique config/DTO ; la ValidationPipe de @spraxium/http (class-validator) ne sera pas utilisée - parse Zod manuel dans les controllers |
 | Dates/durées | `dayjs` + parsing custom `1h30m` | reminders, cooldowns, giveaways |
 | Images welcome | `@napi-rs/canvas` (P2) | binaires précompilés, rapide, sans build natif |
@@ -136,7 +136,7 @@ betterAuth({
   baseURL: origins[0],                                      // première origine admise du panel
   trustedOrigins: origins,                                  // DASHBOARD_ORIGIN : plusieurs, séparées par des virgules
   advanced: { useSecureCookies: publicUrl.startsWith('https://') },
-  database: prismaAdapter(prisma, { provider: 'sqlite' }),  // même DB que le bot
+  database: prismaAdapter(prisma, { provider: databaseProviderOf(env.DATABASE_URL) }),  // même base, même moteur que le bot
   emailAndPassword: { enabled: false },
   socialProviders: {
     discord: { clientId: env.DISCORD_CLIENT_ID, clientSecret: env.DISCORD_CLIENT_SECRET, scopes: ['identify'] },
@@ -230,6 +230,16 @@ model UserLocale {
 ```
 - `guild.settings` validé **au read ET au write** par `GuildConfigSchema.parse` (migration douce : champs manquants = defaults Zod, pas de migration à chaque feature).
 - Cache mémoire : `Map<guildId, GuildConfig>` dans `GuildConfigService`, invalidé à l'écriture (single process). Redis seulement si sharding un jour.
+
+### 5.1 Deux moteurs pendant la migration (livré le 26/11/2026)
+
+`prisma/schema.prisma` décrit PostgreSQL 16, la cible : chaque `DateTime` porte `@db.Timestamptz(3)`. `prisma/schema.sqlite.prisma` en est dérivé par `scripts/build-sqlite-schema.mjs` et n'est jamais édité (`pnpm check:sqlite-schema` refuse une divergence). Un client Prisma généré ne parle qu'à un moteur : `db:generate` en produit deux (`generated/prisma`, `generated/prisma-sqlite`), et le code est typé contre le premier.
+
+- **Fabrique** (`modules/database/`) : `database-provider.ts` lit le moteur dans l'adresse (`file:` ou `postgresql://`, rien d'autre), `database-client.ts` construit l'adaptateur (`@prisma/adapter-pg`, ou `@prisma/adapter-libsql` avec ses dates en millisecondes) et `PrismaClientBase` construit le client réel d'après `adapter.provider`, la sous-classe servant de `new.target` : `PrismaService` garde ses méthodes et ses champs, aucun site d'appel n'a changé.
+- **Dialecte** (`sql-dialect.ts`) : le SQL écrit à la main ne diffère que par le jour local (`strftime` en SQLite, `date_trunc ... AT TIME ZONE` lié en paramètre sur PostgreSQL) et par la casse d'une recherche de texte (`mode: 'insensitive'` sur PostgreSQL seul). Le reste est identique : borne de date en `Date`, `NOT "colonne"` sur un booléen, agrégats par `Number()`, alias toujours cités.
+- **CLI** : `prisma.config.ts` (PostgreSQL, `prisma/migrations`) et `prisma.config.sqlite.ts` (schéma dérivé, `prisma/migrations-sqlite`, historique figé) ; `scripts/prisma-cli.mjs` choisit d'après `DATABASE_URL`. L'image Docker l'appelle avant le bot.
+- **Migration des données** (`modules/database/migration/`, `scripts/migrate-sqlite-to-pg.mjs`) : contrôle de toute la source, copie par lots sur la clé primaire et dans l'ordre des clés étrangères, par l'API de Prisma (aucun nom de table écrit dans du SQL), puis relecture des deux bases et comparaison de chaque ligne et de chaque colonne. Les secrets chiffrés sont copiés tels quels. Idempotente, sans écriture dans la source, sans correction de la cible, sans valeur affichée.
+- **Preuve** : `database.integration.spec.ts` exécute les mêmes assertions sur une base SQLite jetable et sur une base PostgreSQL de test (`TEST_DATABASE_URL`). Deux défauts visibles uniquement sur un vrai serveur y ont été pris avant livraison (un type `regclass` illisible par le client, un alias rabattu en minuscules).
 - **Zod = source de vérité** : `packages/shared/src/schemas/guild-config.ts` définit le schéma complet (langue, salons logs, welcome, cooldowns par module, whitelists…) ; Prisma `Json` ne fait que le stocker.
 
 ## 6. Extension du module-manager (per-guild + whitelists + cooldowns)

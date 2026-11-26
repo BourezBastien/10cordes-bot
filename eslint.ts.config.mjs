@@ -28,12 +28,14 @@ export default tseslint.config(
             'apps/bot/config/development.config.ts',
             'apps/bot/config/http.config.ts',
             'apps/bot/prisma.config.ts',
+            'apps/bot/prisma.config.sqlite.ts',
             'packages/shared/vitest.config.ts',
             'packages/shared/tests/*.spec.ts',
           ],
-          // Seize fichiers relèvent de ce projet par défaut (cinq du bot, un fichier de
-          // config et dix tests de shared) : la garde de performance du service les plafonne
-          // à huit d'office. Une spec nouvelle dans l'un de ces dossiers compte ici.
+          // Dix-sept fichiers relèvent de ce projet par défaut (six du bot, un
+          // fichier de config et dix tests de shared) : la garde de performance
+          // du service les plafonne à huit d'office. Une spec nouvelle dans l'un
+          // de ces dossiers compte ici.
           maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 24,
         },
         // Monorepo pnpm : les tsconfig se résolvent depuis la racine du dépôt,

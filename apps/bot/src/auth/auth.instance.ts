@@ -3,6 +3,7 @@ import { prismaAdapter } from 'better-auth/adapters/prisma';
 import type { PrismaClient } from '../../generated/prisma/client.mts';
 import type { AppEnv } from '../app.env';
 import { createDatabaseClient } from '../modules/database/database-client';
+import { databaseProviderOf } from '../modules/database/database-provider';
 import { getValidatedEnv } from './env.accessor';
 import { trustedOriginsOf } from './auth-origins';
 
@@ -18,7 +19,7 @@ const OAUTH_TOKEN_FIELDS = {
 } as const;
 
 function createAuth(env: AppEnv) {
-  // Son propre client Prisma, sur l'adaptateur partagé (même base, même format de dates que le bot).
+  // Son propre client Prisma, sur l'adaptateur partagé (même base, même moteur et même format de dates que le bot).
   const prisma = createDatabaseClient(env.DATABASE_URL);
   const origins = trustedOriginsOf(env.DASHBOARD_ORIGIN);
   // L'adresse publique est celle du dashboard : après la connexion Discord, le
@@ -32,7 +33,8 @@ function createAuth(env: AppEnv) {
     trustedOrigins: origins,
     // Cookie de session marqué `Secure` dès que l'adresse publique est en https.
     advanced: { useSecureCookies: publicUrl.startsWith('https://') },
-    database: prismaAdapter(prisma, { provider: 'sqlite' }),
+    // L'adaptateur de better-auth doit connaître le moteur : il en tire le dialecte de ses propres requêtes.
+    database: prismaAdapter(prisma, { provider: databaseProviderOf(env.DATABASE_URL) }),
     emailAndPassword: { enabled: false },
     socialProviders: {
       discord: {

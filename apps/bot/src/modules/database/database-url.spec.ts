@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_DATABASE_URL, databaseUrlOf, isSqliteUrl, rawDatabaseUrlOf, sqliteFileOf } from './database-url';
+import { isSqliteUrl } from './database-provider';
+import { DEFAULT_DATABASE_URL, databaseUrlOf, rawDatabaseUrlOf, sqliteFileOf } from './database-url';
 
 /**
- * La règle d'adresse de la base, la même pour la CLI (prisma.config.ts) et le
- * client (PrismaService, better-auth, les scripts). Un chemin relatif se
- * résout depuis le dossier du projet ; l'ancienne écriture de Prisma 6
- * (`file:../data/bot.db`, relative au schéma) ne désigne plus la même base.
+ * La règle d'adresse de la base, la même pour la CLI (prisma.config.ts,
+ * prisma.config.sqlite.ts) et le client (PrismaService, better-auth, les
+ * scripts). Un chemin relatif se résout depuis le dossier du projet ; l'ancienne
+ * écriture de Prisma 6 (`file:../data/bot.db`, relative au schéma) ne désigne
+ * plus la même base. Deux moteurs sont reconnus, et eux seuls.
  */
 
 const PROJECT = process.platform === 'win32' ? 'C:\\proj\\apps\\bot' : '/proj/apps/bot';
@@ -37,9 +39,17 @@ describe('databaseUrlOf', () => {
     for (const url of given) expect(databaseUrlOf(url, PROJECT), url).toBe(expected);
   });
 
-  it('l’adresse d’un serveur passe telle quelle, avec ses espaces de bord retirés', () => {
+  it('l’adresse d’un serveur PostgreSQL passe telle quelle, avec ses espaces de bord retirés', () => {
     expect(databaseUrlOf('  postgresql://u:p@db:5432/bot  ', PROJECT)).toBe('postgresql://u:p@db:5432/bot');
-    expect(databaseUrlOf('libsql://db.example.test', PROJECT)).toBe('libsql://db.example.test');
+    expect(databaseUrlOf('postgres://db:5432/bot', PROJECT)).toBe('postgres://db:5432/bot');
+  });
+
+  it('une adresse d’un autre moteur est refusée, en nommant les formes attendues et jamais la valeur donnée', () => {
+    const SECRET = 'mot-de-passe-de-test';
+    for (const url of [`libsql://u:${SECRET}@db.example.test`, `https://u:${SECRET}@example.test/db`, `mysql://u:${SECRET}@db/bot`]) {
+      expect(() => databaseUrlOf(url, PROJECT), url).toThrow(/DATABASE_URL n.est pas une adresse de base reconnue/u);
+      expect(() => databaseUrlOf(url, PROJECT), url).not.toThrow(SECRET);
+    }
   });
 });
 

@@ -70,7 +70,7 @@ export class ConditionEvaluator {
           where: {
             guildId: vars.guildId,
             collection: spec.collection,
-            ...(spec.filterDataContains ? { data: { contains: spec.filterDataContains } } : {}),
+            ...(spec.filterDataContains ? { data: prisma.dialect.textContains(spec.filterDataContains) } : {}),
             ...(spec.createdBy ? { createdBy: spec.createdBy } : {}),
           },
           select: { id: true },

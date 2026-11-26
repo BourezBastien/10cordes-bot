@@ -22,6 +22,6 @@
     "rootDir": ".",
     "outDir": ".spraxium/dist"
   },
-  "include": ["src", "generated/prisma"],
+  "include": ["src", "generated/prisma", "generated/prisma-sqlite"],
   "exclude": ["node_modules", ".spraxium", "data"]
 }

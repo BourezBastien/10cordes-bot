@@ -1,5 +1,6 @@
 import { Injectable } from '@spraxium/common';
 import { USAGE_WINDOW_HOURS, type UsageByModel, type UsageDay, type UsageSummary, type UsageWindow } from '@10cordes/shared';
+import { Prisma } from '../../../generated/prisma/client.mts';
 import { PrismaService } from '../database/prisma.service';
 
 /** Modèles gardés dans le détail : les plus gourmands d'abord. */
@@ -8,7 +9,7 @@ const MODEL_TOP = 25;
 /** Étiquette d'un appel que ne dessert aucun modèle de la table (même mot que le journal des coûts). */
 const UNROUTED_MODEL = 'runtime';
 
-/** Un agrégat SQL : avec Prisma 7 et l'adaptateur libsql, COUNT et SUM reviennent en nombres ; un BigInt reste admis. */
+/** Un agrégat SQL : COUNT et SUM reviennent en nombres sous SQLite, en BigInt sous PostgreSQL ; les deux se comptent pareil. */
 type Aggregate = number | bigint | null;
 
 /** Un fournisseur et un modèle : ce qu'ils ont consommé sur la fenêtre. */
@@ -43,16 +44,16 @@ function compareText(left: string | null, right: string | null): number {
   return left < right ? -1 : 1;
 }
 
-/** Jour local du processus, `AAAA-MM-JJ` : l'écriture de `strftime('%Y-%m-%d', ..., 'localtime')`. */
+/** Jour local du processus, `AAAA-MM-JJ` : le même que la base écrit (le dialecte de son moteur), pour reconnaître ses lignes. */
 function localDay(date: Date): string {
   return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
 }
 
 /**
  * Lecture du journal des appels au modèle, pour la page Système d'un serveur :
- * totaux, détail par modèle et consommation par jour sur une fenêtre. Les
- * dates de la table sont des millisecondes (entier) : la fenêtre compare donc
- * deux entiers, jamais une date à un texte.
+ * totaux, détail par modèle et consommation par jour sur une fenêtre. Même SQL
+ * sur les deux moteurs : la borne de la fenêtre est passée en `Date`, les
+ * booléens s'écrivent `NOT "ok"`, et seul le jour local passe par le dialecte.
  */
 @Injectable()
 export class UsageReaderService {
@@ -73,10 +74,10 @@ export class UsageReaderService {
              COUNT(*) AS "turns",
              SUM("promptTokens") AS "promptTokens",
              SUM("completionTokens") AS "completionTokens",
-             SUM(CASE WHEN "ok" = 0 THEN 1 ELSE 0 END) AS "errors",
-             SUM(CASE WHEN "fallback" = 1 THEN 1 ELSE 0 END) AS "fallbacks"
+             SUM(CASE WHEN NOT "ok" THEN 1 ELSE 0 END) AS "errors",
+             SUM(CASE WHEN "fallback" THEN 1 ELSE 0 END) AS "fallbacks"
       FROM "llm_usage_rows"
-      WHERE "guildId" = ${guildId} AND "createdAt" >= ${since}
+      WHERE "guildId" = ${guildId} AND "createdAt" >= ${new Date(since)}
       GROUP BY "provider", "model"
     `;
   }
@@ -84,11 +85,11 @@ export class UsageReaderService {
   /** Une ligne par journée locale : tours et jetons de la fenêtre, du jour le plus ancien au plus récent. */
   private dayRowsOf(guildId: string, since: number): Promise<DayRow[]> {
     return this.prisma.$queryRaw<DayRow[]>`
-      SELECT strftime('%Y-%m-%d', "createdAt" / 1000, 'unixepoch', 'localtime') AS "day",
+      SELECT ${this.prisma.dialect.dayOf(Prisma.sql`"createdAt"`)} AS "day",
              COUNT(*) AS "turns",
              SUM("promptTokens" + "completionTokens") AS "tokens"
       FROM "llm_usage_rows"
-      WHERE "guildId" = ${guildId} AND "createdAt" >= ${since}
+      WHERE "guildId" = ${guildId} AND "createdAt" >= ${new Date(since)}
       GROUP BY "day"
       ORDER BY "day"
     `;

@@ -145,7 +145,7 @@ export class RecordsService implements SpraxiumOnBoot {
 
   async search(guildId: string, collection: string, query: string): Promise<ToolResult> {
     const rows = await this.prisma.agentRecord.findMany({
-      where: { guildId, collection, data: { contains: query } },
+      where: { guildId, collection, data: this.prisma.dialect.textContains(query) },
       orderBy: { createdAt: 'desc' },
       take: 10,
     });

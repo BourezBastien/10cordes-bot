@@ -1,0 +1,755 @@
+// FICHIER GÉNÉRÉ par scripts/build-sqlite-schema.mjs, depuis prisma/schema.prisma.
+// Ne pas l'éditer : modifier le schéma PostgreSQL, puis lancer
+// `pnpm --filter 10cordes-bot db:schema:sqlite`. `pnpm verify` refuse un dérivé qui diverge.
+//
+// 10cordes-bot : schéma P0.
+// Les tables better-auth (User, Session, Account, Verification) ont été ajoutées
+// à l'étape API (P0-6) via `npx @better-auth/cli generate --output prisma/schema.prisma`.
+// Décision 18/11 : toutes les tables guild-scopées portent une VRAIE relation
+// vers Guild avec onDelete: Cascade, la suppression d'un serveur nettoie tout.
+
+// Client Prisma 7 : généré en TypeScript (.mts, modules ES) dans
+// apps/bot/generated/prisma-sqlite, hors src (rien d'audité ni linté), compilé par le
+// build du bot et lu tel quel par les scripts .mjs d'exploitation (Node 22.18+
+// efface les types tout seul).
+// En .mts plutôt qu'en .ts : c'est du code produit, jamais relu ni édité, et
+// les outils de revue de sécurité du poste lisent les fichiers .ts et .js du
+// disque comme des sources du projet. En .ts, huit noms de colonnes du client
+// généré (accessToken, refreshToken...) bloquaient tout commit, le 25/11/2026.
+// L'URL de la base n'est plus ici : elle vit dans prisma.config.ts (CLI) et
+// dans PrismaService (adapteur de pilote au démarrage).
+//
+// SQLite n'est plus la cible (PostgreSQL, le 26/11/2026) : il reste lu le temps de la
+// migration des bases. Ses dates sont des entiers, en millisecondes : le format que
+// l'adaptateur libsql garde (database-client.ts).
+generator client {
+  provider               = "prisma-client"
+  output                 = "../generated/prisma-sqlite"
+  runtime                = "nodejs"
+  moduleFormat           = "esm"
+  generatedFileExtension = "mts"
+  importFileExtension    = "mts"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Guild {
+  id                   String                @id
+  settings             String                @default("{}")
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  guildModuleStates    GuildModuleState[]
+  auditLogs            AuditLog[]
+  modCases             ModCase[]
+  modCounter           ModCounter?
+  roleBackups          RoleBackup[]
+  agentSkills          AgentSkill[]
+  agentAutomations     AgentAutomation[]
+  scheduledJobs        ScheduledJob[]
+  birthdays            MemberBirthday[]
+  stickyRoles          StickyRole[]
+  afkStatuses          AfkStatus[]
+  tempSanctions        TempSanction[]
+  memberActivities     MemberActivity[]
+  toolNodes            ToolNode[]
+  agentRecords         AgentRecord[]
+  rules                GuildRule?
+  memoryOptOuts        MemoryOptOut[]
+  surfaces             InteractiveSurface[]
+  scheduledTriggers    ScheduledTrigger[]
+  eventTriggers        EventTrigger[]
+  guildMemories        GuildMemory[]
+  guildMemoryProfile   GuildMemoryProfile?
+  memberMemories       MemberMemory[]
+  memberMemoryProfiles MemberMemoryProfile[]
+  memoryCorrections    MemoryCorrection[]
+  ingestionCursors     IngestionCursor[]
+  agentSettings        GuildAgentSettings?
+  providers            GuildProvider[]
+  capabilityRoutes     CapabilityRoute[]
+  integrations         GuildIntegration[]
+  webhookEndpoints     WebhookEndpoint[]
+
+  @@map("guilds")
+}
+
+model GuildModuleState {
+  id          String  @id @default(cuid())
+  guildId     String
+  moduleId    String
+  enabled     Boolean @default(true)
+  constraints String  @default("{}")
+  guild       Guild   @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, moduleId])
+  @@map("guild_module_states")
+}
+
+// ── better-auth (générées conformément au schéma officiel, CLI `@better-auth/cli generate`) ──
+
+model User {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("verification")
+}
+
+// ── Audit (0.11) ─────────────────────────────────────────────
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  guildId   String?
+  source    String   @default("system")
+  action    String
+  actorId   String?
+  targetId  String?
+  metadata  String   @default("{}")
+  createdAt DateTime @default(now())
+  guild     Guild?   @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@index([guildId, createdAt])
+  @@index([action])
+  @@map("audit_logs")
+}
+
+// ── Modération (1.3) ─────────────────────────────────────────
+
+model ModCounter {
+  value   Int    @default(0)
+  guildId String @id
+  guild   Guild  @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@map("mod_counters")
+}
+
+model ModCase {
+  id          String   @id @default(cuid())
+  guildId     String
+  caseId      Int
+  userId      String
+  moderatorId String
+  action      String
+  reason      String?
+  durationMs  Int?
+  createdAt   DateTime @default(now())
+  guild       Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, caseId])
+  @@index([guildId, userId])
+  @@map("mod_cases")
+}
+
+model RoleBackup {
+  id        String   @id @default(cuid())
+  guildId   String
+  userId    String
+  roleIds   String
+  createdBy String
+  createdAt DateTime @default(now())
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@index([guildId, userId])
+  @@map("role_backups")
+}
+
+// ── Skills : règles de comportement durables (trigger + règle), par serveur ──
+
+model AgentSkill {
+  id              String    @id @default(cuid())
+  guildId         String
+  trigger         String
+  rule            String
+  createdByUserId String
+  usageCount      Int       @default(0)
+  createdAt       DateTime  @default(now())
+  deletedAt       DateTime?
+  guild           Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@index([guildId, deletedAt])
+  @@map("agent_skills")
+}
+
+// ── Automatisations créées par l'agent (event → actions) ──
+
+model AgentAutomation {
+  id              String   @id @default(cuid())
+  guildId         String
+  name            String
+  triggerType     String // message.created | member.joined | member.left | channel.created
+  triggerFilter   String   @default("{}") // JSON: { channelId?, contains?, userIds? }
+  actions         String   @default("[]") // JSON: [{ type, params }]
+  enabled         Boolean  @default(true)
+  createdByUserId String
+  createdAt       DateTime @default(now())
+  guild           Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@index([guildId, enabled])
+  @@map("agent_automations")
+}
+
+// ── Watermark de reprise au boot (récupération des demandes manquées) ──
+
+model ChannelWatermark {
+  channelId     String   @id
+  lastMessageId String
+  updatedAt     DateTime @updatedAt
+
+  @@map("channel_watermarks")
+}
+
+// ── Intégrations configurables au runtime (modale owner, sans restart) ──
+
+model IntegrationConfig {
+  id        String   @id // 'llm' | 'pixellab' | 'kie' (catalogue en code)
+  kind      String   @default("tool") // 'llm' | 'image' | 'music' | 'tool'
+  label     String   @default("")
+  provider  String   @default("custom")
+  baseUrl   String   @default("")
+  apiKey    String // CHIFFRÉE AES-256-GCM (v1:<iv>:<tag>:<data>)
+  model     String   @default("")
+  updatedAt DateTime @updatedAt
+}
+
+// ── Mémoire persistante de l'agent IA (append-only) ─────────
+
+model GuildMemory {
+  id           String    @id @default(cuid())
+  guildId      String
+  kind         String    @default("fact") // fact | rule | presentation | preference
+  content      String
+  createdAt    DateTime  @default(now())
+  /// Quand une correction a périmé cette entrée : elle reste (traçabilité) mais n'est plus lue ni injectée.
+  supersededAt DateTime?
+  guild        Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@index([guildId])
+  @@map("guild_memories")
+}
+
+model MemberMemory {
+  id           String    @id @default(cuid())
+  guildId      String
+  userId       String
+  kind         String    @default("fact") // fact | preference | note
+  content      String
+  createdAt    DateTime  @default(now())
+  /// Quand une correction a périmé cette entrée : elle reste (traçabilité) mais n'est plus lue ni injectée.
+  supersededAt DateTime?
+  guild        Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@index([guildId, userId])
+  @@map("member_memories")
+}
+
+// ── Fiches mémoire consolidées (curator LLM, inspiration Discord-AI-Bot) ──
+
+model MemberMemoryProfile {
+  guildId   String
+  userId    String
+  text      String   @default("")
+  updatedAt DateTime @updatedAt
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@id([guildId, userId])
+  @@map("member_memory_profiles")
+}
+
+model GuildMemoryProfile {
+  guildId   String   @id
+  text      String   @default("")
+  updatedAt DateTime @updatedAt
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@map("guild_memory_profiles")
+}
+
+// ── Corrections de mémoire : un fait corrigé, qui prime sur tout le reste ──
+
+/// Un membre corrige un fait retenu sur lui ou sur le serveur. La correction
+/// est injectée telle quelle dans le prompt (elle prime sur la fiche et sur
+/// le journal), le conservateur la reçoit à chaque fusion, et les entrées du
+/// journal qui portent l'ancien fait sont marquées périmées (`supersededAt`),
+/// jamais supprimées.
+model MemoryCorrection {
+  id           String    @id @default(cuid())
+  guildId      String
+  /// Membre concerné ; null pour le serveur entier.
+  userId       String?
+  /// Le fait périmé, tel qu'il était retenu.
+  oldFact      String
+  /// Le fait qui le remplace.
+  newFact      String
+  /// Identifiant Discord de qui a demandé la correction.
+  createdBy    String
+  createdAt    DateTime  @default(now())
+  /// Quand une correction plus récente a remplacé celle-ci.
+  supersededAt DateTime?
+  guild        Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@index([guildId, userId])
+  @@map("memory_corrections")
+}
+
+// ── Ingestion historique (B1) : curseur de progression par salon ──
+
+model IngestionCursor {
+  id            String   @id @default(cuid())
+  guildId       String
+  channelId     String
+  channelName   String   @default("")
+  lastMessageId String? // null = salon terminé
+  status        String   @default("running") // running | done | error
+  errorMessage  String?
+  updatedAt     DateTime @updatedAt
+  guild         Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, channelId])
+  @@map("ingestion_cursors")
+}
+
+// ── Réglages agent par serveur (thinking adaptatif, fil config privé) ──
+
+model GuildAgentSettings {
+  guildId        String   @id
+  thinkingMode   String   @default("adaptive") // adaptive | always | off
+  configThreadId String? // fil privé ⚙️┃config-bot
+  updatedAt      DateTime @updatedAt
+  guild          Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@map("guild_agent_settings")
+}
+
+// ── Moteur multi-fournisseurs ─────────────────────────────────────
+
+/// Un fournisseur IA connecté par un serveur (API, clé chiffrée, catalogue).
+model GuildProvider {
+  id                String            @id @default(cuid())
+  guildId           String
+  slug              String // stable et lisible (deepseek-official, kie-ai, openrouter...)
+  displayName       String
+  protocol          String // openai-chat | anthropic-messages | kie-unified | generic-http
+  baseUrl           String
+  authType          String            @default("bearer") // bearer | header | query | none
+  authHeaderName    String? // ex : Authorization, X-API-Key
+  encryptedApiKey   String? // CHIFFRÉE AES-256-GCM (v1:<iv>:<tag>:<data>)
+  customHeadersJson String? // objet clef/valeur libre
+  extraConfigJson   String? // paramètres libres du fournisseur (opérations d'un generic-http...)
+  cachedModelsJson  String? // catalogue découvert ou saisi
+  enabled           Boolean           @default(true)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  guild             Guild             @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  routesAsPrimary   CapabilityRoute[] @relation("RoutePrimaryProvider")
+  routesAsFallback  CapabilityRoute[] @relation("RouteFallbackProvider")
+
+  @@unique([guildId, slug])
+  @@index([guildId, enabled])
+  @@map("guild_providers")
+}
+
+/// Associe une capacité du bot au modèle d'un fournisseur, pour un serveur.
+model CapabilityRoute {
+  id                 String         @id @default(cuid())
+  guildId            String
+  capability         String // chat.default, image.generate, music.generate, custom.*
+  providerId         String
+  modelId            String
+  fallbackProviderId String?
+  fallbackModelId    String?
+  paramsJson         String? // surcharge libre de paramètres par capacité
+  enabled            Boolean        @default(true)
+  updatedAt          DateTime       @updatedAt
+  guild              Guild          @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  provider           GuildProvider  @relation("RoutePrimaryProvider", fields: [providerId], references: [id], onDelete: Cascade)
+  fallbackProvider   GuildProvider? @relation("RouteFallbackProvider", fields: [fallbackProviderId], references: [id], onDelete: SetNull)
+
+  @@unique([guildId, capability])
+  @@index([guildId, enabled])
+  @@map("capability_routes")
+}
+
+/// Intégration d'un serveur : une API spécialisée (PixelLab...) avec sa clé à
+/// lui, chiffrée. Ce n'est pas un fournisseur de modèles IA : les routes de
+/// capacités (CapabilityRoute) ne pointent jamais ici. Sans ligne, l'intégration
+/// d'instance (IntegrationConfig) sert.
+model GuildIntegration {
+  id              String   @id @default(cuid())
+  guildId         String
+  slug            String // pixellab, kie... (catalogue en code)
+  enabled         Boolean  @default(true)
+  baseUrl         String? // vide : celui de l'instance
+  encryptedApiKey String? // CHIFFRÉE AES-256-GCM (v1:<iv>:<tag>:<data>)
+  configJson      String? // champs libres (modèle par défaut...)
+  updatedAt       DateTime @updatedAt
+  guild           Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, slug])
+  @@map("guild_integrations")
+}
+
+/// Connecteur HTTP sortant d'un serveur : un endpoint REST qu'un déclencheur
+/// ou une recette appelle (outil `webhook.call`). L'URL est publique et
+/// validée ; les en-têtes secrets sont chiffrés. Rien à voir avec un webhook
+/// Discord entrant.
+model WebhookEndpoint {
+  id                  String    @id @default(cuid())
+  guildId             String
+  slug                String // unique par serveur : lettres, chiffres, tirets
+  name                String
+  method              String    @default("POST") // GET, POST, PUT, PATCH, DELETE
+  url                 String // https uniquement, hôte public (assertProviderUrl puis safeFetch)
+  authType            String    @default("none") // none, bearer, header
+  authHeaderName      String? // pour authType « header » (X-Api-Key...)
+  encryptedHeaders    String? // CHIFFRÉS AES-256-GCM (v1:<iv>:<tag>:<data>) : en-têtes secrets
+  publicHeadersJson   String? // en-têtes non secrets (JSON)
+  requestTemplateJson String? // gabarit du corps : {{payload}} et {{payload.cle}}
+  responseExtractPath String? // chemin pointé de la réponse (« data.result »)
+  enabled             Boolean   @default(true)
+  lastHttpStatus      Int?
+  lastCheckedAt       DateTime?
+  lastError           String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  guild               Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, slug])
+  @@index([guildId])
+  @@map("webhook_endpoints")
+}
+
+/// Un appel au modèle servi à un serveur : jetons, modèle, durée, issue.
+/// Alimente la page Système du dashboard (jetons par fenêtre et par modèle).
+/// Sans clé étrangère vers le serveur : une ligne s'écrit sans rien relire.
+model LlmUsageRow {
+  id               String   @id @default(cuid())
+  guildId          String
+  requestId        String?
+  /// Raison de l'appel : reply, web, consolidation, triage, memory.ingestion, plan.summary.
+  cause            String
+  capability       String?
+  provider         String?
+  model            String?
+  /// Vrai quand un fournisseur de repli a servi l'appel.
+  fallback         Boolean  @default(false)
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  ms               Int      @default(0)
+  ok               Boolean  @default(true)
+  createdAt        DateTime @default(now())
+
+  @@index([guildId, createdAt])
+  @@map("llm_usage_rows")
+}
+
+// ── Journal des décisions de l'agent : une ligne par demande traitée par le modèle ──
+
+/// Ce que l'agent a fait d'une demande, et pourquoi : qui l'a émise, ce qui l'a
+/// fait classer action ou conversation, combien de tours, quelles étapes.
+/// Purge au bout de 14 jours (AgentDecisionJournal). Sans clé étrangère vers
+/// le serveur : une ligne s'écrit sans rien relire, et ne retient aucun
+/// contenu de message.
+model AgentDecision {
+  id               String   @id @default(cuid())
+  guildId          String
+  requestId        String
+  /// D'où vient la demande : discord ou web.
+  source           String
+  /// Identifiant Discord du demandeur.
+  actorId          String
+  channelId        String?
+  /// action ou conversation.
+  intent           String
+  /// Signal à l'origine de l'intention : skill, verb, tool, ou rien.
+  signal           String?
+  /// Ce que le signal a nommé (la recette, le verbe, l'outil), borné.
+  motif            String?
+  /// Le raisonnement a-t-il été demandé pour cette demande (décidé une fois, avant le premier tour).
+  reasoning        Boolean  @default(false)
+  /// Effort envoyé au modèle, quand l'endpoint l'accepte.
+  effort           String?
+  turns            Int      @default(0)
+  /// Nombre de tools exécutés.
+  tools            Int      @default(0)
+  /// Nombre de tools en échec.
+  failures         Int      @default(0)
+  /// replied, silent, cached, failed, ceiling, quota.
+  outcome          String
+  /// Étapes reçues de ctx.progress et résultats des tools (JSON borné).
+  stepsJson        String?
+  /// Nature de l'échec (jamais un contenu ni une clé), borné.
+  error            String?
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  durationMs       Int      @default(0)
+  createdAt        DateTime @default(now())
+
+  @@index([guildId, createdAt])
+  @@index([createdAt])
+  @@map("agent_decisions")
+}
+
+// ── Vie de serveur (birthdays, sticky, AFK, sanctions temporaires, activité) ──
+
+model MemberBirthday {
+  id      String @id @default(cuid())
+  guildId String
+  userId  String
+  date    String // 'MM-DD'
+  guild   Guild  @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, userId])
+  @@map("member_birthdays")
+}
+
+model StickyRole {
+  id      String @id @default(cuid())
+  guildId String
+  userId  String
+  roleId  String
+  guild   Guild  @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, userId, roleId])
+  @@map("sticky_roles")
+}
+
+model AfkStatus {
+  id      String   @id @default(cuid())
+  guildId String
+  userId  String
+  reason  String
+  since   DateTime @default(now())
+  guild   Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, userId])
+  @@map("afk_statuses")
+}
+
+model TempSanction {
+  id        String   @id @default(cuid())
+  guildId   String
+  userId    String
+  type      String // 'timeout' | 'role' | 'ban'
+  payload   String   @default("{}")
+  revokeAt  DateTime
+  done      Boolean  @default(false)
+  createdBy String
+  createdAt DateTime @default(now())
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@index([guildId, done])
+  @@map("temp_sanctions")
+}
+
+model MemberActivity {
+  id           String   @id @default(cuid())
+  guildId      String
+  userId       String
+  messages     Int      @default(0)
+  voiceMinutes Int      @default(0)
+  updatedAt    DateTime @updatedAt
+  guild        Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, userId])
+  @@map("member_activities")
+}
+
+// ── Permission nodes : override allow/deny par tool pour un rôle ou un membre ──
+
+model ToolNode {
+  id       String @id @default(cuid())
+  guildId  String
+  targetId String // ID de rôle OU de membre
+  tool     String
+  effect   String // 'allow' | 'deny'
+  guild    Guild  @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, targetId, tool])
+  @@map("tool_nodes")
+}
+
+// ── Jobs planifiés génériques (once / cron / interval) ──
+
+model ScheduledJob {
+  id              String    @id @default(cuid())
+  guildId         String
+  name            String
+  kind            String // 'once' | 'cron' | 'interval'
+  runAt           DateTime?
+  cron            String?
+  tz              String    @default("Europe/Paris")
+  intervalMinutes Int?
+  actions         String // JSON (même schéma d'actions que les automatisations)
+  enabled         Boolean   @default(true)
+  lastRunAt       DateTime?
+  lastError       String?
+  createdAt       DateTime  @default(now())
+  guild           Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, name])
+  @@index([guildId, enabled])
+  @@map("scheduled_jobs")
+}
+
+// ── Store générique typé : collections déclarées en code (registre Zod) ──
+
+model AgentRecord {
+  id         String   @id @default(cuid())
+  guildId    String
+  collection String
+  data       String // JSON validé par le registre Zod de la collection (versionné)
+  // Clics de composants (vote, record.write) : salon et message porteur,
+  // en colonnes pour un match EXACT (le contains sur data était ambigu).
+  channelId  String?
+  messageId  String?
+  createdBy  String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  guild      Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@index([guildId, collection, createdAt])
+  @@index([guildId, collection, messageId])
+  @@map("agent_records")
+}
+
+// ── Règles serveur (R0.4) : appliquées en code (gate, confirmer les actions) et en prompt ──
+
+model GuildRule {
+  guildId                   String   @id
+  freeCategoryIds           String   @default("[]") // JSON string[] : zone libre agents (réponse sans mention)
+  freeChannelIds            String   @default("[]") // JSON string[]
+  blockedChannelIds         String   @default("[]") // JSON string[] : MUET total, meme mention
+  strictMentionElsewhere    Boolean  @default(true) // hors zone libre : seule une vraie @mention/reply déclenche
+  seriousOnlyElsewhere      Boolean  @default(false) // hors zone libre : ton sérieux uniquement
+  confirmDestructiveActions Boolean  @default(false) // règle « Confirmer les actions (hors lecture) » : toute action qui modifie attend le clic du demandeur
+  customInstructions        String   @default("[]") // JSON string[] : règles libres des admins
+  updatedAt                 DateTime @updatedAt
+  guild                     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@map("guild_rules")
+}
+
+// ── Opt-out mémoire (R0.5) : le membre a demandé à être oublié ──
+
+model MemoryOptOut {
+  userId    String
+  createdAt DateTime @default(now())
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  guildId   String
+
+  @@id([userId, guildId])
+  @@map("memory_opt_outs")
+}
+
+// ── MOTEUR GÉNÉRIQUE (2.4) : surfaces interactives persistantes ──
+
+model InteractiveSurface {
+  id         String   @id @default(cuid())
+  guildId    String
+  channelId  String
+  messageId  String? // null jusqu'au premier rendu (et après suppression du message)
+  kind       String   @default("custom")
+  definition String // JSON SurfaceDefinition (schéma Zod partagé, re-rendu déterministe)
+  state      String   @default("{}") // JSON libre versionné (compteurs, propriétaire, grilles)
+  createdBy  String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  guild      Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, messageId])
+  @@index([guildId, kind])
+  @@map("interactive_surfaces")
+}
+
+model ScheduledTrigger {
+  id          String    @id @default(cuid())
+  guildId     String
+  surfaceId   String?
+  cancelKey   String? // clé d'annulation (trigger.cancelByKey), unique par serveur
+  kind        String // 'once' | 'cron' | 'interval'
+  runAt       DateTime?
+  cron        String?
+  intervalSec Int?
+  tz          String    @default("Europe/Paris")
+  condition   String? // JSON ConditionSpec évaluée À L'ÉCHÉANCE (pas avant)
+  steps       String // JSON ActionPipeline
+  status      String    @default("armed") // 'armed' | 'done' | 'cancelled'
+  lastRunAt   DateTime?
+  lastError   String?
+  createdAt   DateTime  @default(now())
+  guild       Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, cancelKey])
+  @@index([guildId, status, runAt])
+  @@map("scheduled_triggers")
+}
+
+model EventTrigger {
+  id        String   @id @default(cuid())
+  guildId   String
+  surfaceId String?
+  name      String
+  event     String // 'message.create' | 'message.delete' | 'reaction.add' | 'reaction.remove' | 'member.join' | 'member.leave' | 'member.update' | 'voice.update' | 'channel.create' | 'channel.delete'
+  filter    String   @default("{}") // JSON {channelId?, contains?, roleId?, hasAttachments?, minMentions?...}
+  condition String? // JSON ConditionSpec sur le contexte/état de la surface
+  steps     String // JSON ActionPipeline
+  enabled   Boolean  @default(true)
+  createdBy String
+  createdAt DateTime @default(now())
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@index([guildId, event, enabled])
+  @@map("event_triggers")
+}

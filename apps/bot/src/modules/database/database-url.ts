@@ -1,14 +1,19 @@
 import path from 'node:path';
+import { databaseProviderOf, isSqliteUrl } from './database-provider.ts';
 
 /*
  * ADRESSE DE LA BASE. Avec Prisma 7, l'adresse ne traverse plus le schéma :
  * la CLI la lit dans prisma.config.ts, et le client la reçoit par son
  * adaptateur de pilote. Les deux se servent de cette règle, la même.
  *
+ * Deux moteurs sont reconnus, et eux seuls (database-provider.ts) : un fichier
+ * SQLite (`file:`) et un serveur PostgreSQL (`postgresql://`). Une autre
+ * adresse est refusée, en nommant les formes attendues et jamais la valeur.
+ *
  * Une adresse SQLite relative (`file:./data/bot.db`) se résout depuis le
  * dossier du projet (apps/bot) : celui de prisma.config.ts, celui d'où le bot
  * est lancé. Jamais depuis l'endroit d'où une commande passe, ni depuis celui
- * du code compilé.
+ * du code compilé. Une adresse PostgreSQL passe telle quelle.
  *
  * Attention à l'ancienne valeur. Sous Prisma 6, le moteur résolvait l'adresse
  * depuis le dossier du schéma (apps/bot/prisma), et `file:../data/bot.db`
@@ -26,11 +31,6 @@ export function rawDatabaseUrlOf(raw: string | undefined): string {
   return raw?.trim() || DEFAULT_DATABASE_URL;
 }
 
-/** Vrai pour une adresse SQLite (un fichier), faux pour tout serveur. */
-export function isSqliteUrl(url: string): boolean {
-  return url.startsWith('file:');
-}
-
 /** Le chemin du fichier d'une adresse SQLite, barres obliques normales ; null pour un serveur. */
 export function sqliteFileOf(url: string): string | null {
   if (!isSqliteUrl(url)) return null;
@@ -44,12 +44,13 @@ export function sqliteFileOf(url: string): string | null {
 /**
  * L'adresse résolue : chemin absolu (barres obliques normales) pour une
  * adresse SQLite relative, depuis `projectDir` ; telle quelle pour un serveur
- * ou un fichier absolu.
+ * ou un fichier absolu. Lève pour une adresse d'un autre moteur.
  */
 export function databaseUrlOf(raw: string | undefined, projectDir: string = process.cwd()): string {
   const url = rawDatabaseUrlOf(raw);
+  if (databaseProviderOf(url) === 'postgresql') return url;
   const file = sqliteFileOf(url);
   if (file === null) return url;
-  if (path.isAbsolute(file)) return `file:${file}`;
-  return `file:${path.resolve(projectDir, file).split(path.sep).join('/')}`;
+  // Un fichier absolu est réécrit depuis son chemin : barres obliques, sans les barres de tête d'un lecteur.
+  return `file:${path.isAbsolute(file) ? file : path.resolve(projectDir, file).split(path.sep).join('/')}`;
 }

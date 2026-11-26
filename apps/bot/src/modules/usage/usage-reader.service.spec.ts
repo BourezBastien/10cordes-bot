@@ -3,21 +3,23 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Prisma } from '../../../generated/prisma/client.mts';
+import { PostgresDialect, SqlDialect, SqliteDialect } from '../database/sql-dialect';
 import { createDatabaseClient } from '../database/database-client';
+import { PrismaService } from '../database/prisma.service';
 import { UsageSummarySchema } from '@10cordes/shared';
 import { UsageReaderService } from './usage-reader.service';
-
-type PrismaClient = ReturnType<typeof createDatabaseClient>;
 
 /**
  * Lecture du journal des appels au modèle. Deux niveaux, parce que chacun
  * prouve ce que l'autre ne peut pas :
  * - sur un Prisma factice, l'horloge est fixée et le fuseau imposé : la
  *   fenêtre, l'axe des jours (jours sans appel à zéro, changement d'heure,
- *   jour local et non UTC), le tri et les totaux sont vérifiés à la valeur près ;
+ *   jour local et non UTC), le tri et les totaux sont vérifiés à la valeur près,
+ *   et le jour local du dialecte de chaque moteur est celui attendu ;
  * - sur une vraie base SQLite jetable (la table est celle de la migration),
- *   lue par le vrai client Prisma et son adaptateur : ce qui est compté est
- *   ce que la fenêtre contient vraiment.
+ *   lue par le vrai service et son adaptateur : ce qui est compté est ce que
+ *   la fenêtre contient vraiment. Sur un serveur PostgreSQL réel, les mêmes
+ *   assertions sont dans database.integration.spec.ts.
  */
 
 const GUILD = '1550000000000000001';
@@ -47,15 +49,29 @@ const line = (provider: string | null, model: string | null, promptTokens: bigin
   fallbacks: 0n,
 });
 
-/** Prisma factice : `$queryRaw` répond selon la requête (par modèle, ou par jour) et garde les appels. */
-function fakePrisma(answer: { models?: unknown[]; days?: unknown[] } = {}) {
+/** Un fragment SQL passé en valeur d'une requête (le jour local, écrit par le dialecte). */
+function isSqlFragment(value: unknown): value is Prisma.Sql {
+  return typeof value === 'object' && value !== null && 'sql' in value && 'strings' in value;
+}
+
+/**
+ * Prisma factice : `$queryRaw` répond selon la requête (par modèle, ou par jour) et garde les appels.
+ * Le texte d'un fragment passé en valeur est réintégré, pour que la requête se lise entière.
+ */
+function fakePrisma(answer: { models?: unknown[]; days?: unknown[] } = {}, dialect: SqlDialect = new SqliteDialect()) {
   const calls: Array<{ sql: string; values: unknown[] }> = [];
   const queryRaw = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
-    const sql = strings.join('?').replace(/\s+/gu, ' ');
+    const sql = strings
+      .reduce((text, part, index) => {
+        // Chaque valeur laisse un `?` à sa place ; un fragment Sql, son texte.
+        const hole = index >= values.length ? '' : isSqlFragment(values[index]) ? values[index].sql : '?';
+        return `${text}${part}${hole}`;
+      }, '')
+      .replace(/\s+/gu, ' ');
     calls.push({ sql, values });
-    return sql.includes('strftime') ? (answer.days ?? []) : (answer.models ?? []);
+    return sql.includes('GROUP BY "day"') ? (answer.days ?? []) : (answer.models ?? []);
   });
-  return { calls, prisma: { $queryRaw: queryRaw } };
+  return { calls, prisma: { $queryRaw: queryRaw, dialect } };
 }
 
 /** Jours calendaires de `first` à `last` compris (dates UTC : indépendant du fuseau de la machine). */
@@ -68,7 +84,7 @@ function calendarDays(first: string, last: string): string[] {
   return days;
 }
 
-/** Jour local d'un instant, `AAAA-MM-JJ` : ce que `strftime(..., 'localtime')` écrit de son côté, dans SQLite. */
+/** Jour local d'un instant, `AAAA-MM-JJ` : ce que la base écrit de son côté (le jour du dialecte du moteur). */
 function localDay(time: number): string {
   const date = new Date(time);
   return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
@@ -101,10 +117,28 @@ describe('UsageReaderService · fenêtre, agrégats et axe des jours', () => {
     const { prisma, calls } = fakePrisma();
     await new UsageReaderService(prisma as never).summary(GUILD, window);
     expect(calls).toHaveLength(2);
-    for (const { sql, values } of calls) {
-      expect(values).toEqual([GUILD, NOW - hours]);
+    // La borne est une Date, jamais un nombre : c'est ce que les deux moteurs comparent à leur colonne de date.
+    const since = new Date(NOW - hours);
+    const byModel = calls.find((call) => call.sql.includes('GROUP BY "provider", "model"'));
+    const byDay = calls.find((call) => call.sql.includes('GROUP BY "day"'));
+    expect(byModel?.values).toEqual([GUILD, since]);
+    expect(byDay?.values).toEqual([expect.anything(), GUILD, since]);
+    for (const { sql } of calls) {
       expect(sql).toContain('FROM "llm_usage_rows" WHERE "guildId" = ? AND "createdAt" >= ?');
     }
+    // Sous SQLite, le jour local vient de strftime sur des millisecondes.
+    expect(byDay?.sql).toContain(`strftime('%Y-%m-%d', "createdAt" / 1000, 'unixepoch', 'localtime') AS "day"`);
+  });
+
+  it('sous PostgreSQL, le jour local vient de date_trunc dans le fuseau du processus, le fuseau lié en paramètre', async () => {
+    vi.stubEnv('TZ', 'Europe/Paris');
+    vi.useFakeTimers({ toFake: ['Date'], now: NOW });
+    const { prisma, calls } = fakePrisma({}, new PostgresDialect());
+    await new UsageReaderService(prisma as never).summary(GUILD, '7d');
+    const byDay = calls.find((call) => call.sql.includes('GROUP BY "day"'));
+    expect(byDay?.sql).toContain(`to_char(date_trunc('day', "createdAt" AT TIME ZONE ?), 'YYYY-MM-DD') AS "day"`);
+    expect(byDay?.values[0]).toMatchObject({ values: ['Europe/Paris'] });
+    expect(byDay?.values.slice(1)).toEqual([GUILD, new Date(NOW - 7 * DAY)]);
   });
 
   it('totalise TOUTES les lignes, garde les 25 modèles les plus gourmands, à égalité par fournisseur puis modèle', async () => {
@@ -186,11 +220,19 @@ describe('UsageReaderService · fenêtre, agrégats et axe des jours', () => {
   });
 });
 
-/** Base SQLite jetable, hors du dépôt : sa table est celle de la migration, jamais celle de la base du bot. */
-async function disposableDatabase(): Promise<{ prisma: PrismaClient; close: () => Promise<void> }> {
+/**
+ * Base SQLite jetable, hors du dépôt : sa table est celle de la migration,
+ * jamais celle de la base du bot. Le service est le vrai (client de son moteur,
+ * dialecte, connexion au boot).
+ */
+async function disposableDatabase(): Promise<{ prisma: PrismaService; close: () => Promise<void> }> {
   const dir = mkdtempSync(join(tmpdir(), '10cordes-usage-'));
-  const prisma = createDatabaseClient(`file:${join(dir, 'usage.db')}`);
-  await prisma.$executeRawUnsafe(readFileSync(new URL('../../../prisma/migrations/20261125090000_llm_usage_rows/migration.sql', import.meta.url), 'utf8'));
+  const url = `file:${join(dir, 'usage.db')}`;
+  const schema = createDatabaseClient(url);
+  await schema.$executeRawUnsafe(readFileSync(new URL('../../../prisma/migrations-sqlite/20261125090000_llm_usage_rows/migration.sql', import.meta.url), 'utf8'));
+  await schema.$disconnect();
+  const prisma = new PrismaService({ DATABASE_URL: url } as never);
+  await prisma.onBoot();
   return {
     prisma,
     // Sous Windows, le pilote libsql garde le fichier un certain temps après la
@@ -243,7 +285,7 @@ describe('UsageReaderService · sur une base SQLite réelle', () => {
           call(HOUR, { guildId: OTHER_GUILD, promptTokens: 50_000 }),
         ],
       });
-      const reader = new UsageReaderService(db.prisma as never);
+      const reader = new UsageReaderService(db.prisma);
       const byModel = [
         { provider: 'deepseek-official', model: 'deepseek-flash', turns: 1, promptTokens: 100, completionTokens: 50, errors: 0, fallbacks: 0 },
         { provider: 'kie-ai', model: 'kimi-k2.5', turns: 1, promptTokens: 100, completionTokens: 50, errors: 1, fallbacks: 1 },

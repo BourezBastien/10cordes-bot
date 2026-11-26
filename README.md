@@ -68,7 +68,7 @@ pnpm start        # production run (from apps/bot)
 | `PIXELLAB_API_KEY` | no | (none) | PixelLab key (pixel art). Read ONCE, to fill an empty database (import only) |
 | `LLM_EFFORT` | no | empty | Reasoning effort: low/medium/high |
 | `ENCRYPTION_SECRET` | no | derived | AES-256-GCM key for DB secrets |
-| `DATABASE_URL` | no | `file:./data/bot.db` | SQLite file, relative to `apps/bot` (the bot refuses to start on a file that does not exist: `pnpm exec prisma migrate deploy` creates it). PostgreSQL is the next step |
+| `DATABASE_URL` | no | `file:./data/bot.db` | `file:<path>` (SQLite, relative to `apps/bot`) or `postgresql://...` (PostgreSQL 16, the target). The bot refuses to start on a base without its tables and names it. Anything else is refused |
 | `REDIS_URL` | no | empty (= memory) | Queue + cache. `redis://redis:6379` in prod |
 | `PORT` | no | `3000` | HTTP server port |
 | `HTTP_HOST` | no | `127.0.0.1` | Bind address. `0.0.0.0` in Docker |
@@ -88,6 +88,24 @@ pnpm start        # production run (from apps/bot)
 3. **Per server**: ask for the "fournisseurs et modèles" panel in Discord, or say "ajoute OpenRouter, et utilise tel modèle pour la musique". Each server starts with a copy of the instance (its AI provider and kie.ai: conversation, image and music routes) and follows the instance when it changes. A provider or a route you created yourself is never touched, and on a copy a model you changed is kept.
 
 **AI providers vs integrations**: a provider is a models API routed by capability (DeepSeek, OpenRouter, kie.ai...). An integration is a specialized API with its own tools: PixelLab (pixel art, `image.icon` / `image.emoji`). Images that are not pixel art go through the `image.generate` route with `generateImage`, whatever the provider bound to it. A family the provider catalog does not declare (voice, video on kie.ai today) stays "non routée" until an administrator binds it.
+
+## Database: PostgreSQL, and the SQLite migration
+
+PostgreSQL 16 is the target (`prisma/schema.prisma`, every date a `Timestamptz(3)`). An existing SQLite base keeps working from the same code: the engine is read from `DATABASE_URL`, and the bot is built with one generated Prisma client per engine. `prisma/schema.sqlite.prisma` is derived from the PostgreSQL schema by a script and never edited by hand (`pnpm check:sqlite-schema`, part of `pnpm verify`, refuses a divergence).
+
+```bash
+pnpm --filter 10cordes-bot db:generate   # both clients (also run by install, dev, build, typecheck, test)
+pnpm --filter 10cordes-bot db:deploy     # prisma migrate deploy, for the engine of DATABASE_URL
+```
+
+Moving an SQLite base to PostgreSQL is one command, to run with the bot stopped. It applies the target's migrations, controls the whole source before the first write, copies by batches (the referenced tables first), then rereads both bases and compares every row and every column. Encrypted secrets are copied as they are and compared byte for byte. A relaunch writes nothing, and nothing is ever printed from a row:
+
+```bash
+node apps/bot/scripts/migrate-sqlite-to-pg.mjs --source file:./data/bot.db --target postgresql://user:password@host:5432/bot --dry-run
+node apps/bot/scripts/migrate-sqlite-to-pg.mjs --source file:./data/bot.db --target postgresql://user:password@host:5432/bot
+```
+
+The address of the target can also come from `TARGET_DATABASE_URL` in the environment (the script never displays its password). Switching the bot is then a change of `DATABASE_URL` alone: keep `ENCRYPTION_SECRET` or `BETTER_AUTH_SECRET`, the copied secrets are decrypted by the same key.
 
 ## Architecture
 
@@ -151,10 +169,17 @@ The table `agent_decisions` holds one row per request the model handles, on Disc
 
 ```bash
 pnpm test            # every workspace; packages/shared is measured and fails under 80 % coverage
-pnpm verify          # lint, typecheck, tests, build, module and tool registries, architecture audit
+pnpm verify          # lint, typecheck, tests, build, module and tool registries, derived schema, architecture audit
 ```
 
 CI runs `verify`, then two more jobs: `secrets` scans the whole git history with gitleaks (pinned binary, digest checked, redacted report), and `dependencies` refuses a Dependabot pull request that touches `pnpm-workspace.yaml`, the supply-chain policy. Dependabot opens grouped minor and patch updates once a week on `develop`.
+
+`database.integration.spec.ts` runs the same assertions on a throwaway SQLite base (always) and on a real PostgreSQL base. For the second one, give a TEST database (the suite empties it, and refuses a base whose name does not say test or sandbox):
+
+```bash
+DATABASE_URL=postgresql://user:password@host:5432/bot_test pnpm --filter 10cordes-bot db:deploy
+TEST_DATABASE_URL=postgresql://user:password@host:5432/bot_test pnpm --filter 10cordes-bot exec vitest run database.integration
+```
 
 ```bash
 node scripts/diagnose.mjs        # Today's summary: top errors, LLM p95, slowest tools

@@ -8,21 +8,24 @@
     "node": "^22.23.4 || ^24.22.1 || ^26.12.1"
   },
   "scripts": {
-    "postinstall": "prisma generate",
-    "dev": "pnpm --filter @10cordes/shared build && prisma generate && spraxium dev",
-    "build": "pnpm --filter @10cordes/shared build && prisma generate && spraxium build && node ../../scripts/copy-config.mjs",
+    "postinstall": "pnpm run db:generate",
+    "dev": "pnpm --filter @10cordes/shared build && pnpm run db:generate && spraxium dev",
+    "build": "pnpm --filter @10cordes/shared build && pnpm run db:generate && spraxium build && node ../../scripts/copy-config.mjs",
     "start": "spraxium start",
-    "typecheck": "pnpm --filter @10cordes/shared build && prisma generate && tsc --noEmit",
-    "test": "prisma generate && vitest run --passWithNoTests",
-    "db:generate": "prisma generate",
-    "db:deploy": "prisma migrate deploy",
-    "db:status": "prisma migrate status"
+    "typecheck": "pnpm --filter @10cordes/shared build && pnpm run db:generate && tsc --noEmit",
+    "test": "pnpm run db:generate && vitest run --passWithNoTests",
+    "db:generate": "prisma generate && prisma generate --schema prisma/schema.sqlite.prisma",
+    "db:schema:sqlite": "node scripts/build-sqlite-schema.mjs && pnpm run db:generate",
+    "check:sqlite-schema": "node scripts/build-sqlite-schema.mjs --check",
+    "db:deploy": "node scripts/prisma-cli.mjs migrate deploy",
+    "db:status": "node scripts/prisma-cli.mjs migrate status"
   },
   "dependencies": {
     "@10cordes/shared": "workspace:*",
     "@discordjs/voice": "^0.19.2",
     "@napi-rs/canvas": "^1.2.0",
     "@prisma/adapter-libsql": "7.10.1",
+    "@prisma/adapter-pg": "7.10.1",
     "@prisma/client": "7.10.1",
     "@spraxium/common": "^0.9.0",
     "@spraxium/components": "^0.9.0",

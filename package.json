@@ -14,8 +14,9 @@
     "lint:fix": "pnpm --filter @10cordes/shared build && eslint . --fix && eslint --config eslint.ts.config.mjs apps packages --fix",
     "check:modules": "node scripts/check-modules.mjs",
     "check:tools": "node apps/bot/scripts/sync-tool-names.mjs --check",
+    "check:sqlite-schema": "node apps/bot/scripts/build-sqlite-schema.mjs --check",
     "arch:audit": "node apps/bot/scripts/arch-audit.mjs",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm check:modules && pnpm check:tools && pnpm arch:audit"
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm check:modules && pnpm check:tools && pnpm check:sqlite-schema && pnpm arch:audit"
   },
   "devDependencies": {
     "@bluzzi/eslint-config": "^2.4.2",

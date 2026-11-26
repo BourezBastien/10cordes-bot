@@ -122,6 +122,13 @@ describe('getAuth', () => {
     expect(lastOptions().trustedOrigins).toEqual([]);
   });
 
+  it('l’adaptateur de base reçoit le moteur de l’adresse : SQLite sur un fichier, PostgreSQL sur un serveur', async () => {
+    (await fresh()).getAuth(CONFIGURED as never);
+    expect(mocks.prismaAdapter).toHaveBeenLastCalledWith(expect.anything(), { provider: 'sqlite' });
+    (await fresh()).getAuth({ ...CONFIGURED, DATABASE_URL: 'postgresql://u:p@db:5432/bot' } as never);
+    expect(mocks.prismaAdapter).toHaveBeenLastCalledWith(expect.anything(), { provider: 'postgresql' });
+  });
+
   it('le périmètre OAuth est réduit à l’identité, et aucun mot de passe n’est accepté', async () => {
     const { getAuth } = await fresh();
     getAuth(CONFIGURED as never);

@@ -189,12 +189,21 @@ describe('démarrage', () => {
     expect(main.indexOf('EnvValidator.validate(AppEnv)')).toBeGreaterThan(load);
   });
 
-  it('la CLI Prisma applique la même règle, avant de lire l’adresse de la base ; et le chargeur du framework n’est jamais appelé sans chemin', () => {
-    const config = textOf('../prisma.config.ts');
+  it.each(['../prisma.config.ts', '../prisma.config.sqlite.ts'])('la CLI Prisma (%s) applique la même règle, avant de lire l’adresse de la base ; et le chargeur du framework n’est jamais appelé sans chemin', (configPath) => {
+    const config = textOf(configPath);
     const load = config.indexOf('loadEnvFiles();');
     expect(load).toBeGreaterThan(-1);
     expect(config.indexOf('process.env.DATABASE_URL')).toBeGreaterThan(load);
     // Sans chemin, `loadEnv` ne lit que le premier fichier trouvé : `.env` serait ignoré.
     expect(textOf('./env-files.ts')).not.toMatch(/loadEnv\(\)/u);
+  });
+
+  it('le lanceur de la CLI charge les fichiers d’environnement avant de lire le moteur de l’adresse', () => {
+    const launcher = textOf('../scripts/prisma-cli.mjs');
+    const load = launcher.indexOf('loadEnvFiles(');
+    expect(load).toBeGreaterThan(-1);
+    expect(launcher.indexOf('databaseProviderOf(process.env.DATABASE_URL)')).toBeGreaterThan(load);
+    // Le lancement effectif vient après : la CLI lit elle-même l'adresse, par sa configuration.
+    expect(launcher.indexOf('spawnSync(')).toBeGreaterThan(load);
   });
 });

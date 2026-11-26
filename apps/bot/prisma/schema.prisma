@@ -14,6 +14,13 @@
 // généré (accessToken, refreshToken...) bloquaient tout commit, le 25/11/2026.
 // L'URL de la base n'est plus ici : elle vit dans prisma.config.ts (CLI) et
 // dans PrismaService (adapteur de pilote au démarrage).
+//
+// PostgreSQL 16 est LA cible (26/11/2026). Toute date est un Timestamptz(3) :
+// un instant absolu, à la milliseconde, insensible au fuseau du serveur ; c'est
+// aussi le type que TimescaleDB attend de ses hypertables.
+// prisma/schema.sqlite.prisma est DÉRIVÉ de ce fichier (scripts/build-sqlite-schema.mjs),
+// le temps de la migration des bases : même schéma, un client généré par moteur.
+// Ce fichier reste l'unique source de vérité : on ne modifie jamais le dérivé.
 generator client {
   provider               = "prisma-client"
   output                 = "../generated/prisma"
@@ -24,14 +31,14 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
 model Guild {
   id                   String                @id
   settings             String                @default("{}")
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  createdAt            DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime              @updatedAt @db.Timestamptz(3)
   guildModuleStates    GuildModuleState[]
   auditLogs            AuditLog[]
   modCases             ModCase[]
@@ -87,8 +94,8 @@ model User {
   email         String    @unique
   emailVerified Boolean   @default(false)
   image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
   sessions      Session[]
   accounts      Account[]
 
@@ -97,10 +104,10 @@ model User {
 
 model Session {
   id        String   @id
-  expiresAt DateTime
+  expiresAt DateTime @db.Timestamptz(3)
   token     String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
   ipAddress String?
   userAgent String?
   userId    String
@@ -117,12 +124,12 @@ model Account {
   accessToken           String?
   refreshToken          String?
   idToken               String?
-  accessTokenExpiresAt  DateTime?
-  refreshTokenExpiresAt DateTime?
+  accessTokenExpiresAt  DateTime? @db.Timestamptz(3)
+  refreshTokenExpiresAt DateTime? @db.Timestamptz(3)
   scope                 String?
   password              String?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @db.Timestamptz(3)
   user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("account")
@@ -132,9 +139,9 @@ model Verification {
   id         String   @id
   identifier String
   value      String
-  expiresAt  DateTime
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  expiresAt  DateTime @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
 
   @@map("verification")
 }
@@ -149,7 +156,7 @@ model AuditLog {
   actorId   String?
   targetId  String?
   metadata  String   @default("{}")
-  createdAt DateTime @default(now())
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
   guild     Guild?   @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@index([guildId, createdAt])
@@ -176,7 +183,7 @@ model ModCase {
   action      String
   reason      String?
   durationMs  Int?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
   guild       Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@unique([guildId, caseId])
@@ -190,7 +197,7 @@ model RoleBackup {
   userId    String
   roleIds   String
   createdBy String
-  createdAt DateTime @default(now())
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
   guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@index([guildId, userId])
@@ -206,8 +213,8 @@ model AgentSkill {
   rule            String
   createdByUserId String
   usageCount      Int       @default(0)
-  createdAt       DateTime  @default(now())
-  deletedAt       DateTime?
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+  deletedAt       DateTime? @db.Timestamptz(3)
   guild           Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@index([guildId, deletedAt])
@@ -225,7 +232,7 @@ model AgentAutomation {
   actions         String   @default("[]") // JSON: [{ type, params }]
   enabled         Boolean  @default(true)
   createdByUserId String
-  createdAt       DateTime @default(now())
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
   guild           Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@index([guildId, enabled])
@@ -237,7 +244,7 @@ model AgentAutomation {
 model ChannelWatermark {
   channelId     String   @id
   lastMessageId String
-  updatedAt     DateTime @updatedAt
+  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
 
   @@map("channel_watermarks")
 }
@@ -252,7 +259,7 @@ model IntegrationConfig {
   baseUrl   String   @default("")
   apiKey    String // CHIFFRÉE AES-256-GCM (v1:<iv>:<tag>:<data>)
   model     String   @default("")
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 }
 
 // ── Mémoire persistante de l'agent IA (append-only) ─────────
@@ -262,9 +269,9 @@ model GuildMemory {
   guildId      String
   kind         String    @default("fact") // fact | rule | presentation | preference
   content      String
-  createdAt    DateTime  @default(now())
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
   /// Quand une correction a périmé cette entrée : elle reste (traçabilité) mais n'est plus lue ni injectée.
-  supersededAt DateTime?
+  supersededAt DateTime? @db.Timestamptz(3)
   guild        Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@index([guildId])
@@ -277,9 +284,9 @@ model MemberMemory {
   userId       String
   kind         String    @default("fact") // fact | preference | note
   content      String
-  createdAt    DateTime  @default(now())
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
   /// Quand une correction a périmé cette entrée : elle reste (traçabilité) mais n'est plus lue ni injectée.
-  supersededAt DateTime?
+  supersededAt DateTime? @db.Timestamptz(3)
   guild        Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@index([guildId, userId])
@@ -292,7 +299,7 @@ model MemberMemoryProfile {
   guildId   String
   userId    String
   text      String   @default("")
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
   guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@id([guildId, userId])
@@ -302,7 +309,7 @@ model MemberMemoryProfile {
 model GuildMemoryProfile {
   guildId   String   @id
   text      String   @default("")
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
   guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@map("guild_memory_profiles")
@@ -326,9 +333,9 @@ model MemoryCorrection {
   newFact      String
   /// Identifiant Discord de qui a demandé la correction.
   createdBy    String
-  createdAt    DateTime  @default(now())
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
   /// Quand une correction plus récente a remplacé celle-ci.
-  supersededAt DateTime?
+  supersededAt DateTime? @db.Timestamptz(3)
   guild        Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@index([guildId, userId])
@@ -345,7 +352,7 @@ model IngestionCursor {
   lastMessageId String? // null = salon terminé
   status        String   @default("running") // running | done | error
   errorMessage  String?
-  updatedAt     DateTime @updatedAt
+  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
   guild         Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@unique([guildId, channelId])
@@ -358,7 +365,7 @@ model GuildAgentSettings {
   guildId        String   @id
   thinkingMode   String   @default("adaptive") // adaptive | always | off
   configThreadId String? // fil privé ⚙️┃config-bot
-  updatedAt      DateTime @updatedAt
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
   guild          Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@map("guild_agent_settings")
@@ -368,22 +375,22 @@ model GuildAgentSettings {
 
 /// Un fournisseur IA connecté par un serveur (API, clé chiffrée, catalogue).
 model GuildProvider {
-  id                String   @id @default(cuid())
+  id                String            @id @default(cuid())
   guildId           String
   slug              String // stable et lisible (deepseek-official, kie-ai, openrouter...)
   displayName       String
   protocol          String // openai-chat | anthropic-messages | kie-unified | generic-http
   baseUrl           String
-  authType          String   @default("bearer") // bearer | header | query | none
+  authType          String            @default("bearer") // bearer | header | query | none
   authHeaderName    String? // ex : Authorization, X-API-Key
   encryptedApiKey   String? // CHIFFRÉE AES-256-GCM (v1:<iv>:<tag>:<data>)
   customHeadersJson String? // objet clef/valeur libre
   extraConfigJson   String? // paramètres libres du fournisseur (opérations d'un generic-http...)
   cachedModelsJson  String? // catalogue découvert ou saisi
-  enabled           Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  guild             Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  enabled           Boolean           @default(true)
+  createdAt         DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @db.Timestamptz(3)
+  guild             Guild             @relation(fields: [guildId], references: [id], onDelete: Cascade)
   routesAsPrimary   CapabilityRoute[] @relation("RoutePrimaryProvider")
   routesAsFallback  CapabilityRoute[] @relation("RouteFallbackProvider")
 
@@ -394,7 +401,7 @@ model GuildProvider {
 
 /// Associe une capacité du bot au modèle d'un fournisseur, pour un serveur.
 model CapabilityRoute {
-  id                 String   @id @default(cuid())
+  id                 String         @id @default(cuid())
   guildId            String
   capability         String // chat.default, image.generate, music.generate, custom.*
   providerId         String
@@ -402,10 +409,10 @@ model CapabilityRoute {
   fallbackProviderId String?
   fallbackModelId    String?
   paramsJson         String? // surcharge libre de paramètres par capacité
-  enabled            Boolean  @default(true)
-  updatedAt          DateTime @updatedAt
-  guild              Guild        @relation(fields: [guildId], references: [id], onDelete: Cascade)
-  provider           GuildProvider @relation("RoutePrimaryProvider", fields: [providerId], references: [id], onDelete: Cascade)
+  enabled            Boolean        @default(true)
+  updatedAt          DateTime       @updatedAt @db.Timestamptz(3)
+  guild              Guild          @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  provider           GuildProvider  @relation("RoutePrimaryProvider", fields: [providerId], references: [id], onDelete: Cascade)
   fallbackProvider   GuildProvider? @relation("RouteFallbackProvider", fields: [fallbackProviderId], references: [id], onDelete: SetNull)
 
   @@unique([guildId, capability])
@@ -425,7 +432,7 @@ model GuildIntegration {
   baseUrl         String? // vide : celui de l'instance
   encryptedApiKey String? // CHIFFRÉE AES-256-GCM (v1:<iv>:<tag>:<data>)
   configJson      String? // champs libres (modèle par défaut...)
-  updatedAt       DateTime @updatedAt
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
   guild           Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@unique([guildId, slug])
@@ -450,11 +457,11 @@ model WebhookEndpoint {
   requestTemplateJson String? // gabarit du corps : {{payload}} et {{payload.cle}}
   responseExtractPath String? // chemin pointé de la réponse (« data.result »)
   enabled             Boolean   @default(true)
-  lastHttpStatus     Int?
-  lastCheckedAt       DateTime?
-  lastError          String?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  lastHttpStatus      Int?
+  lastCheckedAt       DateTime? @db.Timestamptz(3)
+  lastError           String?
+  createdAt           DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime  @updatedAt @db.Timestamptz(3)
   guild               Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@unique([guildId, slug])
@@ -480,7 +487,7 @@ model LlmUsageRow {
   completionTokens Int      @default(0)
   ms               Int      @default(0)
   ok               Boolean  @default(true)
-  createdAt        DateTime @default(now())
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([guildId, createdAt])
   @@map("llm_usage_rows")
@@ -526,7 +533,7 @@ model AgentDecision {
   promptTokens     Int      @default(0)
   completionTokens Int      @default(0)
   durationMs       Int      @default(0)
-  createdAt        DateTime @default(now())
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([guildId, createdAt])
   @@index([createdAt])
@@ -562,7 +569,7 @@ model AfkStatus {
   guildId String
   userId  String
   reason  String
-  since   DateTime @default(now())
+  since   DateTime @default(now()) @db.Timestamptz(3)
   guild   Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@unique([guildId, userId])
@@ -575,10 +582,10 @@ model TempSanction {
   userId    String
   type      String // 'timeout' | 'role' | 'ban'
   payload   String   @default("{}")
-  revokeAt  DateTime
+  revokeAt  DateTime @db.Timestamptz(3)
   done      Boolean  @default(false)
   createdBy String
-  createdAt DateTime @default(now())
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
   guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@index([guildId, done])
@@ -591,7 +598,7 @@ model MemberActivity {
   userId       String
   messages     Int      @default(0)
   voiceMinutes Int      @default(0)
-  updatedAt    DateTime @updatedAt
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
   guild        Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@unique([guildId, userId])
@@ -619,15 +626,15 @@ model ScheduledJob {
   guildId         String
   name            String
   kind            String // 'once' | 'cron' | 'interval'
-  runAt           DateTime?
+  runAt           DateTime? @db.Timestamptz(3)
   cron            String?
   tz              String    @default("Europe/Paris")
   intervalMinutes Int?
   actions         String // JSON (même schéma d'actions que les automatisations)
   enabled         Boolean   @default(true)
-  lastRunAt       DateTime?
+  lastRunAt       DateTime? @db.Timestamptz(3)
   lastError       String?
-  createdAt       DateTime  @default(now())
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
   guild           Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@unique([guildId, name])
@@ -647,8 +654,8 @@ model AgentRecord {
   channelId  String?
   messageId  String?
   createdBy  String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
   guild      Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@index([guildId, collection, createdAt])
@@ -667,7 +674,7 @@ model GuildRule {
   seriousOnlyElsewhere      Boolean  @default(false) // hors zone libre : ton sérieux uniquement
   confirmDestructiveActions Boolean  @default(false) // règle « Confirmer les actions (hors lecture) » : toute action qui modifie attend le clic du demandeur
   customInstructions        String   @default("[]") // JSON string[] : règles libres des admins
-  updatedAt                 DateTime @updatedAt
+  updatedAt                 DateTime @updatedAt @db.Timestamptz(3)
   guild                     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@map("guild_rules")
@@ -677,7 +684,7 @@ model GuildRule {
 
 model MemoryOptOut {
   userId    String
-  createdAt DateTime @default(now())
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
   guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
   guildId   String
 
@@ -696,8 +703,8 @@ model InteractiveSurface {
   definition String // JSON SurfaceDefinition (schéma Zod partagé, re-rendu déterministe)
   state      String   @default("{}") // JSON libre versionné (compteurs, propriétaire, grilles)
   createdBy  String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
   guild      Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@unique([guildId, messageId])
@@ -711,16 +718,16 @@ model ScheduledTrigger {
   surfaceId   String?
   cancelKey   String? // clé d'annulation (trigger.cancelByKey), unique par serveur
   kind        String // 'once' | 'cron' | 'interval'
-  runAt       DateTime?
+  runAt       DateTime? @db.Timestamptz(3)
   cron        String?
   intervalSec Int?
   tz          String    @default("Europe/Paris")
   condition   String? // JSON ConditionSpec évaluée À L'ÉCHÉANCE (pas avant)
   steps       String // JSON ActionPipeline
   status      String    @default("armed") // 'armed' | 'done' | 'cancelled'
-  lastRunAt   DateTime?
+  lastRunAt   DateTime? @db.Timestamptz(3)
   lastError   String?
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
   guild       Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@unique([guildId, cancelKey])
@@ -739,7 +746,7 @@ model EventTrigger {
   steps     String // JSON ActionPipeline
   enabled   Boolean  @default(true)
   createdBy String
-  createdAt DateTime @default(now())
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
   guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@index([guildId, event, enabled])

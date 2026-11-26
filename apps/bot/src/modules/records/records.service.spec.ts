@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { PostgresDialect, SqlDialect, SqliteDialect } from '../database/sql-dialect';
 import { RecordsService } from './records.service';
 import { buildRecordTools } from './records.tools';
 import type { ToolRunContext } from '@10cordes/shared';
@@ -76,8 +77,9 @@ function makePrisma() {
 
 type FakePrisma = ReturnType<typeof makePrisma>;
 
-const makeService = () => {
-  const prisma = makePrisma();
+/** Un faux par moteur : le filtre de recherche que le service écrit est celui du dialecte. */
+const makeService = (dialect: SqlDialect = new SqliteDialect()) => {
+  const prisma = { ...makePrisma(), dialect };
   return { prisma, service: new RecordsService(prisma as never) };
 };
 
@@ -258,5 +260,17 @@ describe('RecordsService · vue des collections et tools', () => {
     expect((await service.remove(GUILD, recordId)).ok).toBe(true);
     expect((await service.get(GUILD, recordId)).ok).toBe(false);
     expect((await service.get('1550000000000000009', recordId)).ok).toBe(false);
+  });
+
+  it.each([
+    ['SQLite', new SqliteDialect(), { contains: 'E2E' }],
+    ['PostgreSQL', new PostgresDialect(), { contains: 'E2E', mode: 'insensitive' }],
+  ] as const)('sur %s, la recherche écrit le filtre qui ignore la casse', async (_engine, dialect, filter) => {
+    const { prisma, service } = makeService(dialect);
+    await service.create(GUILD, USER, 'quotes', { text: 'Citation e2e', author: 'quelqu\u0027un' });
+    await service.search(GUILD, 'quotes', 'E2E');
+    // Le LIKE de SQLite ignore la casse de lui-même ; PostgreSQL ne l'ignore qu'avec `mode`, que SQLite refuse.
+    const written = prisma.agentRecord.findMany.mock.calls.at(-1)?.[0];
+    expect(written?.where).toEqual({ guildId: GUILD, collection: 'quotes', data: filter });
   });
 });
